@@ -28,7 +28,6 @@ MANIFEST
 
 # UV / venv
 .venv/
-uv.lock
 
 # PyInstaller
 *.manifest
