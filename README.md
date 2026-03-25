@@ -206,13 +206,23 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 
 ## Instalação
 
-### Método 1: Instalador Windows (Recomendado para Usuários)
+### Método 1: Instalador Windows (Recomendado para Usuários Windows)
 
 1. Baixe `Instalador_CartoMet_BR_v2.1.exe` na seção [Releases](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest)
 2. Execute o instalador e siga as instruções
 3. Abra o CartoMet BR pelo atalho no Menu Iniciar ou Desktop
 
-### Método 2: Código-Fonte (Desenvolvedores)
+### Método 2: Código-Fonte — Windows, Linux e macOS
+
+#### Pré-requisitos
+
+| Dependência | Por quê |
+|-------------|---------|
+| **Python 3.12+** | Linguagem do projeto |
+| **Git** | Para clonar o repositório |
+| **GEOS / PROJ / eccodes** | Bibliotecas C exigidas pelo Cartopy e cfgrib (veja abaixo) |
+
+#### Windows
 
 ```bash
 # Clone o repositório
@@ -228,8 +238,87 @@ uv run python -m cartomet_br gui
 
 ```bash
 # Alternativa com pip
-pip install -e ".[gui]"
+pip install -e .
 python -m cartomet_br gui
+```
+
+> **Nota:** No Windows, o `pip install` geralmente resolve GEOS/PROJ/eccodes automaticamente via wheels pré-compilados.
+
+#### Linux (Ubuntu/Debian)
+
+```bash
+# 1. Instale as dependências de sistema
+sudo apt update
+sudo apt install -y python3.12 python3.12-venv python3-pip \
+    libgeos-dev libproj-dev proj-data \
+    libeccodes-dev libeccodes-tools \
+    libgl1-mesa-glx libegl1
+
+# 2. Clone e instale
+git clone https://github.com/ElivaldoRocha/CartoMet_BR.git
+cd CartoMet_BR
+
+python3.12 -m venv .venv
+source .venv/bin/activate
+
+pip install -e .
+
+# 3. Execute
+python -m cartomet_br gui
+```
+
+<details>
+<summary><strong>Fedora / RHEL / CentOS</strong></summary>
+
+```bash
+sudo dnf install -y python3.12 python3-pip \
+    geos-devel proj-devel eccodes-devel \
+    mesa-libGL mesa-libEGL
+```
+
+</details>
+
+<details>
+<summary><strong>Arch Linux</strong></summary>
+
+```bash
+sudo pacman -S python python-pip geos proj eccodes mesa
+```
+
+</details>
+
+> **Nota:** O PyQt6 no Linux requer `libEGL`. Se a GUI não abrir, instale `libegl1` (Debian) ou `mesa-libEGL` (Fedora).
+
+#### macOS
+
+```bash
+# 1. Instale as dependências com Homebrew
+brew install python@3.12 geos proj eccodes
+
+# 2. Clone e instale
+git clone https://github.com/ElivaldoRocha/CartoMet_BR.git
+cd CartoMet_BR
+
+python3.12 -m venv .venv
+source .venv/bin/activate
+
+pip install -e .
+
+# 3. Execute
+python -m cartomet_br gui
+```
+
+> **Nota:** No macOS com Apple Silicon (M1/M2/M3/M4), todas as dependências já possuem wheels ARM64 nativos.
+
+#### Com UV (qualquer plataforma)
+
+```bash
+# UV detecta a plataforma e resolve dependências automaticamente
+git clone https://github.com/ElivaldoRocha/CartoMet_BR.git
+cd CartoMet_BR
+
+uv sync
+uv run python -m cartomet_br gui
 ```
 
 ### Primeira Execução
@@ -244,7 +333,8 @@ Na primeira execução, o programa exibirá uma **janela de boas-vindas** e soli
 
 | Requisito | Mínimo | Recomendado |
 |-----------|--------|-------------|
-| **Sistema Operacional** | Windows 10 (64-bit) | Windows 11 (64-bit) |
+| **Sistema Operacional** | Windows 10, Ubuntu 22.04, macOS 13+ (64-bit) | Windows 11, Ubuntu 24.04, macOS 14+ |
+| **Python** | 3.12 | 3.12+ |
 | **Memória RAM** | 4 GB | 8 GB |
 | **Espaço em Disco** | 500 MB | 2 GB+ (para dados e satélite) |
 | **Conexão** | Internet para download ECMWF, GOES e MUR SST | Banda larga |
