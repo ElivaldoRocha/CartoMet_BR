@@ -164,6 +164,11 @@ class MapCanvas(FigureCanvas):
         # Anotações de texto
         self._annotations: list = []
 
+        # Emojis meteorológicos
+        self._emoji_annotations: list = []
+        self.current_emoji: str = "☀"
+        self._emoji_fontsize: int = 28
+
         # Régua de distância
         self._ruler_points = []
         self._ruler_artists = []
@@ -574,6 +579,12 @@ class MapCanvas(FigureCanvas):
             self.interaction_mode = None
             self._clear_ruler()
 
+    def set_emoji_mode(self, enabled: bool) -> None:
+        if enabled:
+            self.interaction_mode = "emoji"
+        elif self.interaction_mode == "emoji":
+            self.interaction_mode = None
+
     @property
     def drawing_mode(self):
         return self.interaction_mode == "draw"
@@ -604,6 +615,9 @@ class MapCanvas(FigureCanvas):
 
         elif self.interaction_mode == "ruler":
             self._on_ruler_click(event.xdata, event.ydata)
+
+        elif self.interaction_mode == "emoji":
+            self.add_emoji(event.xdata, event.ydata, self.current_emoji, self._emoji_fontsize)
 
     def _place_point_symbol(self, x: float, y: float) -> None:
         """Coloca um símbolo pontual (ex.: centro de pressão, furacão) com um único clique."""
@@ -767,6 +781,7 @@ class MapCanvas(FigureCanvas):
         self.points_y.clear()
 
         self.clear_annotations()
+        self.clear_emojis()
         self._clear_ruler()
         self.history.clear()
 
@@ -861,6 +876,62 @@ class MapCanvas(FigureCanvas):
             except (ValueError, AttributeError):
                 pass
         self._annotations.clear()
+        self.draw()
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  EMOJIS METEOROLÓGICOS
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def add_emoji(self, lon: float, lat: float, emoji: str, fontsize: int = 28) -> None:
+        """Coloca um emoji meteorológico no mapa na posição (lon, lat)."""
+        import platform
+        # Prioriza fontes coloridas com suporte a emoji
+        if platform.system() == "Windows":
+            font_family = "Segoe UI Emoji"
+        elif platform.system() == "Darwin":
+            font_family = "Apple Color Emoji"
+        else:
+            font_family = "Noto Color Emoji"
+
+        try:
+            txt = self.ax.text(
+                lon, lat, emoji,
+                fontsize=fontsize,
+                fontfamily=font_family,
+                ha="center", va="center",
+                transform=ccrs.PlateCarree(),
+                zorder=26,
+            )
+        except (ValueError, KeyError):
+            # Fallback sem especificar fonte
+            txt = self.ax.text(
+                lon, lat, emoji,
+                fontsize=fontsize,
+                ha="center", va="center",
+                transform=ccrs.PlateCarree(),
+                zorder=26,
+            )
+        self._emoji_annotations.append(txt)
+        self.draw()
+
+    def remove_last_emoji(self) -> None:
+        """Desfaz o último emoji colocado."""
+        if self._emoji_annotations:
+            txt = self._emoji_annotations.pop()
+            try:
+                txt.remove()
+            except (ValueError, AttributeError):
+                pass
+            self.draw()
+
+    def clear_emojis(self) -> None:
+        """Remove todos os emojis do mapa."""
+        for txt in self._emoji_annotations:
+            try:
+                txt.remove()
+            except (ValueError, AttributeError):
+                pass
+        self._emoji_annotations.clear()
         self.draw()
 
     # ═══════════════════════════════════════════════════════════════════════

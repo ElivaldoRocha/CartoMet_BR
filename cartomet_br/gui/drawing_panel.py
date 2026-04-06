@@ -11,7 +11,7 @@ from typing import Any
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
-    QGroupBox, QCheckBox, QFrame,
+    QGroupBox, QCheckBox, QFrame, QButtonGroup,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut, QPixmap
@@ -61,6 +61,33 @@ class SymbolButton(QPushButton):
 #  PAINEL DE SIMBOLOGIAS (esquerda)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  EMOJIS METEOROLÓGICOS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# (emoji, tooltip)
+WEATHER_EMOJIS: list[tuple[str, str]] = [
+    ("☀",  "Sol"),
+    ("🌤", "Sol com nuvem"),
+    ("⛅", "Parcialmente nublado"),
+    ("🌥", "Bastante nublado"),
+    ("☁",  "Nublado"),
+    ("🌫", "Névoa / Nevoeiro"),
+    ("🌦", "Chuva e sol"),
+    ("🌧", "Chuva"),
+    ("⛈", "Trovoada"),
+    ("🌩", "Relâmpago"),
+    ("🌨", "Neve"),
+    ("❄",  "Frio / Geada"),
+    ("💨", "Vento"),
+    ("🌪", "Tornado / Ciclone"),
+    ("🌊", "Maré / Onda"),
+    ("🌡", "Temperatura"),
+    ("🌈", "Arco-íris"),
+    ("⚡", "Atividade elétrica"),
+]
+
+
 class SymbologyPanel(QWidget):
     """Painel lateral com simbologias, logo e créditos."""
 
@@ -70,6 +97,9 @@ class SymbologyPanel(QWidget):
     clear_requested = pyqtSignal()
     undo_requested = pyqtSignal()
     redo_requested = pyqtSignal()
+    emoji_mode_toggled = pyqtSignal(bool)   # ativou / desativou modo emoji
+    emoji_selected = pyqtSignal(str)        # emoji escolhido
+    emoji_size_changed = pyqtSignal(int)    # tamanho em pontos (20/28/40)
 
     current_key: str
     buttons: dict[str, SymbolButton]
@@ -163,6 +193,78 @@ class SymbologyPanel(QWidget):
         finalize_btn.clicked.connect(self.finalize_requested.emit)
         layout.addWidget(finalize_btn)
 
+        # ─── EMOJIS METEOROLÓGICOS ───────────────────────────────────────────
+        self._emoji_group = QGroupBox("☁ Emojis Meteorológicos")
+        self._emoji_group.setCheckable(True)
+        self._emoji_group.setChecked(False)
+        self._emoji_group.setStyleSheet("""
+            QGroupBox { font-size: 11px; font-weight: bold; color: #F39C12;
+                        border: 1px solid #5D6D7E; border-radius: 5px;
+                        margin-top: 6px; padding-top: 4px; }
+            QGroupBox::title { subcontrol-origin: margin; left: 8px; }
+            QGroupBox::indicator:checked { background: #F39C12; border-radius: 3px; }
+        """)
+        self._emoji_group.toggled.connect(self._on_emoji_group_toggled)
+
+        eg_layout = QVBoxLayout(self._emoji_group)
+        eg_layout.setSpacing(4)
+        eg_layout.setContentsMargins(4, 8, 4, 6)
+
+        # Grid de emojis (6 colunas)
+        emoji_grid = QGridLayout()
+        emoji_grid.setSpacing(3)
+        self._emoji_btn_group = QButtonGroup(self)
+        self._emoji_btn_group.setExclusive(True)
+        self._current_emoji_char = WEATHER_EMOJIS[0][0]
+
+        for idx, (char, tip) in enumerate(WEATHER_EMOJIS):
+            btn = QPushButton(char)
+            btn.setCheckable(True)
+            btn.setFixedSize(36, 36)
+            btn.setToolTip(tip)
+            btn.setStyleSheet("""
+                QPushButton {
+                    font-size: 18px; border: 1px solid #5D6D7E;
+                    border-radius: 5px; background-color: #2C3E50;
+                }
+                QPushButton:hover { background-color: #34495E; }
+                QPushButton:checked {
+                    border: 2px solid #F39C12;
+                    background-color: #3D2B00;
+                }
+            """)
+            btn.clicked.connect(lambda _, c=char: self._on_emoji_btn_clicked(c))
+            self._emoji_btn_group.addButton(btn, idx)
+            emoji_grid.addWidget(btn, idx // 6, idx % 6)
+
+        # Seleciona o primeiro por padrão
+        self._emoji_btn_group.button(0).setChecked(True)
+        eg_layout.addLayout(emoji_grid)
+
+        # Seletor de tamanho
+        size_row = QHBoxLayout()
+        size_row.addWidget(QLabel("Tamanho:"))
+        self._emoji_size_map = {"P": 20, "M": 28, "G": 40}
+        self._emoji_size_btns = QButtonGroup(self)
+        self._emoji_size_btns.setExclusive(True)
+        for label, size in self._emoji_size_map.items():
+            sb = QPushButton(label)
+            sb.setCheckable(True)
+            sb.setFixedSize(32, 26)
+            sb.setStyleSheet("""
+                QPushButton { font-size: 10px; font-weight: bold;
+                              border: 1px solid #5D6D7E; border-radius: 4px; }
+                QPushButton:checked { background: #F39C12; color: black; }
+            """)
+            sb.clicked.connect(lambda _, s=size: self.emoji_size_changed.emit(s))
+            self._emoji_size_btns.addButton(sb)
+            size_row.addWidget(sb)
+        self._emoji_size_btns.buttons()[1].setChecked(True)  # M = padrão
+        size_row.addStretch()
+        eg_layout.addLayout(size_row)
+
+        layout.addWidget(self._emoji_group)
+
         # Ponto de inserção para painel de satélite
         self._sat_insert_index = layout.count()
 
@@ -222,6 +324,8 @@ class SymbologyPanel(QWidget):
             btn.setChecked(False)
         self.buttons[key].setChecked(True)
         self.current_key = key
+        # Desativa emoji mode ao selecionar simbologia
+        self.deactivate_emoji_mode()
 
         modo = MODOS[key]
         nome = modo["nome"]
@@ -246,3 +350,26 @@ class SymbologyPanel(QWidget):
 
     def update_points(self, count: int) -> None:
         self.points_label.setText(f"Pontos: {count}")
+
+    def _on_emoji_group_toggled(self, checked: bool) -> None:
+        """Ativa/desativa modo emoji; desativa simbologias ao ativar."""
+        if checked:
+            # Desativa todos os botões de simbologia
+            for btn in self.buttons.values():
+                btn.setChecked(False)
+        self.emoji_mode_toggled.emit(checked)
+        if checked:
+            self.emoji_selected.emit(self._current_emoji_char)
+
+    def _on_emoji_btn_clicked(self, char: str) -> None:
+        self._current_emoji_char = char
+        self.emoji_selected.emit(char)
+        # Garante que o grupo está ativo
+        if not self._emoji_group.isChecked():
+            self._emoji_group.setChecked(True)
+
+    def deactivate_emoji_mode(self) -> None:
+        """Desativa o grupo de emojis (chamado quando outra simbologia é escolhida)."""
+        self._emoji_group.blockSignals(True)
+        self._emoji_group.setChecked(False)
+        self._emoji_group.blockSignals(False)

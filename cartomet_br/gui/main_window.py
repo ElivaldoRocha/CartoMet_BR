@@ -313,6 +313,9 @@ class MainWindow(QMainWindow):
         self.symbol_panel.clear_requested.connect(self.canvas.clear_all)
         self.symbol_panel.undo_requested.connect(self.canvas.undo_point)
         self.symbol_panel.redo_requested.connect(self.canvas.redo_action)
+        self.symbol_panel.emoji_mode_toggled.connect(self._on_emoji_mode_toggled)
+        self.symbol_panel.emoji_selected.connect(lambda e: setattr(self.canvas, 'current_emoji', e))
+        self.symbol_panel.emoji_size_changed.connect(lambda s: setattr(self.canvas, '_emoji_fontsize', s))
 
         self.canvas.point_added.connect(self._on_point_added)
         self.canvas.coords_updated.connect(self._on_coords_updated)
@@ -374,6 +377,23 @@ class MainWindow(QMainWindow):
             self.status_label.setStyleSheet("color: #1ABC9C;")
         else:
             self.canvas.set_ruler_mode(False)
+            self.status_label.setText("● Pronto")
+            self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_emoji_mode_toggled(self, enabled: bool) -> None:
+        """Ativa/desativa modo emoji no canvas; desativa outros modos de interação."""
+        if enabled:
+            self.draw_mode_btn.setChecked(False)
+            self.annotate_btn.setChecked(False)
+            self.ruler_btn.setChecked(False)
+            self.canvas.set_drawing_mode(False)
+            self.canvas.set_annotation_mode(False)
+            self.canvas.set_ruler_mode(False)
+            self.canvas.set_emoji_mode(True)
+            self.status_label.setText("● Modo Emoji — clique no mapa para inserir")
+            self.status_label.setStyleSheet("color: #F39C12;")
+        else:
+            self.canvas.set_emoji_mode(False)
             self.status_label.setText("● Pronto")
             self.status_label.setStyleSheet("color: #27AE60;")
 
