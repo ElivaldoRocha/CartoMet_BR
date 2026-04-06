@@ -773,7 +773,12 @@ class MapCanvas(FigureCanvas):
         self.draw()
 
     def save_figure(self, filepath: str | Path) -> None:
-        self.fig.savefig(filepath, dpi=200, bbox_inches="tight", facecolor="white")
+        filepath = Path(filepath)
+        fmt = filepath.suffix.lstrip(".").lower() or "png"
+        # PDF usa o backend dedicado do matplotlib — garante que está carregado
+        if fmt == "pdf":
+            import matplotlib.backends.backend_pdf  # noqa: F401
+        self.fig.savefig(str(filepath), dpi=200, bbox_inches="tight", facecolor="white", format=fmt)
 
     def capture_canvas(self, filepath: str | Path, scale: int = 2) -> None:
         """Captura pixel-perfect do canvas como exibido na tela.

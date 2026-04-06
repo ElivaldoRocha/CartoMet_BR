@@ -937,9 +937,14 @@ class MainWindow(QMainWindow):
             "PNG (*.png);;JPEG (*.jpg);;PDF (*.pdf)"
         )
         if filepath:
-            self.canvas.save_figure(filepath)
-            self.status_label.setText(f"● Salvo: {Path(filepath).name}")
-            self.status_label.setStyleSheet("color: #27AE60;")
+            try:
+                self.canvas.save_figure(filepath)
+                self.status_label.setText(f"● Salvo: {Path(filepath).name}")
+                self.status_label.setStyleSheet("color: #27AE60;")
+            except Exception as e:
+                QMessageBox.critical(self, "Erro ao Exportar", f"Não foi possível salvar o arquivo:\n\n{e}")
+                self.status_label.setText("● Erro ao exportar")
+                self.status_label.setStyleSheet("color: #E74C3C;")
 
     def _print_canvas(self):
         """Captura pixel-perfect do mapa (Ctrl+P) — idêntica à tela."""

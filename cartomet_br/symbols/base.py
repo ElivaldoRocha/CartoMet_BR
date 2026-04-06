@@ -121,31 +121,45 @@ class _FrenteBase(pe.AbstractPathEffect):
         if len(verts) < 2:
             return
 
-        identity = IdentityTransform()
+        # Escala símbolo e espaçamento pelo DPI do renderer.
+        # Na tela (100 DPI) o fator é 1.0; em savefig(dpi=200) é 2.0.
+        # Isso garante que triângulos/semicírculos fiquem proporcionais
+        # independente do DPI de exportação.
+        dpi_k = renderer.dpi / 100.0
+        _orig_size = self.symbol_size
+        _orig_spacing = self.spacing
+        self.symbol_size = self.symbol_size * dpi_k
+        self.spacing = self.spacing * dpi_k
 
-        gc0 = renderer.new_gc()
-        gc0.copy_properties(gc)
-        gc0.set_foreground(self.color)
-        gc0.set_linewidth(self.linewidth)
-        self._draw_line(renderer, gc0, verts, identity)
+        try:
+            identity = IdentityTransform()
 
-        tx, ty, nx, ny, cum_dist, total = self._path_geometry(verts)
+            gc0 = renderer.new_gc()
+            gc0.copy_properties(gc)
+            gc0.set_foreground(self.color)
+            gc0.set_linewidth(self.linewidth)
+            self._draw_line(renderer, gc0, verts, identity)
 
-        # FLIP: inverte a normal se necessário
-        f = self._flip_sign()
-        nx, ny = nx * f, ny * f
+            tx, ty, nx, ny, cum_dist, total = self._path_geometry(verts)
 
-        idx_sym = 0
-        for pos in np.arange(self.spacing / 2, total, self.spacing):
-            pt, i = self._interp_at(verts, cum_dist, pos)
-            # Ângulo da tangente determina orientação
-            angle = np.arctan2(ty[i], tx[i])
-            # Ajusta ângulo se flip está ativo
-            angle_sym = angle + (np.pi if self.flip else 0)
-            self._draw_symbol(renderer, gc0, pt, angle_sym, idx_sym, identity)
-            idx_sym += 1
+            # FLIP: inverte a normal se necessário
+            f = self._flip_sign()
+            nx, ny = nx * f, ny * f
 
-        gc0.restore()
+            idx_sym = 0
+            for pos in np.arange(self.spacing / 2, total, self.spacing):
+                pt, i = self._interp_at(verts, cum_dist, pos)
+                # Ângulo da tangente determina orientação
+                angle = np.arctan2(ty[i], tx[i])
+                # Ajusta ângulo se flip está ativo
+                angle_sym = angle + (np.pi if self.flip else 0)
+                self._draw_symbol(renderer, gc0, pt, angle_sym, idx_sym, identity)
+                idx_sym += 1
+
+            gc0.restore()
+        finally:
+            self.symbol_size = _orig_size
+            self.spacing = _orig_spacing
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

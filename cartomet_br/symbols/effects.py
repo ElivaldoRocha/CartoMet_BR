@@ -51,7 +51,9 @@ class _TrilhoBase(_FrenteBase):
         identity = IdentityTransform()
         tx, ty, nx, ny, cum_dist, total = self._path_geometry(verts)
 
-        hw = self.symbol_size
+        dpi_k = renderer.dpi / 100.0
+        hw = self.symbol_size * dpi_k
+        sp = self.spacing * dpi_k
         offset = np.column_stack([nx, ny]) * hw
 
         gc0 = renderer.new_gc()
@@ -64,7 +66,7 @@ class _TrilhoBase(_FrenteBase):
         renderer.draw_path(gc0, Path(verts - offset), identity)
 
         # Desenha os travessões (dormentes)
-        for pos in np.arange(self.spacing, total, self.spacing):
+        for pos in np.arange(sp, total, sp):
             pt, i = self._interp_at(verts, cum_dist, pos)
             n = np.array([nx[i], ny[i]])
             renderer.draw_path(
@@ -120,11 +122,12 @@ class CavadoEffect(_FrenteBase):
         if len(verts) < 2:
             return
         identity = IdentityTransform()
+        dpi_k = renderer.dpi / 100.0
         gc0 = renderer.new_gc()
         gc0.copy_properties(gc)
         gc0.set_foreground(self.color)
         gc0.set_linewidth(self.linewidth)
-        gc0.set_dashes(0, [12, 6, 3, 6])  # traço-ponto
+        gc0.set_dashes(0, [d * dpi_k for d in [12, 6, 3, 6]])  # traço-ponto
         renderer.draw_path(gc0, Path(verts), identity)
         gc0.restore()
 
@@ -155,8 +158,9 @@ class Crista(_FrenteBase):
         identity = IdentityTransform()
         tx, ty, nx, ny, cum_dist, total = self._path_geometry(verts)
 
-        s = self.symbol_size
-        sp = self.spacing
+        dpi_k = renderer.dpi / 100.0
+        s = self.symbol_size * dpi_k
+        sp = self.spacing * dpi_k
         pts = [verts[0].copy()]
         side = 1
 
@@ -202,18 +206,19 @@ class LinhaInstabilidade(_FrenteBase):
         identity = IdentityTransform()
         tx, ty, nx, ny, cum_dist, total = self._path_geometry(verts)
 
+        dpi_k = renderer.dpi / 100.0
         gc0 = renderer.new_gc()
         gc0.copy_properties(gc)
         gc0.set_foreground(self.color)
         gc0.set_linewidth(self.linewidth)
-        dash_len = self.spacing * 0.55
-        gap_len = self.spacing * 0.45
+        dash_len = self.spacing * 0.55 * dpi_k
+        gap_len = self.spacing * 0.45 * dpi_k
         gc0.set_dashes(0, [dash_len, gap_len])
         renderer.draw_path(gc0, Path(verts), identity)
 
         # Desenha círculos preenchidos nos gaps
-        r = self.symbol_size
-        for pos in np.arange(dash_len + gap_len / 2, total, self.spacing):
+        r = self.symbol_size * dpi_k
+        for pos in np.arange(dash_len + gap_len / 2, total, self.spacing * dpi_k):
             pt, i = self._interp_at(verts, cum_dist, pos)
             raw, codes = make_circle(r)
             circ = raw + pt
@@ -284,6 +289,7 @@ class CorrenteDeJato(_FrenteBase):
         identity = IdentityTransform()
         tx, ty, nx, ny, cum_dist, total = self._path_geometry(verts)
 
+        dpi_k = renderer.dpi / 100.0
         gc0 = renderer.new_gc()
         gc0.copy_properties(gc)
         gc0.set_foreground(self.color)
@@ -291,9 +297,9 @@ class CorrenteDeJato(_FrenteBase):
         renderer.draw_path(gc0, Path(verts), identity)
 
         # Setas preenchidas ao longo do path, apontando na direção do fluxo
-        s = self.symbol_size
+        s = self.symbol_size * dpi_k
         raw, codes = make_arrowhead(s)
-        for pos in np.arange(self.spacing / 2, total, self.spacing):
+        for pos in np.arange(self.spacing * dpi_k / 2, total, self.spacing * dpi_k):
             pt, i = self._interp_at(verts, cum_dist, pos)
             angle = np.arctan2(ty[i], tx[i])
             draw_filled(
