@@ -110,9 +110,10 @@ class FrenteEstacionaria(_FrenteBase):
         identity = IdentityTransform()
         tx, ty, nx, ny, cum_dist, total = self._path_geometry(verts)
 
+        dpi_k = renderer.dpi / 100.0
         f = self._flip_sign()
 
-        sym_positions = list(np.arange(self.spacing / 2, total, self.spacing))
+        sym_positions = list(np.arange(self.spacing * dpi_k / 2, total, self.spacing * dpi_k))
 
         cut_positions = [0.0]
         for k in range(len(sym_positions)):
@@ -149,7 +150,7 @@ class FrenteEstacionaria(_FrenteBase):
 
             pt, i = self._interp_at(verts, cum_dist, sym_pos)
             angle = np.arctan2(ty[i], tx[i])
-            s = self.symbol_size
+            s = self.symbol_size * dpi_k
 
             # Flip inverte qual lado cada símbolo aponta
             dir_tri = +1 * f
@@ -237,8 +238,9 @@ class Frontogenese(_FrenteBase):
         renderer.draw_path(gc0, Path(verts), identity)
 
         # Triângulos — todos no mesmo lado (flip controla o lado)
-        s = self.symbol_size
-        tri_positions = list(np.arange(self.spacing / 2, total, self.spacing))
+        dpi_k = renderer.dpi / 100.0
+        s = self.symbol_size * dpi_k
+        tri_positions = list(np.arange(self.spacing * dpi_k / 2, total, self.spacing * dpi_k))
         for pos in tri_positions:
             pt, i = self._interp_at(verts, cum_dist, pos)
             angle = np.arctan2(ty[i], tx[i])
@@ -250,7 +252,7 @@ class Frontogenese(_FrenteBase):
             )
 
         # Pontos preenchidos entre triângulos consecutivos, sobre a linha
-        dot_r = 3.0
+        dot_r = 3.0 * dpi_k
         for k in range(len(tri_positions) - 1):
             mid_pos = (tri_positions[k] + tri_positions[k + 1]) / 2
             pt, _ = self._interp_at(verts, cum_dist, mid_pos)
@@ -305,8 +307,9 @@ class Frontolise(_FrenteBase):
         renderer.draw_path(gc0, Path(verts), identity)
 
         # Triângulos — todos no mesmo lado (flip controla o lado)
-        s = self.symbol_size
-        tri_positions = list(np.arange(self.spacing / 2, total, self.spacing))
+        dpi_k = renderer.dpi / 100.0
+        s = self.symbol_size * dpi_k
+        tri_positions = list(np.arange(self.spacing * dpi_k / 2, total, self.spacing * dpi_k))
         for pos in tri_positions:
             pt, i = self._interp_at(verts, cum_dist, pos)
             angle = np.arctan2(ty[i], tx[i])

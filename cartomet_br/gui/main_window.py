@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QToolBar, QStatusBar, QDockWidget, QLabel, QPushButton,
     QFrame, QSizePolicy, QMessageBox, QFileDialog,
-    QProgressBar, QScrollArea, QDialog,
+    QProgressBar, QScrollArea, QDialog, QInputDialog,
 )
 from PyQt6.QtCore import Qt, QSize, QSettings, QTimer
 from PyQt6.QtGui import QAction, QIcon, QKeySequence, QPixmap
@@ -936,15 +936,38 @@ class MainWindow(QMainWindow):
             str(self.config.output_dir / f"cartomet_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"),
             "PNG (*.png);;JPEG (*.jpg);;PDF (*.pdf)"
         )
-        if filepath:
-            try:
-                self.canvas.save_figure(filepath)
-                self.status_label.setText(f"● Salvo: {Path(filepath).name}")
-                self.status_label.setStyleSheet("color: #27AE60;")
-            except Exception as e:
-                QMessageBox.critical(self, "Erro ao Exportar", f"Não foi possível salvar o arquivo:\n\n{e}")
-                self.status_label.setText("● Erro ao exportar")
-                self.status_label.setStyleSheet("color: #E74C3C;")
+        if not filepath:
+            return
+
+        # Seletor de resolução
+        opcoes = [
+            "100 DPI — Rascunho (rápido, menor arquivo)",
+            "150 DPI — Qualidade média",
+            "200 DPI — Alta qualidade (padrão)",
+            "300 DPI — Impressão profissional",
+            "600 DPI — Ultra alta resolução",
+        ]
+        dpi_map = {opcoes[0]: 100, opcoes[1]: 150, opcoes[2]: 200, opcoes[3]: 300, opcoes[4]: 600}
+        escolha, ok = QInputDialog.getItem(
+            self,
+            "Resolução da Exportação",
+            "Escolha a resolução (DPI):",
+            opcoes,
+            2,      # índice padrão: 200 DPI
+            False,  # não editável
+        )
+        if not ok:
+            return
+
+        dpi = dpi_map[escolha]
+        try:
+            self.canvas.save_figure(filepath, dpi=dpi)
+            self.status_label.setText(f"● Salvo ({dpi} DPI): {Path(filepath).name}")
+            self.status_label.setStyleSheet("color: #27AE60;")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro ao Exportar", f"Não foi possível salvar o arquivo:\n\n{e}")
+            self.status_label.setText("● Erro ao exportar")
+            self.status_label.setStyleSheet("color: #E74C3C;")
 
     def _print_canvas(self):
         """Captura pixel-perfect do mapa (Ctrl+P) — idêntica à tela."""
