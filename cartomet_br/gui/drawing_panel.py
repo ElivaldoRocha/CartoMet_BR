@@ -13,8 +13,11 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QGroupBox, QCheckBox, QFrame, QButtonGroup,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QKeySequence, QShortcut, QPixmap
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtGui import (
+    QKeySequence, QShortcut, QPixmap,
+    QFont, QColor, QPainter, QIcon,
+)
 
 from cartomet_br.symbols import MODOS
 from cartomet_br.gui._constants import APP_AUTHOR, APP_VERSION, get_logo_path
@@ -86,6 +89,36 @@ WEATHER_EMOJIS: list[tuple[str, str]] = [
     ("🌈", "Arco-íris"),
     ("⚡", "Atividade elétrica"),
 ]
+
+
+def _make_emoji_pixmap(char: str, size: int = 28) -> QPixmap:
+    """Renders an emoji to a QPixmap using Qt's native text renderer.
+
+    Qt uses the OS color-emoji font (Segoe UI Emoji on Windows, Apple Color
+    Emoji on macOS, Noto Color Emoji on Linux), so the result is always the
+    full-colour glyph that the user expects.
+    """
+    import platform
+
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+
+    sys_name = platform.system()
+    if sys_name == "Windows":
+        font_family = "Segoe UI Emoji"
+    elif sys_name == "Darwin":
+        font_family = "Apple Color Emoji"
+    else:
+        font_family = "Noto Color Emoji"
+
+    font = QFont(font_family, int(size * 0.65))
+    painter.setFont(font)
+    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, char)
+    painter.end()
+    return pixmap
 
 
 class SymbologyPanel(QWidget):
@@ -218,13 +251,17 @@ class SymbologyPanel(QWidget):
         self._current_emoji_char = WEATHER_EMOJIS[0][0]
 
         for idx, (char, tip) in enumerate(WEATHER_EMOJIS):
-            btn = QPushButton(char)
+            btn = QPushButton()
             btn.setCheckable(True)
-            btn.setFixedSize(36, 36)
-            btn.setToolTip(tip)
+            btn.setFixedSize(40, 40)
+            btn.setToolTip(f"{char}  {tip}")
+            # Render the emoji as a full-colour QIcon via Qt's native font stack
+            pix = _make_emoji_pixmap(char, 28)
+            btn.setIcon(QIcon(pix))
+            btn.setIconSize(QSize(28, 28))
             btn.setStyleSheet("""
                 QPushButton {
-                    font-size: 18px; border: 1px solid #5D6D7E;
+                    border: 1px solid #5D6D7E;
                     border-radius: 5px; background-color: #2C3E50;
                 }
                 QPushButton:hover { background-color: #34495E; }

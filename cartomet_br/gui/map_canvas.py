@@ -882,55 +882,109 @@ class MapCanvas(FigureCanvas):
     #  EMOJIS METEOROLÓGICOS
     # ═══════════════════════════════════════════════════════════════════════
 
+    # ── helpers ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _render_emoji_image(emoji: str, fontsize: int) -> "np.ndarray | None":
+        """Renders an emoji to an RGBA numpy array using Qt's native text renderer.
+
+        Qt uses the OS colour-emoji font (Segoe UI Emoji / Apple Color Emoji /
+        Noto Color Emoji), so the image is always the full-colour glyph.
+        Returns None if the QPixmap machinery is unavailable.
+        """
+        try:
+            import platform
+            from PyQt6.QtCore import Qt as _Qt, QSize as _QSize
+            from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap, QImage
+
+            px = max(fontsize * 2, 32)          # oversample for crisp rendering
+            pixmap = QPixmap(px, px)
+            pixmap.fill(_Qt.GlobalColor.transparent)
+
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+
+            sys_name = platform.system()
+            if sys_name == "Windows":
+                font_family = "Segoe UI Emoji"
+            elif sys_name == "Darwin":
+                font_family = "Apple Color Emoji"
+            else:
+                font_family = "Noto Color Emoji"
+
+            font = QFont(font_family, int(px * 0.65))
+            painter.setFont(font)
+            painter.drawText(pixmap.rect(), _Qt.AlignmentFlag.AlignCenter, emoji)
+            painter.end()
+
+            image = pixmap.toImage().convertToFormat(QImage.Format.Format_RGBA8888)
+            ptr = image.bits()
+            ptr.setsize(image.sizeInBytes())
+            return np.frombuffer(ptr, dtype=np.uint8).reshape((px, px, 4)).copy()
+        except Exception:
+            return None
+
     def add_emoji(self, lon: float, lat: float, emoji: str, fontsize: int = 28) -> None:
         """Coloca um emoji meteorológico no mapa na posição (lon, lat)."""
-        import platform
-        # Prioriza fontes coloridas com suporte a emoji
-        if platform.system() == "Windows":
-            font_family = "Segoe UI Emoji"
-        elif platform.system() == "Darwin":
-            font_family = "Apple Color Emoji"
-        else:
-            font_family = "Noto Color Emoji"
+        from matplotlib.offsetbox import AnnotationBbox, OffsetImage
 
-        try:
-            txt = self.ax.text(
+        arr = self._render_emoji_image(emoji, fontsize)
+        if arr is not None:
+            # OffsetImage zoom=1 → displayed at fontsize*2 screen pixels;
+            # zoom=0.5 brings it back to ~fontsize screen pixels.
+            im = OffsetImage(arr, zoom=0.5)
+            # xycoords="data" works because the axes projection is PlateCarree,
+            # so data coordinates are already lon/lat.  Using "data" (not a
+            # cartopy transform object) also lets matplotlib register the proper
+            # _remove_method so that artist.remove() works correctly.
+            artist: object = AnnotationBbox(
+                im, (lon, lat),
+                xycoords="data",
+                frameon=False,
+                zorder=26,
+                pad=0,
+                annotation_clip=True,
+            )
+            self.ax.add_artist(artist)  # type: ignore[arg-type]
+        else:
+            # Fallback: plain text (monochrome, but better than nothing)
+            artist = self.ax.text(
                 lon, lat, emoji,
                 fontsize=fontsize,
-                fontfamily=font_family,
                 ha="center", va="center",
                 transform=ccrs.PlateCarree(),
                 zorder=26,
             )
-        except (ValueError, KeyError):
-            # Fallback sem especificar fonte
-            txt = self.ax.text(
-                lon, lat, emoji,
-                fontsize=fontsize,
-                ha="center", va="center",
-                transform=ccrs.PlateCarree(),
-                zorder=26,
-            )
-        self._emoji_annotations.append(txt)
+        self._emoji_annotations.append(artist)
         self.draw()
+
+    def _remove_emoji_artist(self, artist: object) -> None:
+        """Remove um artista emoji do eixo de forma segura.
+
+        AnnotationBbox.remove() lança NotImplementedError quando o eixo foi
+        redesenhado após a inserção do artista (ex.: ao carregar campos
+        sinóticos). Nesses casos recorre à remoção direta de ax._children.
+        """
+        try:
+            artist.remove()  # type: ignore[union-attr]
+        except NotImplementedError:
+            try:
+                self.ax._children.remove(artist)
+            except (ValueError, AttributeError):
+                pass
+        except (ValueError, AttributeError):
+            pass
 
     def remove_last_emoji(self) -> None:
         """Desfaz o último emoji colocado."""
         if self._emoji_annotations:
-            txt = self._emoji_annotations.pop()
-            try:
-                txt.remove()
-            except (ValueError, AttributeError):
-                pass
+            self._remove_emoji_artist(self._emoji_annotations.pop())
             self.draw()
 
     def clear_emojis(self) -> None:
         """Remove todos os emojis do mapa."""
-        for txt in self._emoji_annotations:
-            try:
-                txt.remove()
-            except (ValueError, AttributeError):
-                pass
+        for artist in self._emoji_annotations:
+            self._remove_emoji_artist(artist)
         self._emoji_annotations.clear()
         self.draw()
 

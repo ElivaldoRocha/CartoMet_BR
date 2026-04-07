@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 APP_NAME: str = "CartoMet BR"
-APP_VERSION: str = "2.1"
+APP_VERSION: str = "2.2"
 APP_AUTHOR: str = "Elivaldo C. Rocha"
 APP_INSTITUTION: str = "PPGGRD-UFPA / FAMET-UFPA"
 APP_DESCRIPTION: str = "Cartografia Meteorológica para o Brasil"

@@ -16,7 +16,7 @@ try:
     from importlib.metadata import version as _get_version
     __version__ = _get_version("cartomet-br")
 except Exception:
-    __version__ = "2.1.0"
+    __version__ = "2.2.0"
 __author__ = "Elivaldo C. Rocha"
 __email__ = "carvalhovaldo09@gmail.com"
 

@@ -1,6 +1,6 @@
 [project]
 name = "cartomet-br"
-version = "2.1.0"
+version = "2.2.0"
 description = "Cartografia Meteorológica para o Brasil — Análise sinótica interativa com dados ECMWF Open Data"
 readme = "README.md"
 license = {text = "MIT"}
