@@ -12,7 +12,7 @@
 <p align="center">
   <a href="#-sobre">Sobre</a> •
   <a href="#-vídeo-demonstrativo">Vídeo</a> •
-  <a href="#-novidades-da-v21">Novidades v2.1</a> •
+  <a href="#-novidades-da-v22">Novidades v2.2</a> •
   <a href="#-funcionalidades">Funcionalidades</a> •
   <a href="#-download">Download</a> •
   <a href="#-instalação">Instalação</a> •
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/versão-2.1.0-blue?style=for-the-badge" alt="Versão"/>
+  <img src="https://img.shields.io/badge/versão-2.2.0-blue?style=for-the-badge" alt="Versão"/>
   <img src="https://img.shields.io/badge/plataforma-Windows%2010%2F11-0078D6?style=for-the-badge&logo=windows" alt="Windows"/>
   <img src="https://img.shields.io/badge/licença-MIT-green?style=for-the-badge" alt="Licença"/>
   <img src="https://img.shields.io/badge/python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
@@ -59,6 +59,27 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
     <img src="https://img.shields.io/badge/▶_Assistir_no_YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Assistir no YouTube"/>
   </a>
 </p>
+
+---
+
+## Novidades da v2.2
+
+### Emojis Meteorológicos Coloridos no Mapa
+
+- **36 emojis** organizados em 6 categorias: Céu/nuvens, Precipitação, Fenômenos extremos, Frio/inverno, Calor/seca, Estações do ano e Outros
+- Renderização full-color via pipeline nativo do Qt (Segoe UI Emoji / Apple Color Emoji / Noto Color Emoji) — sem preto/monocromático
+- Painel com ícones coloridos e identificáveis (tooltip com nome ao passar o mouse)
+- Tamanhos P / M / G configuráveis
+- Emojis ancorados às coordenadas geográficas corretas no mapa
+- Desfazer / Limpar funcionam inclusive quando há campos sinóticos carregados
+
+### Botão "Aplicar Região"
+
+- Novo botão no painel de configurações: após editar manualmente os campos Lon Min/Max e Lat Min/Max, clique **↻ Aplicar Região** para atualizar o mapa imediatamente sem precisar alterar o combo de regiões predefinidas
+
+### Novos contextos ambientais e climáticos
+
+- Adicionados emojis de **queimada** (🔥), **seca** (🌵 🏜), **ciclone tropical** (🌀), **vulcão/cinzas** (🌋), **calor extremo** (🥵), **frio extremo** (🥶), **neve em altitude** (🏔), além das quatro estações (🌸 🌻 🍂 ⛄)
 
 ---
 
@@ -187,17 +208,18 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 | **Régua** | Medição de distância em km |
 | **6 Temas** | Clássico, Branco, Pastel, Cinza, Terra, Escuro |
 | **Regiões** | América do Sul, Brasil, Nordeste, Sudeste, Sul |
-| **Exportação** | PNG, JPEG ou PDF (Ctrl+S) + Captura pixel-perfect (Ctrl+P) |
+| **Exportação** | PNG, JPEG ou PDF (Ctrl+S) + Captura pixel-perfect (Ctrl+P) + seletor de DPI |
+| **Emojis Meteorológicos** | 36 emojis coloridos (clima, estações, fenômenos extremos) ancorados no mapa |
 
 ---
 
 ## Download
 
-### Versão Atual: 2.1.0
+### Versão Atual: 2.2.0
 
 | Arquivo | Descrição | Download |
-|---------|-----------|----------|
-| **Instalador_CartoMet_BR_v2.1.exe** | Instalador para Windows | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest) |
+| --- | --- | --- |
+| **Instalador_CartoMet_BR_v2.2.0.exe** | Instalador para Windows | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest) |
 | **CartoMet_BR_Manual_Usuario.pdf** | Manual do usuário ilustrado | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest/download/CartoMet_BR_Manual_Usuario.pdf) |
 
 > **Dica:** Baixe também o manual para aprender todas as funcionalidades do programa.
@@ -208,7 +230,7 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 
 ### Método 1: Instalador Windows (Recomendado para Usuários Windows)
 
-1. Baixe `Instalador_CartoMet_BR_v2.1.exe` na seção [Releases](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest)
+1. Baixe `Instalador_CartoMet_BR_v2.2.0.exe` na seção [Releases](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest)
 2. Execute o instalador e siga as instruções
 3. Abra o CartoMet BR pelo atalho no Menu Iniciar ou Desktop
 
@@ -600,11 +622,11 @@ Se você utilizar o CartoMet BR em pesquisas, trabalhos acadêmicos ou publicaç
 
 **ABNT**
 
-> ROCHA, Elivaldo C.; SOUZA, Everaldo Barreiros de. CartoMet BR: A Python Package for Meteorological Cartography in Brazil (v2.1). Versão 2.1.0. Zenodo, 22 mar. 2026. DOI: 10.5281/zenodo.19157369. Disponível em: <https://doi.org/10.5281/zenodo.19157369>.
+> ROCHA, Elivaldo C.; SOUZA, Everaldo Barreiros de. CartoMet BR: A Python Package for Meteorological Cartography in Brazil (v2.2). Versão 2.2.0. Zenodo, 2026. DOI: 10.5281/zenodo.19157369. Disponível em: <https://doi.org/10.5281/zenodo.19157369>.
 
 **APA**
 
-> Rocha, E. C., & Souza, E. B. de. (2026). *CartoMet BR: A Python Package for Meteorological Cartography in Brazil (v2.1)* (2.1.0). Zenodo. <https://doi.org/10.5281/zenodo.19157369>
+> Rocha, E. C., & Souza, E. B. de. (2026). *CartoMet BR: A Python Package for Meteorological Cartography in Brazil (v2.2)* (2.2.0). Zenodo. <https://doi.org/10.5281/zenodo.19157369>
 
 **BibTeX**
 
@@ -613,8 +635,8 @@ Se você utilizar o CartoMet BR em pesquisas, trabalhos acadêmicos ou publicaç
   author       = {Rocha, Elivaldo Carvalho and
                   Souza, Everaldo Barreiros de},
   title        = {{CartoMet BR: A Python Package for Meteorological
-                   Cartography in Brazil (v2.1)}},
-  version      = {2.1.0},
+                   Cartography in Brazil (v2.2)}},
+  version      = {2.2.0},
   publisher    = {Zenodo},
   year         = {2026},
   month        = mar,
@@ -625,7 +647,7 @@ Se você utilizar o CartoMet BR em pesquisas, trabalhos acadêmicos ou publicaç
 
 **IEEE**
 
-> E. C. Rocha and E. B. de Souza, "CartoMet BR: A Python Package for Meteorological Cartography in Brazil (v2.1)," version 2.1.0, Zenodo, Mar. 2026. doi: 10.5281/zenodo.19157369.
+> E. C. Rocha and E. B. de Souza, "CartoMet BR: A Python Package for Meteorological Cartography in Brazil (v2.2)," version 2.2.0, Zenodo, 2026. doi: 10.5281/zenodo.19157369.
 
 ---
 
@@ -637,7 +659,7 @@ Se você utilizar o CartoMet BR em pesquisas, trabalhos acadêmicos ou publicaç
 ---
 
 <p align="center">
-  <strong>CartoMet BR v2.1</strong> — Análise sinótica completa para sala de aula e profissionais da meteorologia.
+  <strong>CartoMet BR v2.2</strong> — Análise sinótica completa para sala de aula e profissionais da meteorologia.
 </p>
 
 <p align="center">
