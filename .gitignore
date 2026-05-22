@@ -62,8 +62,8 @@ coverage.xml
 profile_default/
 ipython_config.py
 
-# pyenv
-.python-version
+# pyenv (não ignorar — .python-version pina o Python para uv)
+# .python-version
 
 # Environments
 .env

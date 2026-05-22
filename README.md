@@ -271,31 +271,26 @@ python -m cartomet_br gui
 ```bash
 # 1. Instale as dependências de sistema
 sudo apt update
-sudo apt install -y python3.12 python3.12-venv python3-pip \
-    libgeos-dev libproj-dev proj-data \
-    libeccodes-dev libeccodes-tools \
-    libgl1-mesa-glx libegl1
+sudo apt install -y libgeos-dev libproj-dev libgl1-mesa-glx libegl1
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 2. Clone e instale
+# 2. Clone e execute
 git clone https://github.com/ElivaldoRocha/CartoMet_BR.git
 cd CartoMet_BR
-
-python3.12 -m venv .venv
-source .venv/bin/activate
-
-pip install -e .
-
-# 3. Execute
-python -m cartomet_br gui
+uv sync
+uv run python -m cartomet_br gui
 ```
+
+> **Nota:** O `uv` detecta o arquivo `.python-version` e baixa o Python 3.12.11 automaticamente — não é necessário instalar Python manualmente.
+
+> **Nota:** O PyQt6 requer `libEGL`. Se a GUI não abrir, instale `libegl1` (Debian/Ubuntu) ou `mesa-libEGL` (Fedora).
 
 <details>
 <summary><strong>Fedora / RHEL / CentOS</strong></summary>
 
 ```bash
-sudo dnf install -y python3.12 python3-pip \
-    geos-devel proj-devel eccodes-devel \
-    mesa-libGL mesa-libEGL
+sudo dnf install -y geos-devel proj-devel mesa-libGL mesa-libEGL
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 </details>
@@ -304,33 +299,28 @@ sudo dnf install -y python3.12 python3-pip \
 <summary><strong>Arch Linux</strong></summary>
 
 ```bash
-sudo pacman -S python python-pip geos proj eccodes mesa
+sudo pacman -S geos proj mesa
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 </details>
-
-> **Nota:** O PyQt6 no Linux requer `libEGL`. Se a GUI não abrir, instale `libegl1` (Debian) ou `mesa-libEGL` (Fedora).
 
 #### macOS
 
 ```bash
 # 1. Instale as dependências com Homebrew
-brew install python@3.12 geos proj eccodes
+brew install geos proj uv
 
-# 2. Clone e instale
+# 2. Clone e execute
 git clone https://github.com/ElivaldoRocha/CartoMet_BR.git
 cd CartoMet_BR
-
-python3.12 -m venv .venv
-source .venv/bin/activate
-
-pip install -e .
-
-# 3. Execute
-python -m cartomet_br gui
+uv sync
+uv run python -m cartomet_br gui
 ```
 
-> **Nota:** No macOS com Apple Silicon (M1/M2/M3/M4), todas as dependências já possuem wheels ARM64 nativos.
+> **Nota:** O `uv` detecta o `.python-version` e baixa o Python 3.12.11 automaticamente — não é necessário `brew install python@3.12`. Funciona nativamente em Apple Silicon (M1/M2/M3/M4).
+
+> **Atenção:** Não use `pip install -e .` diretamente — o pip ignora o `uv.lock` e pode baixar versões de `eccodes`/`cartopy` com ABI incompatível. Sempre use `uv sync`.
 
 #### Com UV (qualquer plataforma)
 
@@ -338,7 +328,6 @@ python -m cartomet_br gui
 # UV detecta a plataforma e resolve dependências automaticamente
 git clone https://github.com/ElivaldoRocha/CartoMet_BR.git
 cd CartoMet_BR
-
 uv sync
 uv run python -m cartomet_br gui
 ```
