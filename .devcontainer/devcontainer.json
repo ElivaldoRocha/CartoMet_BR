@@ -18,7 +18,8 @@
   //   libxcb-render-util0  — utilitários de render xcb
   //   libxcb-xinerama0     — suporte a múltiplos monitores
   //   libxkbcommon-x11-0   — suporte a teclado X11
-  "onCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libegl1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxkbcommon-x11-0 fonts-noto-color-emoji",
+  //   libeccodes0          — biblioteca C que cfgrib exige para ler GRIB2
+  "onCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libegl1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxkbcommon-x11-0 fonts-noto-color-emoji libeccodes0",
 
   "postCreateCommand": "pip install uv && uv sync",
 
