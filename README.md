@@ -25,6 +25,9 @@
   <img src="https://img.shields.io/badge/plataforma-Windows%2010%2F11-0078D6?style=for-the-badge&logo=windows" alt="Windows"/>
   <img src="https://img.shields.io/badge/licença-MIT-green?style=for-the-badge" alt="Licença"/>
   <img src="https://img.shields.io/badge/python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
+  <a href="https://codespaces.new/ElivaldoRocha/CartoMet_BR">
+    <img src="https://img.shields.io/badge/Abrir_no-Codespaces-black?style=for-the-badge&logo=github" alt="Abrir no GitHub Codespaces"/>
+  </a>
 </p>
 
 ---
@@ -234,7 +237,32 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 2. Execute o instalador e siga as instruções
 3. Abra o CartoMet BR pelo atalho no Menu Iniciar ou Desktop
 
-### Método 2: Código-Fonte — Windows, Linux e macOS
+### Método 2: GitHub Codespaces (Sem instalar nada — roda no navegador)
+
+Ideal como **plano B** quando a instalação local falha por incompatibilidade de drivers ou dependências de sistema.
+
+1. Na página do repositório clique em **`<> Code` → aba `Codespaces` → `Create codespace on main`**
+2. Aguarde ~3 minutos enquanto o ambiente Linux é criado e o `uv sync` roda automaticamente
+3. Uma aba com o **Desktop Remoto** abrirá no navegador — use a senha **`carto`**
+4. No terminal do VS Code (no navegador), execute:
+
+```bash
+uv run python -m cartomet_br gui
+```
+
+5. Troque para a aba do Desktop Remoto — a interface gráfica do CartoMet BR aparecerá lá
+
+> **Como funciona:** O GitHub sobe uma VM Linux com servidor noVNC (porta 6080). O Qt renderiza
+> numa tela virtual e o noVNC transmite a imagem para o seu navegador. Não requer instalação
+> local de nenhuma dependência.
+
+> **Custo:** O plano gratuito do GitHub inclui 120 horas/mês de Codespaces. O arquivo
+> `devcontainer.json` já configura `shutdownAction: stopCodespace` para parar automaticamente
+> ao fechar a aba.
+
+---
+
+### Método 3: Código-Fonte — Windows, Linux e macOS
 
 #### Pré-requisitos
 
