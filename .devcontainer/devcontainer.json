@@ -2,7 +2,6 @@
   "name": "CartoMet BR — Desktop Remoto",
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
 
-  // Desktop-lite instala o servidor noVNC (acesso via navegador na porta 6080)
   "features": {
     "ghcr.io/devcontainers/features/desktop-lite:1": {
       "password": "carto",
@@ -10,21 +9,22 @@
     }
   },
 
-  // Dependências de sistema: Qt (xcb/EGL) + Cartopy (GEOS/PROJ)
-  "onCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libgeos-dev libproj-dev proj-data libgl1-mesa-glx libegl1 libxcb-cursor0 libxcb-xinerama0 libdbus-1-3",
+  // desktop-lite já instala libgl1, libegl1, libdbus-1-3 e as libs xcb/EGL.
+  // Só precisamos adicionar:
+  //   libxcb-cursor0         — Qt6 exige explicitamente esta lib no Linux
+  //   fonts-noto-color-emoji — emojis coloridos no painel de simbologias
+  "onCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libxcb-cursor0 fonts-noto-color-emoji",
 
-  // Instala o uv e sincroniza o ambiente com uv.lock
-  "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && echo 'export PATH=\"$HOME/.local/bin:$PATH\"' >> ~/.bashrc && $HOME/.local/bin/uv sync",
+  // pip install uv é mais confiável que o curl|sh no contexto do devcontainer
+  // (sem problemas de PATH ou de shell não-interativo).
+  "postCreateCommand": "pip install uv && uv sync",
 
-  // Variáveis necessárias para Qt rodar no display virtual do noVNC
   "remoteEnv": {
     "DISPLAY": ":1",
     "QT_QPA_PLATFORM": "xcb",
-    "MPLBACKEND": "QtAgg",
-    "PATH": "${containerEnv:PATH}:${containerEnv:HOME}/.local/bin"
+    "MPLBACKEND": "QtAgg"
   },
 
-  // Expõe a porta do noVNC e abre automaticamente no navegador
   "forwardPorts": [6080],
   "portsAttributes": {
     "6080": {
@@ -33,7 +33,6 @@
     }
   },
 
-  // Para o Codespace ao fechar a aba (evita cobrar horas desnecessárias)
   "shutdownAction": "stopCodespace",
 
   "customizations": {
