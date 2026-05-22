@@ -328,6 +328,20 @@ class SettingsPanel(QWidget):
 
         region_layout.addLayout(extent_grid)
 
+        apply_btn = QPushButton("↻  Aplicar Região")
+        apply_btn.setToolTip("Atualiza o mapa com as coordenadas definidas acima")
+        apply_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2980B9; color: white;
+                font-size: 10px; font-weight: bold;
+                padding: 5px; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #3498DB; }
+            QPushButton:pressed { background-color: #1F618D; }
+        """)
+        apply_btn.clicked.connect(self._on_apply_region)
+        region_layout.addWidget(apply_btn)
+
         # Tema de cores do mapa
         theme_row = QHBoxLayout()
         theme_row.addWidget(QLabel("Tema:"))
@@ -455,6 +469,9 @@ class SettingsPanel(QWidget):
             self.lon_max.setValue(int(extent[2]))
             self.lat_max.setValue(int(extent[3]))
             self.region_changed.emit(extent)
+
+    def _on_apply_region(self):
+        self.region_changed.emit(self.get_extent())
 
     def _on_smooth_changed(self, value):
         sigma = value / 10.0

@@ -68,26 +68,51 @@ class SymbolButton(QPushButton):
 #  EMOJIS METEOROLÓGICOS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# (emoji, tooltip)
+# (emoji, tooltip)  —  6 colunas × 6 linhas = 36 símbolos
 WEATHER_EMOJIS: list[tuple[str, str]] = [
+    # ── Céu e nuvens ──────────────────────────────────────────────────────
     ("☀",  "Sol"),
     ("🌤", "Sol com nuvem"),
     ("⛅", "Parcialmente nublado"),
     ("🌥", "Bastante nublado"),
     ("☁",  "Nublado"),
     ("🌫", "Névoa / Nevoeiro"),
+    # ── Precipitação ──────────────────────────────────────────────────────
     ("🌦", "Chuva e sol"),
     ("🌧", "Chuva"),
     ("⛈", "Trovoada"),
     ("🌩", "Relâmpago"),
     ("🌨", "Neve"),
-    ("❄",  "Frio / Geada"),
-    ("💨", "Vento"),
+    ("💧", "Precipitação / Gota"),
+    # ── Fenômenos extremos ────────────────────────────────────────────────
+    ("⚡", "Atividade elétrica"),
     ("🌪", "Tornado / Ciclone"),
-    ("🌊", "Maré / Onda"),
+    ("🌀", "Ciclone tropical"),
+    ("🌊", "Maré / Onda alta"),
+    ("🔥", "Fogo / Queimada"),
+    ("🌋", "Vulcão / Cinzas"),
+    # ── Frio e inverno ────────────────────────────────────────────────────
+    ("❄",  "Geada / Frio"),
+    ("⛄", "Neve / Inverno"),
+    ("🏔", "Neve em altitude"),
+    ("🥶", "Frio extremo"),
+    # ── Calor e seca ──────────────────────────────────────────────────────
+    ("🌵", "Cacto / Seca"),
+    ("🏜", "Deserto / Aridez"),
+    ("🥵", "Calor extremo"),
+    ("🌞", "Sol forte / Calor"),
+    # ── Estações do ano ───────────────────────────────────────────────────
+    ("🌸", "Primavera / Floração"),
+    ("🌻", "Verão"),
+    ("🍂", "Outono"),
+    ("🌿", "Vegetação / Úmido"),
+    # ── Vento e outros ────────────────────────────────────────────────────
+    ("💨", "Vento"),
+    ("🌬", "Vento forte"),
     ("🌡", "Temperatura"),
     ("🌈", "Arco-íris"),
-    ("⚡", "Atividade elétrica"),
+    ("🌾", "Lavoura / Safra"),
+    ("🌙", "Noite / Lua"),
 ]
 
 
