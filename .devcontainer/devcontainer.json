@@ -9,14 +9,17 @@
     }
   },
 
-  // desktop-lite já instala libgl1, libegl1, libdbus-1-3 e as libs xcb/EGL.
-  // Só precisamos adicionar:
-  //   libxcb-cursor0         — Qt6 exige explicitamente esta lib no Linux
-  //   fonts-noto-color-emoji — emojis coloridos no painel de simbologias
-  "onCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libxcb-cursor0 fonts-noto-color-emoji",
+  // Libs que o Qt6 xcb platform plugin exige e que o desktop-lite não instala:
+  //   libegl1              — EGL (Qt6 obrigatório no Linux)
+  //   libxcb-cursor0       — Qt >= 6.5 exige explicitamente
+  //   libxcb-icccm4        — ICCCM (inter-client communication)
+  //   libxcb-image0        — imagens via xcb
+  //   libxcb-keysyms1      — mapeamento de teclas
+  //   libxcb-render-util0  — utilitários de render xcb
+  //   libxcb-xinerama0     — suporte a múltiplos monitores
+  //   libxkbcommon-x11-0   — suporte a teclado X11
+  "onCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libegl1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxkbcommon-x11-0 fonts-noto-color-emoji",
 
-  // pip install uv é mais confiável que o curl|sh no contexto do devcontainer
-  // (sem problemas de PATH ou de shell não-interativo).
   "postCreateCommand": "pip install uv && uv sync",
 
   "remoteEnv": {
