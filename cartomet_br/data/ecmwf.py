@@ -38,6 +38,8 @@ def download_ecmwf(
     data_dir: Path = Path("data"),
     source: str = "ecmwf",
     force_download: bool = False,
+    levtype: str | None = None,
+    date: str | None = None,
 ) -> Path:
     """
     Baixa dados do ECMWF Open Data (IFS).
@@ -121,19 +123,37 @@ def download_ecmwf(
     except Exception as e:
         raise ConnectionError(f"Erro ao conectar ao ECMWF: {e}") from e
     
+    # IFS Cycle 50r1 (13/05/2026): 06Z/18Z migraram de 'scda' para 'oper'. NÃO
+    # forçamos stream="oper" aqui — a ecmwf-opendata >= 0.3.29 já infere o stream
+    # correto. Forçá-lo quebrava o filtro de alguns params em nível de pressão
+    # (vo/d/w), que baixavam o pacote oper inteiro (~132 MB) e falhavam no cfgrib.
     request_params = {
         "step": step,
         "type": "fc",
         "param": variables,
         "target": str(output_path),
     }
-    
+
     # Se o usuário escolheu uma rodada específica, passa o parâmetro time
     if cycle is not None:
         request_params["time"] = cycle
-    
+
+    # Data específica da rodada (YYYYMMDD). Sem isto, o cliente pega a mais recente
+    # daquela hora — o que quebraria a consistência temporal da Técnica B (OLR).
+    if date is not None:
+        request_params["date"] = date
+
     if levels is not None:
         request_params["levelist"] = levels
+
+    # levtype EXPLÍCITO p/ filtrar só o campo pedido: 'pl' quando há níveis de
+    # pressão, 'sfc' caso contrário (o chamador pode forçar, ex.: LOCZCIT="sfc").
+    # Sem isto, params como vo/d/w caem no pacote oper inteiro (~132 MB) de forma
+    # intermitente. O nível único vira isobaricInhPa ESCALAR — a leitura abaixo
+    # trata isso usando `in ds.dims` (não `.coords`) antes do `.sel`.
+    if levtype is None:
+        levtype = "pl" if levels is not None else "sfc"
+    request_params["levtype"] = levtype
 
     cycle_str = f"{cycle:02d}Z" if cycle is not None else "auto"
     logger.info("Baixando dados do ECMWF Open Data...")
@@ -144,8 +164,14 @@ def download_ecmwf(
     logger.info("  Destino: %s", output_path)
     
     try:
-        result = client.download(**request_params)
-        
+        # client.retrieve() faz SELEÇÃO DE CAMPO por param/levtype (arquivo pequeno e
+        # correto, inclui 10u/10v); client.download() baixa o arquivo inteiro (~130 MB)
+        # e nem contém o vento 10 m. Usamos retrieve quando levtype é explícito.
+        if levtype is not None:
+            result = client.retrieve(**request_params)
+        else:
+            result = client.download(**request_params)
+
         # Verifica se o download foi bem-sucedido
         if not output_path.exists():
             raise FileNotFoundError(
@@ -161,9 +187,17 @@ def download_ecmwf(
         
         # Trata erros específicos
         if "Cannot establish latest" in error_msg:
+            cycle_hint = f" {cycle:02d}Z" if cycle is not None else ""
             raise ValueError(
-                f"Dados não disponíveis para step +{step}h.\n"
-                f"O ECMWF disponibiliza apenas steps múltiplos de 3 (ex: 0, 3, 6, 9...)."
+                f"A rodada{cycle_hint} ainda não está disponível no ECMWF.\n\n"
+                f"Isso costuma acontecer com as rodadas 06Z e 18Z, que são publicadas "
+                f"mais tarde (a 18Z só fica pronta por volta de 01:30 UTC).\n\n"
+                f"O que fazer agora:\n"
+                f"  • Use as rodadas 00Z ou 12Z, que já estão disponíveis.\n"
+                f"  • Clique em \"Verificar Rodadas\" para ver as passadas prontas.\n\n"
+                f"Se as rodadas 06Z/18Z continuarem falhando mesmo já publicadas, "
+                f"pode ser necessário atualizar o CartoMet BR para uma versão mais "
+                f"recente (mudança técnica do ECMWF — IFS Cycle 50r1)."
             ) from e
         elif "404" in error_msg:
             raise FileNotFoundError(
@@ -404,90 +438,67 @@ CYCLE_SCHEDULE = [
 ]
 
 
+PUBLISH_DELAY = 7.5    # horas após a rodada até a publicação no Open Data
+N_RECENT_CYCLES = 12   # rodadas listadas = arquivo rotativo do ECMWF (~3 dias)
+
+
 def estimate_available_cycles() -> dict:
     """
-    Estima quais rodadas ECMWF estão disponíveis agora.
-    
-    O ECMWF mantém dados no servidor por pelo menos 24h, então precisamos
-    verificar tanto as rodadas de hoje quanto as de ontem.
-    
+    Estima as rodadas ECMWF mais recentes via JANELA DESLIZANTE (rolling window).
+
+    Caminha para trás em passos de 6 h a partir do horário sinótico atual,
+    aplicando o atraso de publicação (~7,5 h), até coletar exatamente as
+    ``N_RECENT_CYCLES`` rodadas já publicadas — cruzando a meia-noite (e dias
+    anteriores) naturalmente, sem travar no dia corrente.
+
     Retorna
     -------
     dict com:
-        - "available": lista de rodadas disponíveis (mais recente primeiro)
+        - "available": lista das rodadas disponíveis (mais recente primeiro)
         - "latest": a rodada mais recente estimada
         - "next": próxima rodada esperada e horário estimado
         - "utc_now": hora UTC atual
     """
     now = datetime.now(timezone.utc)
-    hour_decimal = now.hour + now.minute / 60.0
-    today = now.date()
-    yesterday = today - timedelta(days=1)
-    
+    by_cycle = {c["cycle"]: c for c in CYCLE_SCHEDULE}
+
+    # Ancora no horário sinótico atual (piso para 0/6/12/18)
+    anchor = now.replace(minute=0, second=0, microsecond=0)
+    anchor -= timedelta(hours=anchor.hour % 6)
+
+    # Recolhe para trás (6/6h) até ter N rodadas publicadas
     available = []
-    
-    # Tabela de publicação: (cycle_hour, delay_hours_after_cycle)
-    # 00Z publica ~07:30 → delay 7.5h
-    # 06Z publica ~13:30 → delay 7.5h
-    # 12Z publica ~19:30 → delay 7.5h
-    # 18Z publica ~01:30+1d → delay 7.5h
-    PUBLISH_DELAY = 7.5  # horas após a rodada
-    
-    # Verifica rodadas dos últimos 2 dias (ontem e hoje)
-    for day_offset in [0, -1]:  # hoje, ontem
-        check_date = today + timedelta(days=day_offset)
-        
-        for info in CYCLE_SCHEDULE:
-            cycle_h = info["cycle"]
-            
-            # Datetime de quando essa rodada ficou disponível
-            cycle_dt = datetime(check_date.year, check_date.month, check_date.day,
-                                cycle_h, 0, tzinfo=timezone.utc)
-            publish_dt = cycle_dt + timedelta(hours=PUBLISH_DELAY)
-            
-            # Está disponível se já passou do horário de publicação
-            if now >= publish_dt:
-                # Evita duplicatas
-                already = any(
-                    c["cycle"] == cycle_h and c["date_str"] == check_date.strftime("%d/%m/%Y")
-                    for c in available
-                )
-                if not already:
-                    available.append({
-                        "cycle": cycle_h,
-                        "label": info["label"],
-                        "max_step": info["max_step"],
-                        "base_datetime": cycle_dt,
-                        "date_str": check_date.strftime("%d/%m/%Y"),
-                    })
-    
-    # Ordena por datetime, mais recente primeiro
-    available.sort(key=lambda x: x["base_datetime"], reverse=True)
-    
-    # Limita a 6 rodadas mais recentes (evita lista enorme)
-    available = available[:6]
-    
-    # Próxima rodada (a mais próxima que ainda não está disponível)
+    cand = anchor
+    guard = 80  # segurança (~20 dias de ciclos)
+    while len(available) < N_RECENT_CYCLES and guard > 0:
+        if now >= cand + timedelta(hours=PUBLISH_DELAY):
+            info = by_cycle[cand.hour]
+            available.append({
+                "cycle": cand.hour,
+                "label": info["label"],
+                "max_step": info["max_step"],
+                "base_datetime": cand,
+                "date_str": cand.strftime("%d/%m/%Y"),
+            })
+        cand -= timedelta(hours=6)
+        guard -= 1
+
+    # Próxima rodada (a primeira ainda NÃO publicada, andando p/ frente)
     next_cycle = None
-    for day_offset in [0, 1]:
-        check_date = today + timedelta(days=day_offset)
-        for info in CYCLE_SCHEDULE:
-            cycle_dt = datetime(check_date.year, check_date.month, check_date.day,
-                                info["cycle"], 0, tzinfo=timezone.utc)
-            publish_dt = cycle_dt + timedelta(hours=PUBLISH_DELAY)
-            
-            if now < publish_dt:
-                wait_minutes = int((publish_dt - now).total_seconds() / 60)
-                next_cycle = {
-                    "label": info["label"],
-                    "estimated_time": publish_dt.strftime("%H:%M UTC"),
-                    "wait_minutes": wait_minutes,
-                    "date_str": check_date.strftime("%d/%m"),
-                }
-                break
-        if next_cycle:
+    fwd = anchor
+    for _ in range(8):
+        publish_dt = fwd + timedelta(hours=PUBLISH_DELAY)
+        if now < publish_dt:
+            wait_minutes = int((publish_dt - now).total_seconds() / 60)
+            next_cycle = {
+                "label": by_cycle[fwd.hour]["label"],
+                "estimated_time": publish_dt.strftime("%H:%M UTC"),
+                "wait_minutes": wait_minutes,
+                "date_str": fwd.strftime("%d/%m"),
+            }
             break
-    
+        fwd += timedelta(hours=6)
+
     return {
         "available": available,
         "latest": available[0] if available else None,
@@ -604,7 +615,7 @@ VARIABLE_REGISTRY = {
         "category": "scalar",
     },
     "olr": {
-        "nome": "OLR",
+        "nome": "OLR (desacumulada)",
         "param": ["ttr"],
         "unit_raw": "J/m²",
         "unit_display": "W/m²",
@@ -614,6 +625,42 @@ VARIABLE_REGISTRY = {
         "symmetric": False,
         "category": "radiation",
         "min_step": 3,
+        "tem_tecnica": True,   # suporta seletor Direta/Estabilizada (desacumulação)
+    },
+    "precip": {
+        "nome": "Precipitação (3h)",
+        "param": ["tp"],
+        "unit_raw": "m",
+        "unit_display": "mm/3h",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "precip_classic",
+        "symmetric": False,
+        "category": "accumulated",
+        "min_step": 3,
+        "tem_tecnica": True,
+    },
+    "sst_model": {
+        "nome": "TSM do modelo (IFS skin)",
+        "param": ["skt"],
+        "unit_raw": "K",
+        "unit_display": "°C",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "sst_classic",
+        "symmetric": False,
+        "category": "ocean",
+    },
+    "sst_grad": {
+        "nome": "Gradiente de TSM |∇TSM|",
+        "param": ["skt"],
+        "unit_raw": "K/m",
+        "unit_display": "°C/100km",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "ocean",
     },
     "temp_adv": {
         "nome": "Advecção de Temperatura",
@@ -799,7 +846,7 @@ def load_pl_variable(
         "longitude": slice(extent[0], extent[2]),
         "latitude": slice(extent[3], extent[1]),
     }
-    if "isobaricInhPa" in ds.coords:
+    if "isobaricInhPa" in ds.dims:   # só seleciona se for DIMENSÃO (nível único = escalar)
         sel_kwargs["isobaricInhPa"] = level
     
     # Extrai metadados de tempo
@@ -955,7 +1002,7 @@ def _compute_derived_variable(
         "longitude": slice(extent[0], extent[2]),
         "latitude": slice(extent[3], extent[1]),
     }
-    if "isobaricInhPa" in ds_t.coords:
+    if "isobaricInhPa" in ds_t.dims:
         sel_kw["isobaricInhPa"] = level
     
     t_data = ds_t["t"].sel(**sel_kw).values  # Kelvin
@@ -1035,7 +1082,7 @@ def _compute_derived_variable(
             "longitude": slice(extent[0], extent[2]),
             "latitude": slice(extent[3], extent[1]),
         }
-        if "isobaricInhPa" in ds_uv.coords:
+        if "isobaricInhPa" in ds_uv.dims:
             sel_kw_uv["isobaricInhPa"] = level
         
         u_data = ds_uv["u"].sel(**sel_kw_uv).values
@@ -1096,7 +1143,7 @@ def _compute_derived_variable(
             "longitude": slice(extent[0], extent[2]),
             "latitude": slice(extent[3], extent[1]),
         }
-        if "isobaricInhPa" in ds_uv.coords:
+        if "isobaricInhPa" in ds_uv.dims:
             sel_kw_uv["isobaricInhPa"] = level
         
         u_data = ds_uv["u"].sel(**sel_kw_uv).values
@@ -1170,7 +1217,7 @@ def _compute_derived_variable(
             "longitude": slice(extent[0], extent[2]),
             "latitude": slice(extent[3], extent[1]),
         }
-        if "isobaricInhPa" in ds_q.coords:
+        if "isobaricInhPa" in ds_q.dims:
             sel_kw_q["isobaricInhPa"] = level
 
         q_data = ds_q["q"].sel(**sel_kw_q).values  # kg/kg
@@ -1212,7 +1259,7 @@ def _compute_derived_variable(
             "longitude": slice(extent[0], extent[2]),
             "latitude": slice(extent[3], extent[1]),
         }
-        if "isobaricInhPa" in ds_uv.coords:
+        if "isobaricInhPa" in ds_uv.dims:
             sel_kw_uv["isobaricInhPa"] = level
 
         u_data = ds_uv["u"].sel(**sel_kw_uv).values
@@ -1268,6 +1315,122 @@ def _compute_derived_variable(
     raise ValueError(f"Variável derivada '{variable_key}' não implementada.")
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  DESACUMULAÇÃO TEMPORAL (OLR / Precipitação) — IFS Cycle 50r1
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Variáveis de FLUXO ACUMULADO (ttr → OLR, tp → precipitação) guardam a soma
+# desde a inicialização da rodada. Para obter o fluxo representativo de uma janela
+# curta usa-se DESACUMULAÇÃO: subtrai-se o passo anterior e divide-se pelo Δt.
+#
+#   • Direta:       janela [step-3, step] da rodada selecionada.
+#   • Estabilizada: "Técnica B" — usa a rodada anterior madura (12h antes do
+#                   horário válido, janela steps 9–12), mitigando o spin-up da
+#                   microfísica de nuvens. Recomendada p/ convecção/ZCIT.
+#
+# Ref.: Copernicus CKB (de-accumulation, spin-up mitigation); IFS Cycle 50r1
+# preenche o step=0 de variáveis acumuladas com zeros.
+
+def _read_accum_field(
+    param: str, cycle: int | None, date_str: str, step: int,
+    extent: list[float], data_dir: Path, source: str, force_download: bool,
+) -> tuple:
+    """Baixa e lê uma variável acumulada (ttr/tp) num run+step, recortada ao extent."""
+    cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
+    grib_file = download_ecmwf(
+        variables=[param],
+        levels=None,
+        step=step,
+        cycle=cycle,
+        output_path=Path(data_dir) / f"ecmwf_{param}_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+        data_dir=data_dir,
+        source=source,
+        force_download=force_download,
+    )
+    ds = xr.open_dataset(grib_file, engine="cfgrib", backend_kwargs={"errors": "ignore"})
+    ds = ds.assign_coords(longitude=(ds.longitude + 180) % 360 - 180)
+    ds = ds.sortby("longitude")
+    da = ds[param].sel(
+        longitude=slice(extent[0], extent[2]),
+        latitude=slice(extent[3], extent[1]),
+    )
+    vals = da.values
+    lons = da.longitude.values
+    lats = da.latitude.values
+    vt, bt = "", ""
+    try:
+        if "valid_time" in ds.coords:
+            vt = np.datetime_as_string(ds.valid_time.values, unit="m")
+        if "time" in ds.coords:
+            bt_dt = np.datetime64(ds.time.values, "s").astype("datetime64[s]").astype(datetime)
+            bt = bt_dt.strftime("%HZ %d/%m/%Y")
+    except (KeyError, IndexError, ValueError, TypeError):
+        pass
+    ds.close()
+    return vals, lons, lats, vt, bt
+
+
+def _resolve_accum_window(
+    technique: str, cycle: int | None, cycle_date: str | None, step: int,
+) -> tuple:
+    """Resolve (run_cycle, run_date, step_hi, step_lo, rótulo) para a desacumulação."""
+    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+
+    if technique == "stabilized":
+        # Técnica B DINÂMICA (mitiga spin-up): rodada-base 12h antes da rodada
+        # selecionada (sempre real); step alvo = step+12; janela 3h(≤144)/6h.
+        # Ancorar na rodada (não no valid_time) evita rodada-base no futuro p/ previsões.
+        c = cycle if cycle is not None else 0
+        try:
+            run_dt = datetime.strptime(date_str, "%Y%m%d").replace(
+                hour=c, tzinfo=timezone.utc
+            )
+        except ValueError:
+            run_dt = datetime.now(timezone.utc).replace(
+                hour=c, minute=0, second=0, microsecond=0
+            )
+        base = run_dt - timedelta(hours=12)
+        target = step + 12
+        window_h = 3 if target <= 144 else 6
+        step_lo = target - window_h
+        label = (f"Estabilizada · rodada {base.strftime('%HZ %d/%m')} "
+                 f"(steps {step_lo}–{target})")
+        return base.hour, base.strftime("%Y%m%d"), target, step_lo, label
+
+    # Direta: janela [step-w, step] da rodada selecionada (w=3h até 144h, senão 6h)
+    window_h = 3 if step <= 144 else 6
+    step_lo = max(step - window_h, 0)
+    label = f"Direta · rodada atual (steps {step_lo}–{step})"
+    return cycle, date_str, step, step_lo, label
+
+
+def _deaccumulate(
+    param: str, technique: str, cycle: int | None, cycle_date: str | None,
+    step: int, extent: list[float], data_dir: Path, source: str,
+    smoothing_sigma: float, force_download: bool,
+) -> tuple:
+    """Desacumula uma variável de fluxo: retorna (Δ, lons, lats, valid, base, rótulo, Δt_seg)."""
+    run_cycle, run_date, step_hi, step_lo, label = _resolve_accum_window(
+        technique, cycle, cycle_date, step
+    )
+    vhi, lons, lats, vt, bt = _read_accum_field(
+        param, run_cycle, run_date, step_hi, extent, data_dir, source, force_download
+    )
+    if step_lo > 0:
+        vlo, *_ = _read_accum_field(
+            param, run_cycle, run_date, step_lo, extent, data_dir, source, force_download
+        )
+    else:
+        # IFS 50r1: step=0 de variáveis acumuladas é zero — evita um download.
+        vlo = np.zeros_like(vhi)
+
+    delta = vhi - vlo
+    if smoothing_sigma > 0:
+        delta = gaussian_filter(delta, sigma=smoothing_sigma)
+    dt_seconds = max(step_hi - step_lo, 1) * 3600.0
+    return delta, lons, lats, vt, bt, label, dt_seconds
+
+
 def load_olr(
     extent: list[float],
     step: int = 3,
@@ -1277,100 +1440,265 @@ def load_olr(
     smoothing_sigma: float = 1.0,
     source: str = "ecmwf",
     force_download: bool = False,
+    technique: str = "direct",
 ) -> PLFieldData:
     """
-    Baixa e processa OLR (Outgoing Longwave Radiation).
-    
-    OLR = -ttr / (step_seconds)
-    
-    Onde ttr é "Top net thermal radiation" acumulado em J/m².
-    A conversão divide pelo tempo de acumulação para obter W/m².
-    O sinal negativo é porque ttr é negativo para radiação saindo.
-    
-    IMPORTANTE: step deve ser >= 3h (no step 0, ttr = 0).
+    Baixa e processa a OLR (Outgoing Longwave Radiation) DESACUMULADA.
+
+    A partir de `ttr` (Top net thermal radiation, acumulado em J/m²):
+
+        OLR = -(ttr[step_hi] - ttr[step_lo]) / Δt   [W/m²]
+
+    `technique`:
+      - "direct"     : janela [step-3, step] da rodada selecionada.
+      - "stabilized" : Técnica B (mitiga spin-up) — rodada anterior madura,
+                       janela steps 9–12. Recomendada para convecção/ZCIT.
     """
-    if step < 3:
-        raise ValueError(
-            "OLR requer step >= 3h.\n\n"
-            "No step 0 (análise), o campo ttr é zero porque não houve "
-            "acumulação temporal.\n\n"
-            "Sugestão: use step +3h ou +6h."
-        )
-    
     if data_dir is None:
         raise ValueError("data_dir não pode ser None")
     data_dir = Path(data_dir)
-    
-    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
-    cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
-    
-    logger.info("Carregando OLR (ttr → W/m²)")
-    
-    # ttr é variável de superfície (sfc)
-    grib_file = download_ecmwf(
-        variables=["ttr"],
-        levels=None,
-        step=step,
-        cycle=cycle,
-        output_path=data_dir / f"ecmwf_ttr_{date_str}_{cycle_tag}_f{step:03d}.grib2",
-        data_dir=data_dir,
-        source=source,
-        force_download=force_download,
-    )
-    
-    ds = xr.open_dataset(
-        grib_file,
-        engine="cfgrib",
-        backend_kwargs={"errors": "ignore"}
-    )
-    
-    ds = ds.assign_coords(longitude=(ds.longitude + 180) % 360 - 180)
-    ds = ds.sortby("longitude")
-    
-    ttr = ds["ttr"].sel(
-        longitude=slice(extent[0], extent[2]),
-        latitude=slice(extent[3], extent[1]),
-    )
-    
-    ttr_values = ttr.values
-    lons_arr = ttr.longitude.values
-    lats_arr = ttr.latitude.values
-    
-    if smoothing_sigma > 0:
-        ttr_values = gaussian_filter(ttr_values, sigma=smoothing_sigma)
-    
-    # Conversão: -ttr / (step * 3600) = W/m²
-    step_seconds = step * 3600.0
-    olr = -ttr_values / step_seconds
-    
-    # Metadados
-    valid_time_str = ""
-    base_time_str = ""
-    try:
-        if "valid_time" in ds.coords:
-            valid_time_str = np.datetime_as_string(ds.valid_time.values, unit="m")
-        if "time" in ds.coords:
-            bt = ds.time.values
-            bt_dt = np.datetime64(bt, "s").astype("datetime64[s]").astype(datetime)
-            base_time_str = f"{bt_dt.strftime('%HZ %d/%m/%Y')}"
-    except (KeyError, IndexError, ValueError, TypeError) as e:
-        logger.warning("Não foi possível extrair metadados de tempo (OLR): %s", e)
 
-    ds.close()
+    if technique == "direct" and step < 3:
+        raise ValueError(
+            "OLR no modo Direto requer step ≥ 3h (no step 0 não há janela de "
+            "acumulação).\n\nUse o modo Estabilizada (mitiga spin-up) para obter "
+            "a OLR já no horário da análise."
+        )
 
-    logger.info("  OLR range: %.1f – %.1f W/m²", np.nanmin(olr), np.nanmax(olr))
-    
+    logger.info("Carregando OLR desacumulada (técnica=%s, step=%s)", technique, step)
+    delta, lons, lats, vt, bt, label, dt_sec = _deaccumulate(
+        "ttr", technique, cycle, cycle_date, step, extent,
+        data_dir, source, smoothing_sigma, force_download,
+    )
+    olr = -delta / dt_sec
+    logger.info("  OLR %.0f–%.0f W/m² (%s)", np.nanmin(olr), np.nanmax(olr), label)
+
     return PLFieldData(
         values=olr,
-        lons=lons_arr,
-        lats=lats_arr,
+        lons=lons,
+        lats=lats,
         variable="olr",
         level=0,
         unit="W/m²",
-        valid_time=valid_time_str,
-        base_time=base_time_str,
+        valid_time=vt,
+        base_time=bt,
         step=step,
     )
+
+
+def load_precip(
+    extent: list[float],
+    step: int = 3,
+    cycle: int | None = None,
+    cycle_date: str | None = None,
+    data_dir: Path = Path("data"),
+    smoothing_sigma: float = 1.0,
+    source: str = "ecmwf",
+    force_download: bool = False,
+    technique: str = "direct",
+) -> PLFieldData:
+    """
+    Baixa e processa a precipitação DESACUMULADA (mm na janela) a partir de `tp`.
+
+        precip = (tp[step_hi] - tp[step_lo]) × 1000   [mm]
+
+    O ECMWF entrega `tp` ACUMULADO desde t=0 da rodada; a chuva de uma janela é a
+    diferença entre dois steps — o método padrão e único válido de PNT. Como o
+    acúmulo é MONOTÔNICO (tp[hi] ≥ tp[lo]), o resultado é SEMPRE ≥ 0 ("chuva
+    negativa" é impossível); o `np.clip(..., 0, None)` é só uma rede de segurança
+    contra artefatos numéricos. NÃO se divide por Δt (chuva é acúmulo em mm, não
+    fluxo — diferente da OLR em W/m²).
+
+    `technique`:
+      - "direct" (padrão): janela [step-3, step] da RODADA SELECIONADA.
+      - "stabilized" (Técnica B): rodada anterior madura (mitiga spin-up). Ver
+        `_resolve_accum_window`.
+    """
+    if data_dir is None:
+        raise ValueError("data_dir não pode ser None")
+    data_dir = Path(data_dir)
+
+    if technique == "direct" and step < 3:
+        raise ValueError(
+            "Precipitação no modo Direto requer step ≥ 3h.\n\n"
+            "Use o modo Estabilizada para obter a chuva no horário da análise."
+        )
+
+    logger.info("Carregando precipitação desacumulada (técnica=%s, step=%s)", technique, step)
+    delta, lons, lats, vt, bt, label, _dt = _deaccumulate(
+        "tp", technique, cycle, cycle_date, step, extent,
+        data_dir, source, smoothing_sigma, force_download,
+    )
+    precip_mm = np.clip(delta * 1000.0, 0.0, None)  # m → mm, sem negativos espúrios
+    logger.info("  Precip máx %.1f mm/3h (%s)", np.nanmax(precip_mm), label)
+
+    return PLFieldData(
+        values=precip_mm,
+        lons=lons,
+        lats=lats,
+        variable="precip",
+        level=0,
+        unit="mm/3h",
+        valid_time=vt,
+        base_time=bt,
+        step=step,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  TSM DO MODELO IFS (skin temperature sobre o oceano) — IFS Cycle 50r1
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# O ECMWF Open Data NÃO expõe o parâmetro `sst` (restrito ao MARS credenciado),
+# mas expõe `skt` (Skin Temperature). Sobre pontos de OCEANO, a skin temperature
+# do modelo acoplado (NEMO4-SI³, 50r1) É a TSM-pele do IFS — a interface direta
+# água↔atmosfera, com o ciclo diurno aprimorado. Mascara-se o continente com a
+# máscara terra-mar `lsm`. (Verificado empiricamente: `sst` ausente do índice.)
+
+def _read_skt_ocean(
+    extent: list[float], step: int, cycle: int | None, cycle_date: str | None,
+    data_dir: Path, source: str, smoothing_sigma: float, force_download: bool,
+) -> tuple:
+    """Lê skt (°C) mascarada ao oceano via lsm. Retorna (skt_c, lons, lats, vt, bt)."""
+    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+    cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
+
+    skt_file = download_ecmwf(
+        variables=["skt"], levels=None, step=step, cycle=cycle,
+        output_path=Path(data_dir) / f"ecmwf_skt_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+        data_dir=data_dir, source=source, force_download=force_download,
+    )
+    lsm_file = download_ecmwf(
+        variables=["lsm"], levels=None, step=step, cycle=cycle,
+        output_path=Path(data_dir) / f"ecmwf_lsm_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+        data_dir=data_dir, source=source, force_download=force_download,
+    )
+
+    def _open(fn, shortname):
+        ds = xr.open_dataset(
+            fn, engine="cfgrib",
+            backend_kwargs={"filter_by_keys": {"shortName": shortname}, "errors": "ignore"},
+        )
+        ds = ds.assign_coords(longitude=(ds.longitude + 180) % 360 - 180).sortby("longitude")
+        da = ds[shortname].sel(
+            longitude=slice(extent[0], extent[2]), latitude=slice(extent[3], extent[1])
+        )
+        return ds, da
+
+    ds_skt, skt = _open(skt_file, "skt")
+    _ds_lsm, lsm = _open(lsm_file, "lsm")
+
+    skt_c = skt.values - 273.15      # K → °C
+    lons = skt.longitude.values
+    lats = skt.latitude.values
+
+    if smoothing_sigma > 0:
+        skt_c = gaussian_filter(skt_c, sigma=smoothing_sigma)
+
+    # Máscara: lsm >= 0.5 é continente → remove (mantém só oceano)
+    land = np.asarray(lsm.values) >= 0.5
+    skt_c = np.where(land, np.nan, skt_c)
+
+    vt, bt = "", ""
+    try:
+        if "valid_time" in ds_skt.coords:
+            vt = np.datetime_as_string(ds_skt.valid_time.values, unit="m")
+        if "time" in ds_skt.coords:
+            bt_dt = np.datetime64(ds_skt.time.values, "s").astype("datetime64[s]").astype(datetime)
+            bt = bt_dt.strftime("%HZ %d/%m/%Y")
+    except (KeyError, IndexError, ValueError, TypeError):
+        pass
+    ds_skt.close()
+    _ds_lsm.close()
+    return skt_c, lons, lats, vt, bt
+
+
+def load_model_sst(
+    extent: list[float],
+    step: int = 0,
+    cycle: int | None = None,
+    cycle_date: str | None = None,
+    data_dir: Path = Path("data"),
+    smoothing_sigma: float = 1.0,
+    source: str = "ecmwf",
+    force_download: bool = False,
+) -> PLFieldData:
+    """TSM do modelo IFS (skin temperature sobre o oceano), em °C.
+
+    Variável de estado instantânea — o step=0 entrega a análise sem spin-up.
+    """
+    if data_dir is None:
+        raise ValueError("data_dir não pode ser None")
+    data_dir = Path(data_dir)
+
+    logger.info("Carregando TSM do modelo IFS (skt/oceano)")
+    skt_c, lons, lats, vt, bt = _read_skt_ocean(
+        extent, step, cycle, cycle_date, data_dir, source, smoothing_sigma, force_download
+    )
+    logger.info("  TSM modelo: %.1f – %.1f °C", np.nanmin(skt_c), np.nanmax(skt_c))
+
+    return PLFieldData(
+        values=skt_c, lons=lons, lats=lats, variable="sst_model", level=0,
+        unit="°C", valid_time=vt, base_time=bt, step=step,
+    )
+
+
+def load_sst_gradient(
+    extent: list[float],
+    step: int = 0,
+    cycle: int | None = None,
+    cycle_date: str | None = None,
+    data_dir: Path = Path("data"),
+    smoothing_sigma: float = 1.0,
+    source: str = "ecmwf",
+    force_download: bool = False,
+) -> PLFieldData:
+    """Magnitude do gradiente térmico da TSM do modelo |∇TSM| (°C/100km), via MetPy.
+
+    Calculado sobre o oceano (continente mascarado). Útil para localizar frentes
+    térmicas oceânicas que ancoram a convergência de baixos níveis (ZCIT).
+    """
+    if data_dir is None:
+        raise ValueError("data_dir não pode ser None")
+    data_dir = Path(data_dir)
+
+    logger.info("Carregando gradiente de TSM do modelo |∇TSM| (MetPy)")
+    skt_c, lons, lats, vt, bt = _read_skt_ocean(
+        extent, step, cycle, cycle_date, data_dir, source, smoothing_sigma, force_download
+    )
+
+    grad_mag = _gradient_magnitude_metpy(skt_c, lons, lats)
+    logger.info("  |∇TSM| máx: %.2f °C/100km", np.nanmax(grad_mag))
+
+    return PLFieldData(
+        values=grad_mag, lons=lons, lats=lats, variable="sst_grad", level=0,
+        unit="°C/100km", valid_time=vt, base_time=bt, step=step,
+    )
+
+
+def _gradient_magnitude_metpy(arr: np.ndarray, lons: np.ndarray, lats: np.ndarray) -> np.ndarray:
+    """|∇arr| em unidade/100km usando MetPy (fallback p/ diferenças finitas)."""
+    try:
+        import metpy.calc as mpcalc
+        from metpy.units import units
+
+        dx, dy = mpcalc.lat_lon_grid_deltas(lons, lats)
+        # Usa kelvin/°C como diferença numérica (∇K ≡ ∇°C); evita offset do degC no pint
+        grad = mpcalc.gradient(arr * units.kelvin, deltas=(dy, dx))
+        gy = np.asarray(grad[0].magnitude)
+        gx = np.asarray(grad[1].magnitude)
+        mag = np.sqrt(gx ** 2 + gy ** 2)        # °C/m
+        return mag * 1e5                         # °C/m → °C/100km
+    except Exception as exc:  # pragma: no cover — fallback robusto
+        logger.warning("MetPy falhou no gradiente (%s); usando diferenças finitas.", exc)
+        lat_rad = np.deg2rad(lats)
+        R = 6.371e6
+        dy = np.deg2rad(np.diff(lats).mean()) * R
+        dx2d = (np.deg2rad(np.diff(lons).mean()) * R
+                * np.cos(lat_rad)[:, np.newaxis] * np.ones((1, len(lons))))
+        dfdy = np.gradient(arr, dy, axis=0)
+        dfdx = np.gradient(arr, axis=1) / dx2d
+        return np.sqrt(dfdx ** 2 + dfdy ** 2) * 1e5
 
 
 def load_tcwv(

@@ -22,7 +22,10 @@ from cartomet_br.data.ecmwf import (
     load_synoptic_data,
     load_pl_variable,
     load_olr,
+    load_precip,
     load_tcwv,
+    load_model_sst,
+    load_sst_gradient,
     download_goes16_ir,
     estimate_available_cycles,
 )
@@ -114,7 +117,7 @@ class DataService:
     @staticmethod
     def validate_level(variable_key: str, level: int | None) -> None:
         """Valida se o nível de pressão é válido para a variável."""
-        if variable_key in ("olr", "tcwv"):
+        if variable_key in ("olr", "tcwv", "precip", "sst_model", "sst_grad"):
             return  # Variáveis de superfície, sem nível
         if level is None:
             raise ValidationError(
@@ -157,7 +160,7 @@ class DataService:
                 step=step,
                 cycle=cycle,
                 cycle_date=cycle_date,
-                data_dir=self._config.data_dir,
+                data_dir=self._config.grib_dir,
                 smoothing_sigma=self._config.smoothing_sigma,
             )
         except (ValidationError, DataServiceError):
@@ -173,6 +176,7 @@ class DataService:
         cycle: int | None = None,
         cycle_date: str | None = None,
         wind_type: str = "barbs",
+        technique: str = "direct",
     ) -> tuple[str, PLFieldData]:
         """Baixa um campo em nível de pressão / OLR / TCWV.
 
@@ -199,8 +203,20 @@ class DataService:
                     step=step,
                     cycle=cycle,
                     cycle_date=cycle_date,
-                    data_dir=self._config.data_dir,
+                    data_dir=self._config.grib_dir,
                     smoothing_sigma=self._config.smoothing_sigma,
+                    technique=technique,
+                )
+            elif variable_key == "precip":
+                layer_id = "precip"
+                data = load_precip(
+                    extent=self._config.extent,
+                    step=step,
+                    cycle=cycle,
+                    cycle_date=cycle_date,
+                    data_dir=self._config.grib_dir,
+                    smoothing_sigma=self._config.smoothing_sigma,
+                    technique=technique,
                 )
             elif variable_key == "tcwv":
                 layer_id = "tcwv"
@@ -209,7 +225,18 @@ class DataService:
                     step=step,
                     cycle=cycle,
                     cycle_date=cycle_date,
-                    data_dir=self._config.data_dir,
+                    data_dir=self._config.grib_dir,
+                    smoothing_sigma=self._config.smoothing_sigma,
+                )
+            elif variable_key in ("sst_model", "sst_grad"):
+                layer_id = variable_key
+                loader = load_model_sst if variable_key == "sst_model" else load_sst_gradient
+                data = loader(
+                    extent=self._config.extent,
+                    step=step,
+                    cycle=cycle,
+                    cycle_date=cycle_date,
+                    data_dir=self._config.grib_dir,
                     smoothing_sigma=self._config.smoothing_sigma,
                 )
             else:
@@ -224,7 +251,7 @@ class DataService:
                     step=step,
                     cycle=cycle,
                     cycle_date=cycle_date,
-                    data_dir=self._config.data_dir,
+                    data_dir=self._config.grib_dir,
                     smoothing_sigma=self._config.smoothing_sigma,
                 )
 
@@ -253,7 +280,7 @@ class DataService:
 
         try:
             return download_goes16_ir(
-                data_dir=self._config.data_dir,
+                data_dir=self._config.satellite_dir,
                 target_time=target_time,
                 progress_callback=progress_callback,
             )
@@ -291,10 +318,8 @@ class DataService:
         wind_type: str = "barbs",
     ) -> str:
         """Gera identificador consistente para uma camada."""
-        if variable_key == "olr":
-            return "olr"
-        if variable_key == "tcwv":
-            return "tcwv"
+        if variable_key in ("olr", "tcwv", "precip", "sst_model", "sst_grad"):
+            return variable_key
         if variable_key == "wind":
             return f"wind_{level}_{wind_type}"
         return f"{variable_key}_{level}"
