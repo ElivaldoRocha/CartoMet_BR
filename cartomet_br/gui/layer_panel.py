@@ -254,6 +254,7 @@ class SettingsPanel(QWidget):
     theme_changed = pyqtSignal(str)
     update_requested = pyqtSignal()
     layers_changed = pyqtSignal(str, bool)  # (nome_camada, visível)
+    observations_changed = pyqtSignal(str, bool)  # (kind: "metar"|"synop", ativo)
 
     REGIONS = {
         "América do Sul": EXTENT_AMSUL,
@@ -399,7 +400,10 @@ class SettingsPanel(QWidget):
         step_row = QHBoxLayout()
         step_row.addWidget(QLabel("Step:"))
         self.step_combo = QComboBox()
-        for step in VALID_STEPS[:49]:
+        # Janela completa do ECMWF Open Data: 0–144h de 3/3h, 150–240h de 6/6h.
+        # (rodadas 00Z/12Z chegam a +240h; 06Z/18Z a +144h — o backend avisa via
+        #  LoczcitDataError/404 se o step exceder o alcance da rodada escolhida).
+        for step in VALID_STEPS:
             self.step_combo.addItem(f"+{step}h", step)
         self.step_combo.setMinimumWidth(90)
         step_row.addWidget(self.step_combo)
@@ -461,6 +465,45 @@ class SettingsPanel(QWidget):
 
         layout.addWidget(options_group)
 
+        # ═══ 6. OBSERVAÇÕES DE SUPERFÍCIE (SYNOP / METAR) ═══
+        obs_group = QGroupBox("Observações de superfície")
+        obs_layout = QVBoxLayout(obs_group)
+        obs_layout.setSpacing(4)
+
+        self.synop_check = QCheckBox("SYNOP (00/06/12/18 UTC)")
+        self.synop_check.setToolTip(
+            "Observações sinóticas (OGIMET). Reportadas nos horários principais "
+            "00Z, 06Z, 12Z e 18Z — o overlay usa o sinótico mais próximo do modelo."
+        )
+        self.synop_check.stateChanged.connect(
+            lambda state: self.observations_changed.emit("synop", state == Qt.CheckState.Checked.value)
+        )
+        obs_layout.addWidget(self.synop_check)
+
+        self.metar_check = QCheckBox("METAR (horário)")
+        self.metar_check.setToolTip(
+            "Observações de aeródromos (NOAA AWC), atualizadas de hora em hora."
+        )
+        self.metar_check.stateChanged.connect(
+            lambda state: self.observations_changed.emit("metar", state == Qt.CheckState.Checked.value)
+        )
+        obs_layout.addWidget(self.metar_check)
+
+        self.obs_time_label = QLabel(
+            "<small style='color: #95A5A6;'>Carregue um modelo para sincronizar "
+            "as observações ao horário da carta.</small>"
+        )
+        self.obs_time_label.setWordWrap(True)
+        obs_layout.addWidget(self.obs_time_label)
+
+        layout.addWidget(obs_group)
+
+        # ── Observações só fazem sentido na ANÁLISE (+0h): bloqueia em previsões ──
+        # As estações refletem o presente/passado; em steps futuros não existem.
+        self._obs_ref_dt = None
+        self.step_combo.currentIndexChanged.connect(self._update_observations_ui)
+        self._update_observations_ui()   # estado inicial coerente com o step atual
+
     def _on_region_changed(self, name):
         if name in self.REGIONS:
             extent = self.REGIONS[name]
@@ -491,7 +534,65 @@ class SettingsPanel(QWidget):
             "pnmm": self.pnmm_check.isChecked(),
             "thickness": self.thickness_check.isChecked(),
             "centers": self.centers_check.isChecked(),
+            "synop": self.synop_check.isChecked(),
+            "metar": self.metar_check.isChecked(),
         }
+
+    def get_observations(self):
+        """Retorna {'metar': bool, 'synop': bool} — overlays de observação ativos."""
+        return {
+            "metar": self.metar_check.isChecked(),
+            "synop": self.synop_check.isChecked(),
+        }
+
+    def set_obs_reference_time(self, dt):
+        """Guarda o valid_time do modelo (datetime UTC ou None) e atualiza o painel.
+
+        O rótulo só mostra os horários SYNOP/METAR quando o Step é +0h (análise);
+        em previsões futuras, prevalece o aviso de indisponibilidade.
+        """
+        self._obs_ref_dt = dt
+        self._update_observations_ui()
+
+    def _render_obs_hint(self):
+        """Renderiza o rótulo normal (sincronização) a partir do valid_time guardado."""
+        dt = getattr(self, "_obs_ref_dt", None)
+        if dt is None:
+            self.obs_time_label.setText(
+                "<small style='color: #95A5A6;'>Observações prontas para o horário "
+                "da análise — carregue um modelo para sincronizar.</small>"
+            )
+            return
+        synop_hour = (dt.hour // 6) * 6
+        date_str = dt.strftime("%d/%m")
+        self.obs_time_label.setText(
+            f"<small style='color: #95A5A6;'>"
+            f"SYNOP → <b>{synop_hour:02d}Z {date_str}</b> · "
+            f"METAR → <b>{dt.hour:02d}Z {date_str}</b> (mais recente)"
+            f"</small>"
+        )
+
+    def _update_observations_ui(self):
+        """Habilita SYNOP/METAR só na análise (+0h); em previsões, desmarca e bloqueia.
+
+        Ao desmarcar automaticamente, o sinal `stateChanged` das checkboxes dispara
+        a remoção dos artists de estação no MapCanvas (limpeza ao avançar o tempo).
+        """
+        step = self.get_step() or 0
+        if step == 0:
+            self.synop_check.setEnabled(True)
+            self.metar_check.setEnabled(True)
+            self._render_obs_hint()
+        else:
+            # Desmarca (emite o sinal → remove overlay) e desabilita
+            self.synop_check.setChecked(False)
+            self.metar_check.setChecked(False)
+            self.synop_check.setEnabled(False)
+            self.metar_check.setEnabled(False)
+            self.obs_time_label.setText(
+                "<small style='color: #E67E22;'>⚠️ Observações reais não estão "
+                "disponíveis para previsões. Selecione o Step +0h (Análise).</small>"
+            )
 
     def set_downloading(self, downloading: bool):
         self.update_btn.setEnabled(not downloading)
@@ -610,6 +711,7 @@ class FieldLayerPanel(QWidget):
     toggle_layer_requested = pyqtSignal(str, bool)     # (layer_id, visible)
     remove_layer_requested = pyqtSignal(str)           # (layer_id)
     preset_requested = pyqtSignal(str)                 # (preset_name)
+    loczcit_requested = pyqtSignal()                   # índice ZCIT (LOCZCIT-PA)
 
     ANALYSIS_PRESETS = {
         "Sinótica clássica": [
@@ -657,8 +759,11 @@ class FieldLayerPanel(QWidget):
 
     # Campos de superfície / integrados (sem nível)
     SFC_VAR_OPTIONS = [
-        ("tcwv", "Água Precipitável (mm)"),
-        ("olr",  "OLR (ttr → W/m²)"),
+        ("tcwv",      "Água Precipitável (mm)"),
+        ("olr",       "OLR (desacumulada, W/m²)"),
+        ("precip",    "Precipitação (3h, mm)"),
+        ("sst_model", "TSM modelo IFS (°C)"),
+        ("sst_grad",  "Gradiente de TSM (°C/100km)"),
     ]
 
     def __init__(self, parent=None):
@@ -707,6 +812,24 @@ class FieldLayerPanel(QWidget):
 
         layout.addWidget(preset_group)
 
+        # ─── Índice ZCIT (LOCZCIT-PA) — raster categórico calculado ───
+        zcit_btn = QPushButton("🛰 ZCIT (LOCZCIT-PA)")
+        zcit_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #E67E22; padding: 7px;
+                font-size: 11px; font-weight: bold; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #F39C12; }
+        """)
+        zcit_btn.setToolTip(
+            "Índice integrado da ZCIT (LOCZCIT-PA):\n"
+            "∇TSM + convergência de baixos níveis + OLR desacumulada (Técnica B).\n"
+            "Gera um raster categórico Fraca/Moderada/Forte no Atlântico equatorial,\n"
+            "que orienta o traçado manual com a simbologia [6] ZCIT."
+        )
+        zcit_btn.clicked.connect(self.loczcit_requested.emit)
+        layout.addWidget(zcit_btn)
+
         # ─── Seção 1: Campos em Altitude ───
         alt_group = QGroupBox("Campos em Altitude")
         alt_layout = QVBoxLayout(alt_group)
@@ -743,16 +866,22 @@ class FieldLayerPanel(QWidget):
         self.btn_barbs.setCheckable(True)
         self.btn_barbs.setChecked(True)
         self.btn_barbs.setStyleSheet(self._wind_btn_style(True))
+        self.btn_barbs.setToolTip("Barbelas de vento (rápido)")
         self.btn_barbs.clicked.connect(lambda: self._select_wind_type("barbs"))
 
         self.btn_quiver = QPushButton("Vetores")
         self.btn_quiver.setCheckable(True)
         self.btn_quiver.setStyleSheet(self._wind_btn_style(False))
+        self.btn_quiver.setToolTip("Setas de vento (rápido)")
         self.btn_quiver.clicked.connect(lambda: self._select_wind_type("quiver"))
 
         self.btn_stream = QPushButton("Correntes")
         self.btn_stream.setCheckable(True)
         self.btn_stream.setStyleSheet(self._wind_btn_style(False))
+        self.btn_stream.setToolTip(
+            "Linhas de corrente (streamplot). Render mais PESADO — pode levar "
+            "alguns segundos para aparecer na carta; o programa não travou."
+        )
         self.btn_stream.clicked.connect(lambda: self._select_wind_type("stream"))
 
         wind_layout.addWidget(self.btn_barbs)
@@ -786,8 +915,32 @@ class FieldLayerPanel(QWidget):
         for key, label in self.SFC_VAR_OPTIONS:
             self.sfc_var_combo.addItem(label, key)
         self.sfc_var_combo.setMinimumWidth(130)
+        self.sfc_var_combo.currentIndexChanged.connect(self._on_sfc_var_changed)
         row_sfc.addWidget(self.sfc_var_combo)
         sfc_layout.addLayout(row_sfc)
+
+        # Método de desacumulação (só para OLR/Precipitação)
+        self.technique_row = QWidget()
+        tech_layout = QHBoxLayout(self.technique_row)
+        tech_layout.setContentsMargins(0, 0, 0, 0)
+        tech_layout.addWidget(QLabel("Método:"))
+        self.technique_combo = QComboBox()
+        self.technique_combo.addItem("Direta (rodada atual)", "direct")
+        self.technique_combo.addItem("Estabilizada (mitiga spin-up)", "stabilized")
+        self.technique_combo.setToolTip(
+            "Desacumulação de OLR e Precipitação (variáveis ACUMULADAS desde o início "
+            "da rodada). O valor da janela é a diferença entre dois steps — sempre "
+            "≥ 0, pois o acúmulo é monotônico.\n\n"
+            "• Direta (padrão): janela de 3h da RODADA ATUAL — chuva = tp[step] − "
+            "tp[step−3]. Reflete a previsão da rodada selecionada.\n"
+            "• Estabilizada (Técnica B): usa a rodada anterior madura (12h antes), "
+            "eliminando o ruído de spin-up da microfísica — recomendada para "
+            "convecção e posicionamento da ZCIT."
+        )
+        tech_layout.addWidget(self.technique_combo)
+        tech_layout.addStretch()
+        self.technique_row.setVisible(False)  # aparece só p/ olr/precip
+        sfc_layout.addWidget(self.technique_row)
 
         sfc_add_btn = QPushButton("+ Adicionar campo de superfície")
         sfc_add_btn.setStyleSheet("""
@@ -855,6 +1008,17 @@ class FieldLayerPanel(QWidget):
         is_wind = key == "wind"
         self.wind_group.setVisible(is_wind)
 
+    def _on_sfc_var_changed(self, idx):
+        """Mostra o seletor de método só para variáveis desacumuláveis (OLR/precip)."""
+        from cartomet_br.data.ecmwf import VARIABLE_REGISTRY
+        key = self.sfc_var_combo.currentData()
+        tem_tecnica = VARIABLE_REGISTRY.get(key, {}).get("tem_tecnica", False)
+        self.technique_row.setVisible(tem_tecnica)
+
+    def get_technique(self) -> str:
+        """Método de desacumulação selecionado ('direct' ou 'stabilized')."""
+        return self.technique_combo.currentData() or "direct"
+
     def _on_add_clicked(self):
         var_key = self.var_combo.currentData()
         level = self.level_combo.currentData()
@@ -919,6 +1083,11 @@ class FieldLayerPanel(QWidget):
 
         if not self._layer_widgets:
             self.no_layers_label.setVisible(True)
+
+    def clear_all_layers(self) -> None:
+        """Remove todas as entradas da lista (usado pelo 'Limpar mapa')."""
+        for layer_id in list(self._layer_widgets.keys()):
+            self.remove_layer_entry(layer_id)
 
     def _on_remove(self, layer_id: str):
         self.remove_layer_entry(layer_id)

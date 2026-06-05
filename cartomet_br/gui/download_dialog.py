@@ -224,7 +224,7 @@ class PLDownloadThread(QThread):
     finished_error = pyqtSignal(str)
 
     def __init__(self, variable_key, level, step, cycle, config, wind_type="barbs",
-                 cycle_date=None, parent=None):
+                 cycle_date=None, technique="direct", parent=None):
         super().__init__(parent)
         self.service = DataService(config)
         self.variable_key = variable_key
@@ -233,6 +233,7 @@ class PLDownloadThread(QThread):
         self.cycle = cycle
         self.wind_type = wind_type
         self.cycle_date = cycle_date
+        self.technique = technique
 
     def _on_percent(self, pct):
         self.download_percent.emit(pct)
@@ -261,6 +262,7 @@ class PLDownloadThread(QThread):
                 cycle=self.cycle,
                 cycle_date=self.cycle_date,
                 wind_type=self.wind_type,
+                technique=self.technique,
             )
 
             self.progress.emit(f"Camada {var_info['nome']} carregada!")
@@ -347,7 +349,7 @@ class SSTDownloadThread(QThread):
             data = download_mur_sst(
                 target_date=self.target_date,
                 extent=self.config.extent,
-                data_dir=self.config.data_dir,
+                data_dir=self.config.sst_dir,
                 progress_callback=self._progress_callback,
             )
 
@@ -356,6 +358,115 @@ class SSTDownloadThread(QThread):
 
         except Exception as e:
             self.finished_error.emit(str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  THREAD DE DOWNLOAD DE OBSERVAÇÕES (SYNOP / METAR)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class StationDownloadThread(QThread):
+    """Thread para baixar observações de superfície (SYNOP/METAR).
+
+    Emite `finished_ok(dict)` com {"metar": DataFrame|None, "synop": DataFrame|None}.
+    Falhas de rede não quebram a UI — DataFrames vazios são retornados.
+    """
+
+    progress = pyqtSignal(str)
+    finished_ok = pyqtSignal(object)   # dict[str, DataFrame]
+    finished_error = pyqtSignal(str)
+
+    def __init__(self, config: Config, want_metar: bool, want_synop: bool,
+                 target_time=None, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.want_metar = want_metar
+        self.want_synop = want_synop
+        self.target_time = target_time
+
+    def run(self):
+        try:
+            from cartomet_br.data.stations import fetch_metar, fetch_synop
+
+            result: dict = {"metar": None, "synop": None}
+            extent = self.config.extent
+            data_dir = self.config.observations_dir
+
+            if self.want_metar:
+                self.progress.emit("Consultando METAR (NOAA AWC)...")
+                result["metar"] = fetch_metar(
+                    extent, when=self.target_time, data_dir=data_dir,
+                )
+
+            if self.want_synop:
+                self.progress.emit("Consultando SYNOP (OGIMET)...")
+                result["synop"] = fetch_synop(
+                    extent, when=self.target_time, data_dir=data_dir,
+                    progress_callback=lambda msg: self.progress.emit(msg),
+                )
+
+            self.progress.emit("Observações carregadas!")
+            self.finished_ok.emit(result)
+
+        except Exception as e:
+            self.finished_error.emit(str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  THREAD DO ÍNDICE LOCZCIT-PA (ZCIT)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class LoczcitThread(QThread):
+    """Thread que roda o motor LOCZCIT-PA fora da UI (blindagem #6).
+
+    Emite `finished_ok(LoczcitResult)`. Falha de rede/cálculo nunca trava a GUI.
+    """
+
+    progress = pyqtSignal(str)
+    finished_ok = pyqtSignal(object)   # LoczcitResult
+    finished_error = pyqtSignal(str)
+    finished_cancelled = pyqtSignal()
+
+    def __init__(self, config: Config, cycle: int | None, cycle_date: str | None,
+                 step: int = 0, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.cycle = cycle
+        self.cycle_date = cycle_date
+        self.step = step
+        self._cancelled = False
+
+    def cancel(self):
+        """Pede cancelamento cooperativo (abortado entre downloads)."""
+        self._cancelled = True
+
+    def run(self):
+        from cartomet_br.data.loczcit_pa_engine import (
+            LoczcitCancelled,
+            compute_loczcit_pa,
+        )
+
+        # Intercepta retries do multiurl (HTTP 429) → mostra ao usuário
+        retry_handler, retry_logger = _attach_retry_handler(
+            lambda msg: self.progress.emit(msg)
+        )
+        try:
+            result = compute_loczcit_pa(
+                cycle=self.cycle,
+                cycle_date=self.cycle_date,
+                data_dir=self.config.grib_dir,
+                step=self.step,
+                source=self.config.ecmwf_source,
+                progress_callback=lambda msg: self.progress.emit(msg),
+                cancel_check=lambda: self._cancelled,
+            )
+            self.progress.emit("Índice LOCZCIT-PA concluído!")
+            self.finished_ok.emit(result)
+        except LoczcitCancelled:
+            self.finished_cancelled.emit()
+        except Exception as e:
+            self.finished_error.emit(str(e))
+        finally:
+            retry_logger.removeHandler(retry_handler)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
