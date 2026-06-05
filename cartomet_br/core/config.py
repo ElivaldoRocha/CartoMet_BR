@@ -8,6 +8,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -122,6 +123,59 @@ class Config:
         except (PermissionError, OSError):
             pass  # Será tratado na exportação
     
+    # ─── Subdiretórios organizados (criados sob demanda) ──────────────────
+    #
+    # Cada tipo de arquivo vai para sua própria subpasta dentro de data_dir,
+    # mantendo o diretório de dados organizado:
+    #   grib/         GRIB2 do ECMWF (+ .idx)
+    #   satelite/     imagens GOES-East
+    #   tsm/          MUR SST (.nc)
+    #   observacoes/  cache METAR/SYNOP + tabela de estações
+    #   cartas/       cartas sinóticas salvas (PNG/PDF)
+
+    def _subdir(self, name: str) -> Path:
+        """Retorna (criando, se possível) um subdiretório dentro de data_dir."""
+        path = self.data_dir / name
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except (PermissionError, OSError):
+            pass  # tratado no momento da escrita
+        return path
+
+    @property
+    def grib_dir(self) -> Path:
+        """Subpasta para arquivos GRIB2 do ECMWF."""
+        return self._subdir("grib")
+
+    @property
+    def satellite_dir(self) -> Path:
+        """Subpasta para imagens de satélite GOES-East."""
+        return self._subdir("satelite")
+
+    @property
+    def sst_dir(self) -> Path:
+        """Subpasta para dados de TSM (MUR SST)."""
+        return self._subdir("tsm")
+
+    @property
+    def observations_dir(self) -> Path:
+        """Subpasta para cache de observações (METAR/SYNOP) e tabela de estações."""
+        return self._subdir("observacoes")
+
+    @property
+    def charts_dir(self) -> Path:
+        """Subpasta para cartas sinóticas salvas (PNG/PDF)."""
+        return self._subdir("cartas")
+
+    @property
+    def loczcit_dir(self) -> Path:
+        """Subpasta para os produtos do índice LOCZCIT-PA (NetCDF: raster + I_ZCIT)."""
+        return self._subdir("loczcit_pa")
+
+    # Subpastas que contêm dados baixados/cache (limpáveis com segurança).
+    # NÃO inclui 'cartas/', que guarda o trabalho do usuário.
+    CACHE_SUBDIRS: ClassVar[tuple[str, ...]] = ("grib", "satelite", "tsm", "observacoes")
+
     @classmethod
     def for_brazil(cls) -> Config:
         """Configuração otimizada para o Brasil."""
