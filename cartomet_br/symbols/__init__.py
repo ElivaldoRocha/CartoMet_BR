@@ -51,28 +51,28 @@ MODOS = {
         "cor": "#1a6faf",
         "tem_flip": True,
         "ponto": False,
-        "efeito": lambda flip=False: [FrenteFria(flip=flip)],
+        "efeito": lambda flip=False, intensity=1: [FrenteFria(flip=flip)],
     },
     "2": {
         "nome": "Frente Quente",
         "cor": "#c0392b",
         "tem_flip": True,
         "ponto": False,
-        "efeito": lambda flip=False: [FrenteQuente(flip=flip)],
+        "efeito": lambda flip=False, intensity=1: [FrenteQuente(flip=flip)],
     },
     "3": {
         "nome": "Frente Estacionária",
         "cor": "#6a0dad",
         "tem_flip": True,
         "ponto": False,
-        "efeito": lambda flip=False: [FrenteEstacionaria(flip=flip)],
+        "efeito": lambda flip=False, intensity=1: [FrenteEstacionaria(flip=flip)],
     },
     "4": {
         "nome": "Frente Oclusa",
         "cor": "#8e44ad",
         "tem_flip": True,
         "ponto": False,
-        "efeito": lambda flip=False: [FrenteOclusa(flip=flip)],
+        "efeito": lambda flip=False, intensity=1: [FrenteOclusa(flip=flip)],
     },
     # ── Efeitos (traçar linha) ──
     "5": {
@@ -80,42 +80,43 @@ MODOS = {
         "cor": "#008000",
         "tem_flip": False,
         "ponto": False,
-        "efeito": lambda flip=False: [ZCASEffect()],
+        "efeito": lambda flip=False, intensity=1: [ZCASEffect()],
     },
     "6": {
         "nome": "ZCIT",
         "cor": "darkorange",
         "tem_flip": False,
         "ponto": False,
-        "efeito": lambda flip=False: [ZCITEffect()],
+        "tem_intensidade": True,
+        "efeito": lambda flip=False, intensity=1: [ZCITEffect(intensity=intensity)],
     },
     "7": {
         "nome": "Cavado",
         "cor": "saddlebrown",
         "tem_flip": False,
         "ponto": False,
-        "efeito": lambda flip=False: [CavadoEffect()],
+        "efeito": lambda flip=False, intensity=1: [CavadoEffect()],
     },
     "8": {
         "nome": "Crista (RidgeAxis)",
         "cor": "#005500",
         "tem_flip": False,
         "ponto": False,
-        "efeito": lambda flip=False: [Crista()],
+        "efeito": lambda flip=False, intensity=1: [Crista()],
     },
     "9": {
         "nome": "Linha de Instabilidade",
         "cor": "#8B0000",
         "tem_flip": False,
         "ponto": False,
-        "efeito": lambda flip=False: [LinhaInstabilidade()],
+        "efeito": lambda flip=False, intensity=1: [LinhaInstabilidade()],
     },
     "0": {
         "nome": "Linha Seca (Dryline)",
         "cor": "#b5651d",
         "tem_flip": False,
         "ponto": False,
-        "efeito": lambda flip=False: [LinhaSeca()],
+        "efeito": lambda flip=False, intensity=1: [LinhaSeca()],
     },
     # ── Frontogênese / Frontólise (traçar linha) ──
     "e": {
@@ -123,14 +124,14 @@ MODOS = {
         "cor": "#1a6faf",
         "tem_flip": True,
         "ponto": False,
-        "efeito": lambda flip=False: [Frontogenese(flip=flip)],
+        "efeito": lambda flip=False, intensity=1: [Frontogenese(flip=flip)],
     },
     "d": {
         "nome": "Frontólise",
         "cor": "#1a6faf",
         "tem_flip": True,
         "ponto": False,
-        "efeito": lambda flip=False: [Frontolise(flip=flip)],
+        "efeito": lambda flip=False, intensity=1: [Frontolise(flip=flip)],
     },
     # ── Corrente de Jato (traçar linha) ──
     "j": {
@@ -138,7 +139,7 @@ MODOS = {
         "cor": "#0033AA",
         "tem_flip": False,
         "ponto": False,
-        "efeito": lambda flip=False: [CorrenteDeJato()],
+        "efeito": lambda flip=False, intensity=1: [CorrenteDeJato()],
     },
     # ── Símbolos pontuais (clique único) ──
     "a": {

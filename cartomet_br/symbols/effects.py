@@ -89,16 +89,70 @@ class ZCASEffect(_TrilhoBase):
         super().__init__(color="#008000", **kw)
 
 
-class ZCITEffect(_TrilhoBase):
+class ZCITEffect(_FrenteBase):
     """
     Zona de Convergência Intertropical — Laranja.
-    
-    Faixa de baixas pressões e convergência de ventos alísios
-    próxima ao equador.
+
+    Dois trilhos retos e paralelos com grupos de traços OBLÍQUOS (/) entre eles.
+    O número de traços por grupo indica a intensidade:
+      • 1 traço  (/)   → Fraca
+      • 2 traços (//)  → Moderada
+      • 3 traços (///) → Forte
+
+    Os traços são inclinados ~59° (nunca perpendiculares), no sentido "/",
+    e todos os elementos são laranja.
     """
 
-    def __init__(self, **kw):
-        super().__init__(color="darkorange", **kw)
+    INTENSITY_LABELS = {1: "Fraca", 2: "Moderada", 3: "Forte"}
+
+    def __init__(self, intensity: int = 1, color: str = "darkorange", **kw):
+        kw.setdefault("linewidth", 2.0)
+        kw.setdefault("symbol_size", 11)   # meia-largura entre os trilhos
+        kw.setdefault("spacing", 36)       # distância entre grupos de traços
+        self.intensity = max(1, min(3, int(intensity)))
+        super().__init__(color=color, **kw)
+
+    def draw_path(self, renderer, gc, tpath, affine, rgbFace=None):
+        path_px = affine.transform_path(tpath)
+        verts = path_px.vertices
+        if len(verts) < 2:
+            return
+
+        identity = IdentityTransform()
+        tx, ty, nx, ny, cum_dist, total = self._path_geometry(verts)
+
+        dpi_k = renderer.dpi / 100.0
+        hw = self.symbol_size * dpi_k
+        sp = self.spacing * dpi_k
+        offset = np.column_stack([nx, ny]) * hw
+
+        gc0 = renderer.new_gc()
+        gc0.copy_properties(gc)
+        gc0.set_foreground(self.color)
+        gc0.set_linewidth(self.linewidth)
+
+        # Dois trilhos paralelos (o "contorno" do símbolo)
+        renderer.draw_path(gc0, Path(verts + offset), identity)
+        renderer.draw_path(gc0, Path(verts - offset), identity)
+
+        # Grupos de traços oblíquos entre os trilhos (1/2/3 = intensidade)
+        slant = hw * 0.6           # inclinação (~59° em relação aos trilhos)
+        stroke_gap = 5.0 * dpi_k   # separação entre traços de um mesmo grupo
+        n = self.intensity
+        for pos in np.arange(sp, total, sp):
+            pt, i = self._interp_at(verts, cum_dist, pos)
+            t = np.array([tx[i], ty[i]])
+            nvec = np.array([nx[i], ny[i]])
+            for k in range(n):
+                shift = (k - (n - 1) / 2.0) * stroke_gap
+                c = pt + shift * t
+                # Traço oblíquo "/": vai de um trilho ao outro, inclinado p/ frente
+                a = c - hw * nvec - slant * t
+                b = c + hw * nvec + slant * t
+                renderer.draw_path(
+                    gc0, Path([a, b], [Path.MOVETO, Path.LINETO]), identity,
+                )
+        gc0.restore()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
