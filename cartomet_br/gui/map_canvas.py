@@ -52,6 +52,7 @@ class DrawCommand:
     points_y: list[float]
     flip: bool
     artist: object = field(default=None, repr=False)
+    intensity: int = 1  # usado por símbolos com intensidade (ex.: ZCIT)
 
 
 @dataclass
@@ -133,6 +134,8 @@ class MapCanvas(FigureCanvas):
     point_added = pyqtSignal(float, float)
     coords_updated = pyqtSignal(float, float)
     annotation_requested = pyqtSignal(float, float)
+    extent_changed = pyqtSignal(list)  # [lon_min, lat_min, lon_max, lat_max] após zoom/recorte
+    figure_zoom_requested = pyqtSignal(int)  # +1 ampliar / -1 reduzir a FIGURA (Ctrl+roda)
 
     def __init__(self, parent: QSizePolicy | None = None, config: Config | None = None) -> None:
         self.config: Config = config or Config()
@@ -152,6 +155,7 @@ class MapCanvas(FigureCanvas):
         # Estado de desenho
         self.current_symbol: str = "1"
         self.flip: bool = False
+        self.zcit_intensity: int = 1  # 1=Fraca, 2=Moderada, 3=Forte (ZCIT)
         self.points_x: list[float] = []
         self.points_y: list[float] = []
         self.lines: list[object] = []
@@ -199,9 +203,25 @@ class MapCanvas(FigureCanvas):
         self._sst_data = None
         self._sst_colorbar = None
 
+        # Observações de superfície (SYNOP / METAR)
+        self._station_artists = {"metar": [], "synop": []}
+        self._station_data = {"metar": None, "synop": None}
+
+        # Índice LOCZCIT-PA (raster categórico da ZCIT)
+        self._loczcit_artist = None
+        self._loczcit_colorbar = None
+
+        # Zoom / navegação
+        self._extent_history: list[list[float]] = []   # pilha de extents anteriores
+        self._pan_active = False
+        self._pan_start: tuple[float, float] | None = None
+        self._rect_selector = None
+
         # Conecta eventos
         self.mpl_connect('button_press_event', self._on_click)
         self.mpl_connect('motion_notify_event', self._on_motion)
+        self.mpl_connect('button_release_event', self._on_release)
+        self.mpl_connect('scroll_event', self._on_scroll)
 
         self._setup_base_map()
 
@@ -230,6 +250,10 @@ class MapCanvas(FigureCanvas):
         self._sst_artist = None
         self._sst_data = None
         self._sst_colorbar = None
+        self._station_artists = {"metar": [], "synop": []}
+        self._station_data = {"metar": None, "synop": None}
+        self._loczcit_artist = None
+        self._loczcit_colorbar = None
         self.history.clear()
 
         self.ax.clear()
@@ -255,20 +279,24 @@ class MapCanvas(FigureCanvas):
                                          facecolor=theme["lakes"], edgecolor="none"),
             zorder=1
         )
+        # Contornos geográficos (costa, fronteiras, estados) ficam ACIMA dos
+        # campos preenchidos em altitude (PL contourf vai até zorder 14) para
+        # que o usuário continue se localizando mesmo com a temperatura/umidade
+        # etc. preenchendo a carta. Permanecem abaixo de estações/desenhos (20+).
         self.ax.add_feature(
             cfeature.NaturalEarthFeature("physical", "coastline", "50m",
                                          facecolor="none", edgecolor=theme["coastline"]),
-            linewidth=0.6, zorder=5
+            linewidth=0.6, zorder=16
         )
         self.ax.add_feature(
             cfeature.NaturalEarthFeature("cultural", "admin_0_boundary_lines_land", "50m",
                                          facecolor="none", edgecolor=theme["borders"]),
-            linewidth=0.4, linestyle="--", zorder=5
+            linewidth=0.4, linestyle="--", zorder=16
         )
         self.ax.add_feature(
             cfeature.NaturalEarthFeature("cultural", "admin_1_states_provinces_lines", "50m",
                                          facecolor="none", edgecolor=theme["states"]),
-            linewidth=0.2, zorder=4
+            linewidth=0.2, zorder=15
         )
 
         gl = self.ax.gridlines(
@@ -429,6 +457,15 @@ class MapCanvas(FigureCanvas):
         """Atalho legado — redireciona para o título dinâmico."""
         self._update_map_title()
 
+    def _active_obs_labels(self) -> list[str]:
+        """Rótulos das camadas de observação atualmente plotadas (SYNOP/METAR)."""
+        labels = []
+        if self._station_artists.get("synop"):
+            labels.append("SYNOP")
+        if self._station_artists.get("metar"):
+            labels.append("METAR")
+        return labels
+
     def _update_map_title(self) -> None:
         """Título dinâmico: reflete a camada visível de maior prioridade.
 
@@ -495,10 +532,22 @@ class MapCanvas(FigureCanvas):
                 and self._sst_artist.get_visible()
             )
             if has_sst:
-                line1 = f"TSM (°C) — MUR SST 1km (NASA/NOAA)"
+                line1 = "TSM (°C) — MUR SST 1km (NASA/NOAA)"
+                obs_labels = self._active_obs_labels()
+                if obs_labels:
+                    line1 += " + " + "/".join(obs_labels)
                 line2 = f"Data: {self._sst_data.time_str}"
                 self.ax.set_title(
                     f"{line1}\n{line2}",
+                    fontsize=11, fontweight="bold", loc="left", pad=14,
+                )
+                return
+
+            # ── Apenas observações (sem modelo/TSM) ──
+            obs_labels = self._active_obs_labels()
+            if obs_labels:
+                self.ax.set_title(
+                    "Observações de superfície — " + " + ".join(obs_labels),
                     fontsize=11, fontweight="bold", loc="left", pad=14,
                 )
                 return
@@ -515,6 +564,11 @@ class MapCanvas(FigureCanvas):
         )
         if has_sst:
             line1 += " + TSM"
+
+        # ── Observações de superfície ativas ──
+        obs_labels = self._active_obs_labels()
+        if obs_labels:
+            line1 += " + " + "/".join(obs_labels)
 
         # ── Monta Linha 2: informações cronológicas padronizadas ──
         rodada = f"Rodada: {ref_data.base_time}" if ref_data.base_time else ""
@@ -559,6 +613,11 @@ class MapCanvas(FigureCanvas):
         self.flip = flip
         self._update_preview()
 
+    def set_zcit_intensity(self, intensity: int) -> None:
+        """Define a intensidade do ZCIT (1=Fraca, 2=Moderada, 3=Forte)."""
+        self.zcit_intensity = max(1, min(3, int(intensity)))
+        self._update_preview()
+
     def set_drawing_mode(self, enabled: bool) -> None:
         if enabled:
             self.interaction_mode = "draw"
@@ -584,6 +643,185 @@ class MapCanvas(FigureCanvas):
             self.interaction_mode = "emoji"
         elif self.interaction_mode == "emoji":
             self.interaction_mode = None
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  ZOOM / NAVEGAÇÃO
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def set_pan_mode(self, enabled: bool) -> None:
+        """Modo 'mover' — arrastar com o botão esquerdo desloca o mapa."""
+        if enabled:
+            self.interaction_mode = "pan"
+            self._enable_rect_selector(False)
+        elif self.interaction_mode == "pan":
+            self.interaction_mode = None
+        self._pan_active = False
+        self._pan_start = None
+
+    def set_zoom_area_mode(self, enabled: bool) -> None:
+        """Modo 'zoom área' — desenhar um retângulo recorta e replota a carta."""
+        if enabled:
+            self.interaction_mode = "zoom_area"
+            self._enable_rect_selector(True)
+        else:
+            if self.interaction_mode == "zoom_area":
+                self.interaction_mode = None
+            self._enable_rect_selector(False)
+
+    def _enable_rect_selector(self, enabled: bool) -> None:
+        """Cria (uma vez) e ativa/desativa o RectangleSelector de zoom-área."""
+        if enabled:
+            if self._rect_selector is None:
+                from matplotlib.widgets import RectangleSelector
+                self._rect_selector = RectangleSelector(
+                    self.ax, self._on_rect_select,
+                    useblit=False, button=[1], minspanx=1, minspany=1,
+                    spancoords="data", interactive=False,
+                    props=dict(facecolor="none", edgecolor="#E74C3C",
+                               linewidth=1.5, linestyle="--"),
+                )
+            self._rect_selector.set_active(True)
+        elif self._rect_selector is not None:
+            self._rect_selector.set_active(False)
+
+    def wheelEvent(self, event) -> None:
+        """Ctrl+roda = zoom da FIGURA (documento); roda pura = zoom GEOGRÁFICO.
+
+        Com Ctrl, emite ``figure_zoom_requested`` e NÃO repassa ao matplotlib —
+        assim o MainWindow amplia a "mesa branca" inteira sem mexer no extent.
+        Sem Ctrl, delega ao comportamento padrão (→ scroll_event → _on_scroll).
+        """
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            delta = event.angleDelta().y()
+            if delta != 0:
+                self.figure_zoom_requested.emit(1 if delta > 0 else -1)
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def _on_scroll(self, event: object) -> None:
+        """Zoom in/out centrado no cursor (apenas visualização, não rebaixa dados)."""
+        if event.inaxes != self.ax or event.xdata is None or event.ydata is None:
+            return
+        scale = 0.8 if getattr(event, "button", "up") == "up" else 1.25
+        x0, x1, y0, y1 = self.ax.get_extent(crs=ccrs.PlateCarree())
+        cx, cy = event.xdata, event.ydata
+        new = [
+            cx - (cx - x0) * scale, cy - (cy - y0) * scale,
+            cx + (x1 - cx) * scale, cy + (y1 - cy) * scale,
+        ]
+        new = self._clamp_extent(new)
+        try:
+            self.ax.set_extent([new[0], new[2], new[1], new[3]], crs=ccrs.PlateCarree())
+            self.draw()
+        except Exception:
+            pass
+
+    def _on_release(self, event: object) -> None:
+        """Fim do pan."""
+        if self._pan_active:
+            self._pan_active = False
+            self._pan_start = None
+
+    def _pan_to(self, event: object) -> None:
+        """Desloca o mapa conforme o arraste (modo pan)."""
+        if not self._pan_active or self._pan_start is None:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        dx = self._pan_start[0] - event.xdata
+        dy = self._pan_start[1] - event.ydata
+        x0, x1, y0, y1 = self.ax.get_extent(crs=ccrs.PlateCarree())
+        new = self._clamp_extent([x0 + dx, y0 + dy, x1 + dx, y1 + dy])
+        try:
+            self.ax.set_extent([new[0], new[2], new[1], new[3]], crs=ccrs.PlateCarree())
+            self.draw()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _clamp_extent(extent: list[float]) -> list[float]:
+        """Mantém o extent dentro de limites geográficos válidos."""
+        lon_min, lat_min, lon_max, lat_max = extent
+        lon_min = max(-180.0, min(lon_min, 179.0))
+        lon_max = min(180.0, max(lon_max, lon_min + 1.0))
+        lat_min = max(-90.0, min(lat_min, 89.0))
+        lat_max = min(90.0, max(lat_max, lat_min + 1.0))
+        return [lon_min, lat_min, lon_max, lat_max]
+
+    def _on_rect_select(self, eclick: object, erelease: object) -> None:
+        """Callback do RectangleSelector: recorta e replota para a área escolhida."""
+        x0, x1 = sorted([eclick.xdata, erelease.xdata])
+        y0, y1 = sorted([eclick.ydata, erelease.ydata])
+        if None in (x0, x1, y0, y1) or (x1 - x0) < 0.5 or (y1 - y0) < 0.5:
+            return
+        new_extent = self._clamp_extent([x0, y0, x1, y1])
+        self.apply_extent(new_extent, push_history=True)
+
+    def apply_extent(self, extent: list[float], push_history: bool = True) -> None:
+        """Aplica um novo extent: atualiza config, replota a sinótica e avisa a GUI.
+
+        Após o `set_extent` (que muda a proporção geométrica do GeoAxes), o layout
+        é recalculado para reposicionar as barras de cores e as margens — sem isso,
+        ao resetar de um domínio quadrado (ex.: LOCZCIT-PA) para a AmSul o eixo fica
+        "esmagado" no canto com colorbars descentralizadas.
+        """
+        if push_history:
+            self._extent_history.append(list(self.config.extent))
+        self.config.extent = list(extent)
+        self.ax.set_extent([extent[0], extent[2], extent[1], extent[3]], crs=ccrs.PlateCarree())
+        # Recalcula centros H/L para o novo domínio (a partir dos dados já carregados)
+        if self.synoptic_data is not None:
+            self._clear_synoptic_artists()
+            self._plot_synoptic_fields()
+        # Realinha o layout (colorbars/margens) para a nova proporção e centraliza
+        try:
+            self.fig.tight_layout()
+        except Exception as e:
+            logger.debug("Aviso ao recalcular layout no reset de extent: %s", e)
+        self._recenter_axes_horizontally()
+        self.draw()
+        self.extent_changed.emit(list(extent))
+
+    def _recenter_axes_horizontally(self) -> None:
+        """Centraliza horizontalmente o conjunto (mapa + barras de cores) na figura.
+
+        Eixos Cartopy têm aspecto fixo; com 1+ colorbars, `tight_layout`/
+        `constrained_layout` deixam o mapa preso a um dos lados (espaço em branco
+        assimétrico). Aqui medimos a caixa-união de TODOS os eixos e a deslocamos
+        para ficar simétrica — carta sempre harmônica, independente das camadas.
+        """
+        try:
+            self.fig.canvas.draw()   # garante posições após o apply_aspect do Cartopy
+            axes = list(self.fig.axes)
+            if not axes:
+                return
+            positions = [a.get_position() for a in axes]
+            x0 = min(p.x0 for p in positions)
+            x1 = max(p.x1 for p in positions)
+            dx = (1.0 - (x1 - x0)) / 2.0 - x0
+            if abs(dx) < 1e-3:
+                return
+            for a, p in zip(axes, positions):
+                a.set_position([p.x0 + dx, p.y0, p.width, p.height])
+        except Exception as e:
+            logger.debug("Aviso ao centralizar o layout horizontalmente: %s", e)
+
+    def previous_extent(self) -> None:
+        """Volta ao extent anterior (pilha simples — substitui o Ctrl+Z reservado)."""
+        if not self._extent_history:
+            return
+        prev = self._extent_history.pop()
+        self.apply_extent(prev, push_history=False)
+
+    def cancel_rectangle(self) -> None:
+        """Cancela retângulo de zoom-área em andamento (Esc)."""
+        if self._rect_selector is not None and self.interaction_mode == "zoom_area":
+            try:
+                self._rect_selector.set_visible(False)
+                self.draw()
+            except Exception:
+                pass
 
     @property
     def drawing_mode(self):
@@ -619,6 +857,10 @@ class MapCanvas(FigureCanvas):
         elif self.interaction_mode == "emoji":
             self.add_emoji(event.xdata, event.ydata, self.current_emoji, self._emoji_fontsize)
 
+        elif self.interaction_mode == "pan":
+            self._pan_active = True
+            self._pan_start = (event.xdata, event.ydata)
+
     def _place_point_symbol(self, x: float, y: float) -> None:
         """Coloca um símbolo pontual (ex.: centro de pressão, furacão) com um único clique."""
         modo = MODOS[self.current_symbol]
@@ -649,6 +891,8 @@ class MapCanvas(FigureCanvas):
     def _on_motion(self, event: object) -> None:
         if event.inaxes == self.ax and event.xdata and event.ydata:
             self.coords_updated.emit(event.xdata, event.ydata)
+        if self._pan_active and event.inaxes == self.ax:
+            self._pan_to(event)
 
     def _update_preview(self) -> None:
         if self.preview_line:
@@ -663,7 +907,7 @@ class MapCanvas(FigureCanvas):
             xi, yi = interpolar_pontos(self.points_x, self.points_y)
             line, = self.ax.plot(
                 xi, yi, color=m["cor"], linewidth=1.5,
-                path_effects=m["efeito"](flip=self.flip),
+                path_effects=m["efeito"](flip=self.flip, intensity=self.zcit_intensity),
                 transform=ccrs.PlateCarree(), zorder=20
             )
             self.preview_line = line
@@ -678,6 +922,7 @@ class MapCanvas(FigureCanvas):
                 points_y=list(self.points_y),
                 flip=self.flip,
                 artist=self.preview_line,
+                intensity=self.zcit_intensity,
             )
             self.history.push(cmd)
             self.lines.append(self.preview_line)
@@ -728,7 +973,7 @@ class MapCanvas(FigureCanvas):
             m = MODOS[cmd.symbol_key]
             line, = self.ax.plot(
                 xi, yi, color=m["cor"], linewidth=1.5,
-                path_effects=m["efeito"](flip=cmd.flip),
+                path_effects=m["efeito"](flip=cmd.flip, intensity=getattr(cmd, "intensity", 1)),
                 transform=ccrs.PlateCarree(), zorder=20,
             )
             cmd.artist = line
@@ -785,6 +1030,30 @@ class MapCanvas(FigureCanvas):
         self._clear_ruler()
         self.history.clear()
 
+        self.draw()
+
+    def clear_map(self) -> None:
+        """Remove TODAS as camadas do mapa, voltando ao mapa base limpo.
+
+        Diferente de ``clear_all`` (que limpa só desenhos), remove também as
+        camadas sinóticas, campos em altitude (PL), satélite, TSM e observações.
+        """
+        # Desenhos / anotações / emojis / régua / histórico
+        self.clear_all()
+        # Campos em altitude (PL)
+        for layer_id in list(self._pl_data.keys()):
+            self.remove_pl_layer(layer_id)
+        # Satélite e TSM
+        self.remove_satellite()
+        self.remove_sst()
+        # Observações de superfície (METAR/SYNOP)
+        self.remove_stations()
+        # Índice LOCZCIT-PA (raster categórico)
+        self.remove_loczcit()
+        # Camadas sinóticas
+        self._clear_synoptic_artists()
+        self.synoptic_data = None
+        self._update_map_title()
         self.draw()
 
     def save_figure(self, filepath: str | Path, dpi: int = 200) -> None:
@@ -1103,6 +1372,7 @@ class MapCanvas(FigureCanvas):
         )
 
         self._update_map_title()
+        self._recenter_axes_horizontally()
         self.draw()
 
     def toggle_satellite(self, visible: bool) -> None:
@@ -1168,6 +1438,7 @@ class MapCanvas(FigureCanvas):
         self._sst_colorbar.ax.tick_params(labelsize=8)
 
         self._update_map_title()
+        self._recenter_axes_horizontally()
         self.draw()
 
     def toggle_sst(self, visible: bool) -> None:
@@ -1194,6 +1465,216 @@ class MapCanvas(FigureCanvas):
                 pass
             self._sst_artist = None
         self._sst_data = None
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  ÍNDICE LOCZCIT-PA (raster categórico da ZCIT)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def plot_loczcit_raster(self, result) -> None:
+        """Injeta o raster categórico do LOCZCIT-PA e auto-enquadra no Atlântico equatorial.
+
+        Blindagem #7: pcolormesh + ListedColormap + BoundaryNorm, antialiased=False,
+        set_bad(alpha=0) — blocos exatos, sem vazamento de cor. NUNCA contourf.
+        zorder=3: ACIMA da imagem de satélite (zorder=2) e da TSM, porém ABAIXO da
+        costa/fronteiras/estados (zorder 4–5), que permanecem visíveis por cima.
+        """
+        from matplotlib.colors import BoundaryNorm, ListedColormap
+
+        from cartomet_br.data.loczcit_pa_engine import CATEGORY_COLORS, STRICT_EXTENT
+
+        self.remove_loczcit()
+
+        cmap = ListedColormap(CATEGORY_COLORS)   # 1 Verde, 2 Amarelo, 3 Vermelho
+        cmap.set_bad(alpha=0.0)                   # NaN = transparente
+        norm = BoundaryNorm([0.5, 1.5, 2.5, 3.5], ncolors=3)
+        masked = np.ma.masked_invalid(result.raster)
+
+        self._loczcit_artist = self.ax.pcolormesh(
+            result.lons, result.lats, masked, cmap=cmap, norm=norm,
+            shading="nearest", antialiased=False,
+            transform=ccrs.PlateCarree(), zorder=3,
+        )
+
+        cbar = self.fig.colorbar(
+            self._loczcit_artist, ax=self.ax, orientation="vertical",
+            fraction=0.046, pad=0.02, ticks=[1, 2, 3], shrink=0.6,
+        )
+        cbar.ax.set_yticklabels(["Fraca", "Moderada", "Forte"])
+        cbar.ax.tick_params(labelsize=8)
+        cbar.set_label("ZCIT (LOCZCIT-PA)", fontsize=9)
+        self._loczcit_colorbar = cbar
+
+        # Auto-enquadramento no domínio estrito (Atlântico equatorial)
+        self.ax.set_extent(
+            [STRICT_EXTENT[0], STRICT_EXTENT[2], STRICT_EXTENT[1], STRICT_EXTENT[3]],
+            crs=ccrs.PlateCarree(),
+        )
+
+        base = f" | OLR base: {result.base_time}" if result.base_time else ""
+        vt = f"Válido: {result.valid_time} UTC" if result.valid_time else ""
+        self.ax.set_title(
+            f"ZCIT (LOCZCIT-PA) — Potencial Acoplado\n{vt}{base}",
+            fontsize=11, fontweight="bold", loc="left", pad=14,
+        )
+        self._recenter_axes_horizontally()   # centraliza com a colorbar da ZCIT
+        self.draw()
+
+    def toggle_loczcit(self, visible: bool) -> None:
+        """Mostra ou oculta o raster do LOCZCIT-PA (e sua colorbar)."""
+        if self._loczcit_artist is not None:
+            self._loczcit_artist.set_visible(visible)
+        if self._loczcit_colorbar is not None:
+            self._loczcit_colorbar.ax.set_visible(visible)
+        self.draw()
+
+    def remove_loczcit(self) -> None:
+        """Remove o raster do LOCZCIT-PA e sua colorbar."""
+        if self._loczcit_colorbar is not None:
+            try:
+                self._loczcit_colorbar.remove()
+            except (ValueError, AttributeError):
+                pass
+            self._loczcit_colorbar = None
+        if self._loczcit_artist is not None:
+            try:
+                self._loczcit_artist.remove()
+            except (ValueError, AttributeError):
+                pass
+            self._loczcit_artist = None
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  OBSERVAÇÕES DE SUPERFÍCIE (SYNOP / METAR)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    # Cores convencionais do station model
+    _OBS_COLORS = {
+        "metar": {"temp": "#C0392B", "dew": "#1E8449", "main": "#1B2631"},
+        "synop": {"temp": "#922B21", "dew": "#196F3D", "main": "#154360"},
+    }
+
+    def plot_stations(self, df: object, kind: str = "metar") -> None:
+        """Plota observações de superfície (StationPlot) com thinning por densidade.
+
+        O raio do `reduce_point_density` escala com o extent atual: ao recortar
+        para um domínio menor, mais estações aparecem (detalhe frontal).
+        """
+        if kind not in self._station_artists:
+            return
+
+        self.remove_stations(kind)
+        self._station_data[kind] = df
+
+        if df is None or len(df) == 0:
+            self._update_map_title()
+            self.draw()
+            return
+
+        import metpy.calc as mpcalc
+        from metpy.plots import StationPlot
+
+        # ── Thinning por densidade, raio proporcional ao extent ──
+        extent = self.config.extent
+        width_deg = abs(extent[2] - extent[0])
+        radius = max(width_deg / 22.0, 0.25)  # graus
+
+        lons = np.asarray(df["longitude"].values, dtype=float)
+        lats = np.asarray(df["latitude"].values, dtype=float)
+        try:
+            mask = mpcalc.reduce_point_density(np.c_[lons, lats], radius)
+        except Exception:
+            mask = np.ones(len(df), dtype=bool)
+
+        sub = df[mask]
+        if len(sub) == 0:
+            self._update_map_title()
+            self.draw()
+            return
+
+        colors = self._OBS_COLORS.get(kind, self._OBS_COLORS["metar"])
+        artists = self._station_artists[kind]
+
+        sp = StationPlot(
+            self.ax,
+            np.asarray(sub["longitude"].values, dtype=float),
+            np.asarray(sub["latitude"].values, dtype=float),
+            transform=ccrs.PlateCarree(),
+            fontsize=8, clip_on=True, zorder=22,
+        )
+
+        def _track(result):
+            if result is None:
+                return
+            if isinstance(result, (list, tuple)):
+                artists.extend(result)
+            else:
+                artists.append(result)
+
+        # Temperatura (NW) e ponto de orvalho (SW)
+        if sub["air_temperature"].notna().any():
+            _track(sp.plot_parameter("NW", sub["air_temperature"].values, color=colors["temp"]))
+        if sub["dew_point_temperature"].notna().any():
+            _track(sp.plot_parameter("SW", sub["dew_point_temperature"].values, color=colors["dew"]))
+        # PNMM (NE)
+        if sub["air_pressure_at_sea_level"].notna().any():
+            _track(sp.plot_parameter(
+                "NE", sub["air_pressure_at_sea_level"].values,
+                formatter=lambda v: format(10 * v, ".0f")[-3:], color=colors["main"],
+            ))
+
+        # Barbelas de vento (m/s → nós para exibição padrão)
+        if sub["eastward_wind"].notna().any() and sub["northward_wind"].notna().any():
+            try:
+                u_kt = np.asarray(sub["eastward_wind"].values, dtype=float) * 1.94384
+                v_kt = np.asarray(sub["northward_wind"].values, dtype=float) * 1.94384
+                # Convenção por hemisfério: no Hemisfério Sul as barbelas são
+                # espelhadas (flip_barb=True) em relação ao Hemisfério Norte.
+                flip = np.asarray(sub["latitude"].values, dtype=float) < 0
+                sp.plot_barb(u_kt, v_kt, color=colors["main"], flip_barb=flip)
+                # plot_barb não retorna o artist — captura via atributo interno
+                if getattr(sp, "barbs", None) is not None:
+                    _track(sp.barbs)
+            except Exception:
+                pass
+
+        # Cobertura de nuvens (centro) e tempo presente (W)
+        try:
+            from metpy.plots import sky_cover, current_weather
+            if sub["cloud_coverage"].notna().any():
+                _track(sp.plot_symbol("C", sub["cloud_coverage"].values, sky_cover,
+                                      color=colors["main"]))
+            if sub["current_wx1_symbol"].notna().any():
+                _track(sp.plot_symbol("W", sub["current_wx1_symbol"].values, current_weather,
+                                      color=colors["temp"]))
+        except Exception:
+            pass
+
+        self._update_map_title()
+        self.draw()
+
+    def remove_stations(self, kind: str | None = None) -> None:
+        """Remove os artists de observação de um tipo (ou de todos se None)."""
+        kinds = [kind] if kind is not None else list(self._station_artists.keys())
+        for k in kinds:
+            for artist in self._station_artists.get(k, []):
+                try:
+                    artist.remove()
+                except (ValueError, AttributeError, NotImplementedError):
+                    try:
+                        self.ax._children.remove(artist)
+                    except (ValueError, AttributeError):
+                        pass
+            self._station_artists[k] = []
+            self._station_data[k] = None
+        self._update_map_title()
+
+    def toggle_stations(self, kind: str, visible: bool) -> None:
+        """Mostra ou oculta uma camada de observação."""
+        for artist in self._station_artists.get(kind, []):
+            try:
+                artist.set_visible(visible)
+            except AttributeError:
+                pass
+        self.draw()
 
     # ═══════════════════════════════════════════════════════════════════════
     #  CAMPOS EM NÍVEIS DE PRESSÃO / OLR
@@ -1227,6 +1708,7 @@ class MapCanvas(FigureCanvas):
             artists = self._plot_scalar_contourf(data, var_info)
 
         self._pl_artists[layer_id] = artists
+        self._recenter_axes_horizontally()   # mantém a carta centralizada na figura
         self.draw()
 
     # Paleta OLR clássica
@@ -1239,6 +1721,21 @@ class MapCanvas(FigureCanvas):
         "#e84315", "#d93523", "#c92435", "#b5163e", "#a11045",
         "#8f0d47", "#800a45", "#61063b", "#520436", "#470334",
         "#3d022e", "#330128",
+    ]
+
+    # Paleta de precipitação (mm) — branco → azul → roxo
+    _PRECIP_COLORS = [
+        "#f7fbff", "#d8eafc", "#b6dbf2", "#8fc8e8", "#62a8d8",
+        "#3f8fcc", "#2f7ab8", "#2563a3", "#2a55a0", "#3a3f9e",
+        "#5b2e93", "#7a1f86", "#99127a",
+    ]
+    _PRECIP_LEVELS = [0.2, 1, 2, 5, 10, 15, 20, 30, 40, 50, 75, 100, 150]
+
+    # Paleta de TSM (°C) — frio (roxo/azul) → quente (vermelho)
+    _SST_COLORS = [
+        "#3b0f70", "#3a2a8c", "#2c5aa0", "#1f7db0", "#2a9db5",
+        "#3fb8a8", "#74c794", "#b7d97a", "#ece06b", "#f7c044",
+        "#f59331", "#e85f29", "#d62f27", "#b3161f", "#7a0a16",
     ]
 
     def _plot_scalar_contourf(self, data: PLFieldData, var_info: dict) -> list:
@@ -1254,11 +1751,24 @@ class MapCanvas(FigureCanvas):
             cmap = mcolors.LinearSegmentedColormap.from_list(
                 "olr_classic", self._OLR_COLORS, N=256
             )
+        elif cmap_name == "precip_classic":
+            import matplotlib.colors as mcolors
+            cmap = mcolors.LinearSegmentedColormap.from_list(
+                "precip_classic", self._PRECIP_COLORS, N=256
+            )
+        elif cmap_name == "sst_classic":
+            import matplotlib.colors as mcolors
+            cmap = mcolors.LinearSegmentedColormap.from_list(
+                "sst_classic", self._SST_COLORS, N=256
+            )
         else:
             cmap = cmap_name
 
         if data.variable == "olr":
             levels = np.linspace(100, 310, 22)
+        elif data.variable == "precip":
+            # Níveis fixos de precipitação (mm); evita preencher áreas secas
+            levels = self._PRECIP_LEVELS
         elif symmetric:
             vmax = max(abs(np.nanmin(values)), abs(np.nanmax(values)))
             vmax = vmax * 0.9
@@ -1272,7 +1782,7 @@ class MapCanvas(FigureCanvas):
             lv_max = vmax + margin
 
             if var_info.get("category") == "wind_speed" or \
-               data.variable in ("r", "q", "wind_speed", "temp_grad", "tcwv"):
+               data.variable in ("r", "q", "wind_speed", "temp_grad", "tcwv", "sst_grad"):
                 lv_min = max(0, lv_min)
 
             # Evita levels constantes (min == max → matplotlib crash)
@@ -1391,10 +1901,14 @@ class MapCanvas(FigureCanvas):
             artists.append(qv)
 
         elif wind_type == "stream":
-            lons_1d = lons
-            lats_1d = lats
-            u_stream = u.copy()
-            v_stream = v.copy()
+            # COARSENING antes do streamplot: linhas de corrente são qualitativas,
+            # então reduzir a malha de ~0.25° para ~0.75° corta o custo de integração
+            # do streamplot em ~4x (11s→3s), sem perda visual em escala sinótica.
+            skip = max(1, len(lons) // 130)
+            lons_1d = lons[::skip]
+            lats_1d = lats[::skip]
+            u_stream = u[::skip, ::skip].copy()
+            v_stream = v[::skip, ::skip].copy()
 
             if lats_1d[0] > lats_1d[-1]:
                 lats_1d = lats_1d[::-1]
@@ -1458,6 +1972,10 @@ class MapCanvas(FigureCanvas):
 
         self._update_map_title()
         self.draw()
+
+    def is_stream_layer(self, layer_id: str) -> bool:
+        """True se a camada PL é vento em modo 'stream' (re-render pesado)."""
+        return self._pl_wind_types.get(layer_id) == "stream"
 
     def toggle_pl_layer(self, layer_id: str, visible: bool):
         """Liga/desliga uma camada PL sem re-download."""
