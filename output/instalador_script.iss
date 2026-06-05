@@ -3,7 +3,7 @@
 ; Non-commercial use only
 
 #define MyAppName "CartoMet BR"
-#define MyAppVersion "2.2.0"
+#define MyAppVersion "3.0.0"
 #define MyAppPublisher "Elivaldo C. Rocha - FAMET-PPGGRD-UFPA"
 #define MyAppURL "https://github.com/ElivaldoRocha/CartoMet_BR.git"
 #define MyAppExeName "CartoMet_BR.exe"
@@ -35,7 +35,7 @@ InfoAfterFile=F:\cartomet_br\famet.txt
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 PrivilegesRequired=lowest
 OutputDir=F:\cartomet_br\output
-OutputBaseFilename=Instalador_CartoMet_BR_v2.2.0
+OutputBaseFilename=Instalador_CartoMet_BR_v3.0.0
 SetupIconFile=F:\cartomet_br\cartomet_br\assets\CartoMet_BR_logo_32_32.ico
 SolidCompression=yes
 WizardStyle=modern dynamic

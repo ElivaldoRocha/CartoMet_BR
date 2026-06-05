@@ -153,19 +153,21 @@ css = [
 
 [[package]]
 name = "cartomet-br"
-version = "2.2.0"
+version = "3.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "cartopy" },
     { name = "cfgrib" },
     { name = "eccodes" },
     { name = "ecmwf-opendata" },
+    { name = "markdown" },
     { name = "matplotlib" },
     { name = "metpy" },
     { name = "netcdf4" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pyinstaller" },
+    { name = "pymetdecoder" },
     { name = "pyqt6" },
     { name = "requests" },
     { name = "scipy" },
@@ -204,9 +206,10 @@ requires-dist = [
     { name = "cartopy", specifier = ">=0.23.0" },
     { name = "cfgrib", specifier = ">=0.9.14" },
     { name = "eccodes", specifier = ">=2.38.0" },
-    { name = "ecmwf-opendata", specifier = ">=0.3.0" },
+    { name = "ecmwf-opendata", specifier = ">=0.3.29" },
     { name = "ipython", marker = "extra == 'dev'", specifier = ">=8.26.0" },
     { name = "jupyter", marker = "extra == 'dev'", specifier = ">=1.0.0" },
+    { name = "markdown", specifier = ">=3.5" },
     { name = "matplotlib", specifier = ">=3.9.0" },
     { name = "metpy", specifier = ">=1.6.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10.0" },
@@ -215,6 +218,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.2.0" },
     { name = "pyinstaller", specifier = ">=6.19.0" },
     { name = "pyinstaller", marker = "extra == 'build'", specifier = ">=6.19.0" },
+    { name = "pymetdecoder", specifier = ">=0.1.5" },
     { name = "pyqt6", specifier = ">=6.10.2" },
     { name = "pyqt6", marker = "extra == 'gui'", specifier = ">=6.7.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
@@ -566,14 +570,14 @@ wheels = [
 
 [[package]]
 name = "ecmwf-opendata"
-version = "0.3.26"
+version = "0.3.29"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "multiurl" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/16/074aee6fd1fa21b6445fb8429a16c50dac91053b66f3c99ada86b09665e2/ecmwf_opendata-0.3.26.tar.gz", hash = "sha256:8b49eed2282c167e50663b38768631a5b6d758fd947c4ea764d37433ac92523a", size = 28873, upload-time = "2025-12-04T15:08:29.677Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/ab/b2c74dcffd462fa2e5d6a2144be63ad4bb6ddc608c4a8bfe2033e1acdede/ecmwf_opendata-0.3.29.tar.gz", hash = "sha256:bf8a78ea71eb704884870bd234069d59caf9fb7edca794641e9be0a7d359df98", size = 29741, upload-time = "2026-04-23T17:12:38.253Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/56/74/7795b50a4a74dd0d9b8f8b028912878da0e64969eb4889e64b7a75aeef63/ecmwf_opendata-0.3.26-py3-none-any.whl", hash = "sha256:e158bab54f86908dbc634c1660a527bd1d27dbe26ba4d8484f622cd8565185d6", size = 21818, upload-time = "2025-12-04T15:08:28.531Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/2a/b2a925b4e2830901f6e9064b90892eb3aba4b4ca8564bbaa5acc18666727/ecmwf_opendata-0.3.29-py3-none-any.whl", hash = "sha256:2bbfab8a7fe2dc3d2d835e296f338be0f35872cbfa1d485c286f51e230de7df1", size = 22313, upload-time = "2026-04-23T17:12:37.265Z" },
 ]
 
 [[package]]
@@ -1190,6 +1194,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/10/2f/97589876ea967487978071c9042518d28b958d87b17dceb7cdc1d881f963/macholib-1.16.4.tar.gz", hash = "sha256:f408c93ab2e995cd2c46e34fe328b130404be143469e41bc366c807448979362", size = 59427, upload-time = "2025-11-22T08:28:38.373Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/d1/a9f36f8ecdf0fb7c9b1e78c8d7af12b8c8754e74851ac7b94a8305540fc7/macholib-1.16.4-py2.py3-none-any.whl", hash = "sha256:da1a3fa8266e30f0ce7e97c6a54eefaae8edd1e5f86f3eb8b95457cae90265ea", size = 38117, upload-time = "2025-11-22T08:28:36.939Z" },
+]
+
+[[package]]
+name = "markdown"
+version = "3.10.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2b/f4/69fa6ed85ae003c2378ffa8f6d2e3234662abd02c10d216c0ba96081a238/markdown-3.10.2.tar.gz", hash = "sha256:994d51325d25ad8aa7ce4ebaec003febcce822c3f8c911e3b17c52f7f589f950", size = 368805, upload-time = "2026-02-09T14:57:26.942Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/de/1f/77fa3081e4f66ca3576c896ae5d31c3002ac6607f9747d2e3aa49227e464/markdown-3.10.2-py3-none-any.whl", hash = "sha256:e91464b71ae3ee7afd3017d9f358ef0baf158fd9a298db92f1d4761133824c36", size = 108180, upload-time = "2026-02-09T14:57:25.787Z" },
 ]
 
 [[package]]
@@ -1818,6 +1831,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/80/17/716326f6ba18d0663f7995ae369c23e50efebc22fbb054e9710a45688f61/pyinstaller_hooks_contrib-2026.3.tar.gz", hash = "sha256:800d3a198a49a6cd0de2d7fb795005fdca7a0222ed9cb47c0691abd1c27b9310", size = 172323, upload-time = "2026-03-09T22:44:06.345Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ed/19/781352446af28755f16ce52b2d97f7a6f2d7974ac34c00ca5cd8c40c9098/pyinstaller_hooks_contrib-2026.3-py3-none-any.whl", hash = "sha256:5ecd1068ad262afecadf07556279d2be52ca93a88b049fae17f1a2eb2969254a", size = 454625, upload-time = "2026-03-09T22:44:04.717Z" },
+]
+
+[[package]]
+name = "pymetdecoder"
+version = "0.1.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f9/b2/3fa686afca5f4d2aa4c4ceb39915a055e4b2a2b9447696c0b0c375597b14/pymetdecoder-0.1.6.tar.gz", hash = "sha256:89e04565221c5b5aa25fe39cc83369e0f7c3c23385df59316c7ac61d1a906bda", size = 40523, upload-time = "2024-12-23T15:26:10.461Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e8/57/0598782a1c0f389ad716da77bba25d2a53556adaee32751693c00fef7756/pymetdecoder-0.1.6-py3-none-any.whl", hash = "sha256:f2686fed7fcb2cd6581be229494e1092da67d7480f994b5495256a1414b60956", size = 40815, upload-time = "2024-12-23T15:26:08.044Z" },
 ]
 
 [[package]]

@@ -12,7 +12,7 @@
 <p align="center">
   <a href="#-sobre">Sobre</a> •
   <a href="#-vídeo-demonstrativo">Vídeo</a> •
-  <a href="#-novidades-da-v22">Novidades v2.2</a> •
+  <a href="#-novidades-da-v30">Novidades v3.0</a> •
   <a href="#-funcionalidades">Funcionalidades</a> •
   <a href="#-download">Download</a> •
   <a href="#-instalação">Instalação</a> •
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/versão-2.2.0-blue?style=for-the-badge" alt="Versão"/>
+  <img src="https://img.shields.io/badge/versão-3.0.0-blue?style=for-the-badge" alt="Versão"/>
   <img src="https://img.shields.io/badge/plataforma-Windows%2010%2F11-0078D6?style=for-the-badge&logo=windows" alt="Windows"/>
   <img src="https://img.shields.io/badge/licença-MIT-green?style=for-the-badge" alt="Licença"/>
   <img src="https://img.shields.io/badge/python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
@@ -62,6 +62,45 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
     <img src="https://img.shields.io/badge/▶_Assistir_no_YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Assistir no YouTube"/>
   </a>
 </p>
+
+---
+
+## Novidades da v3.0
+
+### Índice ZCIT (LOCZCIT-PA) — Potencial Acoplado
+
+- Novo índice integrado que localiza a **Zona de Convergência Intertropical** fundindo **três forçantes** do ECMWF IFS Cycle 50r1 que precisam coexistir espacialmente:
+  - **∇TSM** — gradiente térmico do oceano (*skin temperature*, máscara `lsm ≤ 0.2` que preserva a costa do Amapá/Marajó)
+  - **C** — convergência do vento de baixos níveis (10 m), via MetPy
+  - **F<sub>OLR</sub>** — Radiação de Onda Longa **desacumulada** (Técnica B: rodada anterior madura, steps 12−9, mitigando o *spin-up* da microfísica)
+- Normalização Min-Max meridional (Navalha de Ockham) → filtro espacial **IQR de Tukey** → classificação por limiares físicos de OLR num **raster categórico**: 🔴 Forte (≤180 W/m²), 🟡 Moderada (≤210), 🟢 Fraca (≤240); céu limpo e *outliers* ficam transparentes
+- Botão **🛰 ZCIT (LOCZCIT-PA)** no painel *Análises prontas* — calcula em *thread*, auto-enquadra no Atlântico equatorial e injeta o raster como **guia visual** para o traçado manual da simbologia `[6] ZCIT` (*human-in-the-loop*)
+- Render com `pcolormesh` + `ListedColormap` + `BoundaryNorm` (blocos exatos, sem vazamento de cor); costa/fronteiras/estados visíveis por cima
+- Menu **Ajuda → "Sobre o Índice ZCIT (LOCZCIT-PA)"** com categorias, cores, limiares e a metodologia completa. Linhagem científica: **Rocha (2022)**, **Ferreira et al. (2005)**
+
+### Observações de superfície — SYNOP e METAR
+
+- Sobreposição de **observações reais** à análise do modelo, para identificar com precisão frentes, ciclones e cavados (pedido do meteorologista Gustavo C. J. Escobar)
+- **METAR (horário)** via NOAA Aviation Weather Center e **SYNOP (6/6h)** via OGIMET
+- *Station model* completo (T, Td, PNMM, barbelas de vento, cobertura de nuvens, tempo presente) com `metpy.plots.StationPlot`
+- **Sincronização temporal**: as observações usam o `valid_time` do modelo carregado
+- **Afinamento por densidade** (`reduce_point_density`) que responde ao zoom — ao recortar para um domínio menor, mais estações aparecem
+- Liga/desliga por checkbox no painel **Observações de superfície** (re-renderiza só o overlay; rede em thread; falhas não travam a interface)
+
+### Zoom no mapa
+
+- **Roda do mouse**: zoom in/out centrado no cursor (lupa sobre a carta)
+- **✋ Mover**: arraste para deslocar o mapa
+- **🔍 Zoom área**: desenhe um retângulo para **recortar e replotar** a carta, recalculando os centros H/L e reafinando as estações para o novo domínio
+- **↩ Anterior** (pilha de extents) e **🏠 Resetar** / `Home` / `Ctrl+0` (volta ao extent da região); `Esc` cancela o retângulo
+- Modos mutuamente exclusivos com Desenho / Anotação / Régua / Emoji — o modo ativo aparece na barra de status (`Ctrl+Z`/`Ctrl+Y` permanecem reservados ao desenho)
+
+### Correção crítica — rodadas 06Z/18Z (IFS Cycle 50r1)
+
+- Desde o **IFS Cycle 50r1 (13/05/2026)**, os streams `scda`/`scwv` (rodadas 06Z/18Z) foram descontinuados no ECMWF Open Data e migraram para o stream `oper`
+- O CartoMet BR agora fixa explicitamente `stream="oper"` nas requisições, restaurando o download das **quatro rodadas (00/06/12/18Z)** — verificado com download real da 06Z
+- Dependência `ecmwf-opendata` atualizada para `>=0.3.29` (suporte oficial ao 50r1)
+- A mensagem de erro enganosa ("steps múltiplos de 3") foi substituída por uma orientação clara para o usuário final (use 00Z/12Z; a 18Z publica ~01:30 UTC)
 
 ---
 
@@ -197,6 +236,9 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 | Recurso | Descrição |
 |---------|-----------|
 | **Dados ECMWF** | Download automático de dados gratuitos do modelo IFS (resolução 0.25°) |
+| **Índice ZCIT (LOCZCIT-PA)** | Localização da ZCIT acoplando ∇TSM + convergência + OLR desacumulada num raster categórico (Forte/Moderada/Fraca) — guia para o traçado manual |
+| **Observações SYNOP/METAR** | Sobreposição de observações reais de superfície (METAR via NOAA AWC; SYNOP via OGIMET) sincronizadas com o `valid_time` do modelo |
+| **Zoom no mapa** | Zoom por roda do mouse, pan, recorte por retângulo (replota e reafina estações), histórico de extents (Home/Ctrl+0) |
 | **Satélite GOES-East** | Imagem IR Banda 13 com paleta clássica, seleção por data/hora/minuto |
 | **TSM — MUR SST 1km** | Temperatura da Superfície do Mar operacional (NASA/NOAA via ERDDAP) |
 | **Carta de Superfície** | PNMM, Espessura 1000-500 hPa, Centros H/L automáticos |
@@ -218,11 +260,11 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 
 ## Download
 
-### Versão Atual: 2.2.0
+### Versão Atual: 3.0.0
 
 | Arquivo | Descrição | Download |
 | --- | --- | --- |
-| **Instalador_CartoMet_BR_v2.2.0.exe** | Instalador para Windows | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest) |
+| **Instalador_CartoMet_BR_v3.0.0.exe** | Instalador para Windows | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest) |
 | **CartoMet_BR_Manual_Usuario.pdf** | Manual do usuário ilustrado | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest/download/CartoMet_BR_Manual_Usuario.pdf) |
 
 > **Dica:** Baixe também o manual para aprender todas as funcionalidades do programa.
@@ -233,7 +275,7 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 
 ### Método 1: Instalador Windows (Recomendado para Usuários Windows)
 
-1. Baixe `Instalador_CartoMet_BR_v2.2.0.exe` na seção [Releases](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest)
+1. Baixe `Instalador_CartoMet_BR_v3.0.0.exe` na seção [Releases](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest)
 2. Execute o instalador e siga as instruções
 3. Abra o CartoMet BR pelo atalho no Menu Iniciar ou Desktop
 
@@ -390,6 +432,10 @@ Na primeira execução, o programa exibirá uma **janela de boas-vindas** e soli
 | `Ctrl+N` | Novo projeto (reinicia) |
 | `Ctrl+Z` | Desfazer desenho |
 | `Ctrl+Y` | Refazer desenho |
+| `Home` / `Ctrl+0` | Resetar zoom (volta ao extent da região) |
+| `Esc` | Cancelar o retângulo de zoom em andamento |
+| Roda do mouse | Zoom in/out centrado no cursor |
+| Arrastar (✋ Mover) | Deslocar o mapa (pan) |
 | `1`–`0` | Simbologias (Frentes, ZCAS, ZCIT, Cavado, etc.) |
 | `F` | Inverter símbolos |
 | `Enter` | Finalizar linha |
@@ -440,6 +486,16 @@ Na primeira execução, o programa exibirá uma **janela de boas-vindas** e soli
 - **Fonte**: [CoastWatch ERDDAP — jplMURSST41](https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41.html)
 - **Licença**: Domínio Público (NASA/NOAA)
 
+### Observações de Superfície — SYNOP e METAR
+
+- **Tipo**: Observações reais de superfície (modelo de estação) sobrepostas à análise do modelo
+- **METAR**: relatórios horários de aeródromos via NOAA Aviation Weather Center
+- **SYNOP**: relatórios sinóticos de 6/6h (FM-12) via OGIMET, decodificados com `pymetdecoder`
+- **Variáveis**: T, Td, PNMM, vento (barbelas), cobertura de nuvens e tempo presente (`metpy.plots.StationPlot`)
+- **Sincronização**: usa o `valid_time` do modelo carregado; afinamento por densidade que responde ao zoom
+- **Fonte**: [NOAA AWC](https://aviationweather.gov/) (METAR) · [OGIMET](https://www.ogimet.com/) (SYNOP)
+- **Licença**: Domínio Público (NOAA) / dados abertos (OGIMET)
+
 ---
 
 ## Estrutura do Projeto
@@ -453,7 +509,9 @@ CartoMet_BR/
 │   │   └── config.py            # Configurações e validação
 │   ├── data/
 │   │   ├── ecmwf.py             # Download ECMWF, GOES, VARIABLE_REGISTRY
-│   │   └── sst.py               # Download MUR SST 1km via ERDDAP
+│   │   ├── sst.py               # Download MUR SST 1km via ERDDAP
+│   │   ├── loczcit_pa_engine.py # Motor do índice ZCIT (LOCZCIT-PA)
+│   │   └── stations.py          # Observações SYNOP (OGIMET) e METAR (NOAA AWC)
 │   ├── symbols/
 │   │   ├── base.py              # Classe base e helpers
 │   │   ├── fronts.py            # Frentes (fria, quente, etc.)
@@ -472,6 +530,7 @@ CartoMet_BR/
 │   │   ├── download_dialog.py   # Threads de download e diálogo de progresso
 │   │   ├── dialogs.py           # Welcome, FirstRun
 │   │   ├── themes.py            # Temas visuais e estilos
+│   │   ├── methodology.py       # Renderiza a metodologia LOCZCIT-PA (md → HTML)
 │   │   └── _constants.py        # Metadados e caminhos de assets
 │   └── assets/
 │       ├── CartoMet_BR_logo_*   # Logos e ícones
@@ -480,17 +539,20 @@ CartoMet_BR/
 │   ├── conftest.py
 │   ├── test_config.py
 │   ├── test_data_service.py
+│   ├── test_deaccumulation.py
 │   ├── test_drawing_history.py
 │   ├── test_ecmwf.py
 │   ├── test_interactive.py
-│   └── test_symbols.py
+│   ├── test_loczcit_pa.py
+│   ├── test_stations.py
+│   ├── test_symbols.py
+│   └── test_zoom.py
 ├── output/
 │   └── instalador_script.iss    # Script Inno Setup para gerar instalador
 ├── .github/
 │   └── workflows/
 │       └── ci.yml               # CI: lint, type check, testes
 ├── pyproject.toml
-├── BUILD_EXECUTABLE.md          # Guia para gerar o .exe
 ├── LICENSE
 └── README.md
 ```
@@ -676,7 +738,7 @@ Se você utilizar o CartoMet BR em pesquisas, trabalhos acadêmicos ou publicaç
 ---
 
 <p align="center">
-  <strong>CartoMet BR v2.2</strong> — Análise sinótica completa para sala de aula e profissionais da meteorologia.
+  <strong>CartoMet BR v3.0</strong> — Análise sinótica completa para sala de aula e profissionais da meteorologia.
 </p>
 
 <p align="center">

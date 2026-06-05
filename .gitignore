@@ -100,9 +100,6 @@ dmypy.json
 .DS_Store
 Thumbs.db
 
-# Claude Code
-.claude/
-
 # R session
 .Rhistory
 
@@ -113,6 +110,14 @@ data/*.grib2
 data/*.grib
 data/*.idx
 data/*.nc
+data/**/*.grib2
+data/**/*.grib
+data/**/*.idx
+data/**/*.nc
+
+# Dados de teste/saida do LOCZCIT-PA (gerados — nao versionar)
+data/_loczcit_test/
+data/loczcit_pa/
 
 # Output: manter apenas .gitkeep e o script do instalador
 output/*
@@ -125,10 +130,3 @@ output/*
 
 # HTML gerados (renderings do markdown)
 *.html
-
-# Guia de build (uso interno)
-BUILD_EXECUTABLE.md
-
-# Documentos internos (não vão para o GitHub)
-ANALISE_E_MELHORIAS.md
-famet.txt
