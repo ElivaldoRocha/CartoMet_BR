@@ -11,7 +11,7 @@ from typing import Any
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
-    QGroupBox, QCheckBox, QFrame, QButtonGroup,
+    QGroupBox, QCheckBox, QFrame, QButtonGroup, QComboBox,
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import (
@@ -151,6 +151,7 @@ class SymbologyPanel(QWidget):
 
     symbol_changed = pyqtSignal(str)
     flip_changed = pyqtSignal(bool)
+    intensity_changed = pyqtSignal(int)     # intensidade ZCIT (1/2/3)
     finalize_requested = pyqtSignal()
     clear_requested = pyqtSignal()
     undo_requested = pyqtSignal()
@@ -224,6 +225,22 @@ class SymbologyPanel(QWidget):
         flip_layout.addWidget(self.flip_check)
         flip_layout.addStretch()
         layout.addLayout(flip_layout)
+
+        # Intensidade (visível só para símbolos que a suportam, ex.: ZCIT)
+        self.intensity_row = QWidget()
+        intensity_layout = QHBoxLayout(self.intensity_row)
+        intensity_layout.setContentsMargins(0, 0, 0, 0)
+        intensity_layout.addWidget(QLabel("Intensidade:"))
+        self.intensity_combo = QComboBox()
+        # (texto, valor) — o índice 0/1/2 mapeia para 1/2/3
+        self.intensity_combo.addItem("Fraca  (/)", 1)
+        self.intensity_combo.addItem("Moderada  (//)", 2)
+        self.intensity_combo.addItem("Forte  (///)", 3)
+        self.intensity_combo.currentIndexChanged.connect(self._on_intensity_changed)
+        intensity_layout.addWidget(self.intensity_combo)
+        intensity_layout.addStretch()
+        self.intensity_row.setVisible(False)  # só aparece quando aplicável
+        layout.addWidget(self.intensity_row)
 
         # Botões de ação
         action_layout = QHBoxLayout()
@@ -402,10 +419,17 @@ class SymbologyPanel(QWidget):
         if is_point:
             self.flip_check.setChecked(False)
 
+        # Mostra o seletor de intensidade só para símbolos que o suportam (ZCIT)
+        self.intensity_row.setVisible(modo.get("tem_intensidade", False))
+
         self.symbol_changed.emit(key)
 
     def _on_flip_changed(self, state: int) -> None:
         self.flip_changed.emit(state == Qt.CheckState.Checked.value)
+
+    def _on_intensity_changed(self, index: int) -> None:
+        value = self.intensity_combo.itemData(index)
+        self.intensity_changed.emit(int(value) if value is not None else 1)
 
     def _toggle_flip(self) -> None:
         self.flip_check.setChecked(not self.flip_check.isChecked())

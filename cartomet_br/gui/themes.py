@@ -94,7 +94,53 @@ QSpinBox, QDoubleSpinBox {
     border: 1px solid #5D6D7E;
     border-radius: 4px;
     padding: 4px;
+    padding-right: 20px;   /* espaço p/ os botões de incremento */
     min-width: 55px;
+}
+/* Ao estilizar a caixa, é OBRIGATÓRIO estilizar os sub-controles, senão o Qt
+   renderiza os botões incorretamente (a seta para cima fica inclicável). */
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 18px;
+    border-left: 1px solid #5D6D7E;
+    border-top-right-radius: 4px;
+    background-color: #3D566E;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 18px;
+    border-left: 1px solid #5D6D7E;
+    border-bottom-right-radius: 4px;
+    background-color: #3D566E;
+}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background-color: #4A6582;
+}
+QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed,
+QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {
+    background-color: #3498DB;
+}
+/* Setas desenhadas via triângulos CSS (sem depender de imagens/assets) */
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    width: 0; height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 6px solid #ECF0F1;
+}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    width: 0; height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 6px solid #ECF0F1;
+}
+QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled {
+    border-bottom-color: #5D6D7E;
+}
+QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled {
+    border-top-color: #5D6D7E;
 }
 QSlider::groove:horizontal {
     border: 1px solid #5D6D7E;
