@@ -199,9 +199,10 @@ class TestEstimateAvailableCycles:
         dts = [e["base_datetime"] for e in result["available"]]
         assert dts == sorted(dts, reverse=True)
 
-    def test_max_6_results(self):
+    def test_max_12_results(self):
+        # Janela deslizante = arquivo rotativo do ECMWF (~3 dias = 12 rodadas)
         result = estimate_available_cycles()
-        assert len(result["available"]) <= 6
+        assert len(result["available"]) <= 12
 
     @patch("cartomet_br.data.ecmwf.datetime")
     def test_at_specific_time(self, mock_dt):
@@ -277,6 +278,77 @@ class TestDownloadEcmwf:
             data_dir=tmp_path,
         )
         assert result.exists()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Tradução de exceções (IFS Cycle 50r1 — scda/scwv descontinuados)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestExceptionTranslation:
+    @patch("cartomet_br.data.ecmwf.Client")
+    def test_cannot_establish_latest_explains_50r1(self, mock_client_cls, tmp_path):
+        """'Cannot establish latest' deve virar mensagem sobre o IFS 50r1,
+        e NÃO a antiga mensagem enganosa sobre 'steps múltiplos de 3'."""
+        mock_client = MagicMock()
+        # download_ecmwf usa client.retrieve() (levtype sempre definido); cobre ambos
+        err = Exception("Cannot establish latest run")
+        mock_client.retrieve.side_effect = err
+        mock_client.download.side_effect = err
+        mock_client_cls.return_value = mock_client
+
+        with pytest.raises(ValueError) as exc_info:
+            download_ecmwf(
+                variables=["msl"],
+                step=0,
+                cycle=6,
+                output_path=tmp_path / "nao_existe.grib2",
+                data_dir=tmp_path,
+            )
+
+        msg = str(exc_info.value)
+        assert "50r1" in msg
+        # Orientação acionável para o usuário final (sem comando pip)
+        assert "00Z" in msg or "12Z" in msg
+        assert "pip install" not in msg
+        assert "múltiplos de 3" not in msg
+        # Deve indicar a rodada selecionada
+        assert "06Z" in msg
+
+    @patch("cartomet_br.data.ecmwf.Client")
+    def test_cannot_establish_latest_without_cycle(self, mock_client_cls, tmp_path):
+        """Sem cycle explícito, a mensagem não deve quebrar (sem dica de rodada)."""
+        mock_client = MagicMock()
+        err = Exception("Cannot establish latest")
+        mock_client.retrieve.side_effect = err
+        mock_client.download.side_effect = err
+        mock_client_cls.return_value = mock_client
+
+        with pytest.raises(ValueError) as exc_info:
+            download_ecmwf(
+                variables=["msl"],
+                step=0,
+                cycle=None,
+                output_path=tmp_path / "nao_existe.grib2",
+                data_dir=tmp_path,
+            )
+        assert "50r1" in str(exc_info.value)
+
+    @patch("cartomet_br.data.ecmwf.Client")
+    def test_404_branch_preserved(self, mock_client_cls, tmp_path):
+        """Outros ramos de erro (404) continuam funcionando."""
+        mock_client = MagicMock()
+        err = Exception("HTTP Error 404: Not Found")
+        mock_client.retrieve.side_effect = err
+        mock_client.download.side_effect = err
+        mock_client_cls.return_value = mock_client
+
+        with pytest.raises(FileNotFoundError):
+            download_ecmwf(
+                variables=["msl"],
+                step=99,
+                output_path=tmp_path / "nao_existe.grib2",
+                data_dir=tmp_path,
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

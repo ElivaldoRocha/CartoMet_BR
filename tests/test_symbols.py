@@ -215,28 +215,37 @@ class TestEffectInstantiation:
 class TestModos:
     """Testa o dicionário MODOS usado pela interface interativa."""
 
-    def test_has_10_modes(self):
-        assert len(MODOS) == 10
+    def test_has_modes(self):
+        # v2.x: frentes/efeitos de linha + símbolos pontuais
+        assert len(MODOS) >= 10
 
-    def test_keys_are_single_digits(self):
-        expected = set("1234567890")
-        assert set(MODOS.keys()) == expected
+    def test_keys_are_single_chars(self):
+        assert all(isinstance(k, str) and len(k) == 1 for k in MODOS.keys())
 
     def test_each_mode_has_required_keys(self):
         for key, modo in MODOS.items():
             assert "nome" in modo, f"Modo '{key}' sem 'nome'"
             assert "cor" in modo, f"Modo '{key}' sem 'cor'"
             assert "tem_flip" in modo, f"Modo '{key}' sem 'tem_flip'"
-            assert "efeito" in modo, f"Modo '{key}' sem 'efeito'"
+            assert "ponto" in modo, f"Modo '{key}' sem 'ponto'"
+            # Modos de linha têm 'efeito'; modos pontuais têm 'draw_func' ou 'label'
+            if modo["ponto"]:
+                assert "draw_func" in modo or "label" in modo, (
+                    f"Modo pontual '{key}' sem 'draw_func'/'label'"
+                )
+            else:
+                assert "efeito" in modo, f"Modo de linha '{key}' sem 'efeito'"
 
-    def test_efeito_is_callable(self):
+    def test_efeito_is_callable_for_line_modes(self):
         for key, modo in MODOS.items():
+            if modo["ponto"]:
+                continue
             effects = modo["efeito"]()
             assert isinstance(effects, list)
             assert len(effects) >= 1
 
     def test_flip_modes_accept_flip(self):
         for key, modo in MODOS.items():
-            if modo["tem_flip"]:
+            if modo["tem_flip"] and not modo["ponto"]:
                 effects = modo["efeito"](flip=True)
                 assert isinstance(effects, list)
