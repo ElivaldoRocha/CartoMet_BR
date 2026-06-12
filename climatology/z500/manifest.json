@@ -1,0 +1,1856 @@
+{
+  "product": "z500_daily_climatology",
+  "version": "1.0.0",
+  "source": "ERA5 (reanalysis-era5-pressure-levels), geopotencial 500 hPa, 0.25 graus",
+  "period": "1991-2020",
+  "n_years": 30,
+  "method": "media diaria por (mes-dia, hora) + media anual e 4 primeiros harmonicos via FFT (serie estrita de 365 dias; 29/02 interpolado da curva suave)",
+  "created": "2026-06-12T02:28:50+00:00",
+  "license_attribution": "Generated using Copernicus Climate Change Service information [2026]. Neither the European Commission nor ECMWF is responsible for any use that may be made of the Copernicus information or data it contains.",
+  "references": "Hersbach, H. et al. (2020): The ERA5 global reanalysis. Q. J. R. Meteorol. Soc., 146, 1999-2049. doi:10.1002/qj.3803",
+  "hours_utc": [
+    0,
+    12
+  ],
+  "grid_deg": 0.25,
+  "area_nwse": [
+    15,
+    -150,
+    -75,
+    30
+  ],
+  "variable": "z500_clim",
+  "units": "gpm",
+  "files": {
+    "0101": {
+      "name": "z500_clim_0101.nc",
+      "sha256": "429f43df49ec97c9d9cb546d680ce1ebc5dc62d4040d392e9e8c8b3a7a5ac29e",
+      "size_bytes": 788695
+    },
+    "0102": {
+      "name": "z500_clim_0102.nc",
+      "sha256": "39cf23c41aa7cdd6f80bf25fe0a908d23957d3f8e46b751c92789cf02ec05c5a",
+      "size_bytes": 789136
+    },
+    "0103": {
+      "name": "z500_clim_0103.nc",
+      "sha256": "1a89e96d08ad8bc8ccc975ba6e9e1b5d05edabb938dc835063e1c50f52d62d9e",
+      "size_bytes": 789720
+    },
+    "0104": {
+      "name": "z500_clim_0104.nc",
+      "sha256": "66acabd7df37cbb6b61be91c65c967eb301119dd3aa0a9c22dffc3178992407d",
+      "size_bytes": 789516
+    },
+    "0105": {
+      "name": "z500_clim_0105.nc",
+      "sha256": "0194c4b787e1ea1acb544cfcbf1f6f6a70b80c9c1d9777eac2b5c25de53d8ecd",
+      "size_bytes": 789653
+    },
+    "0106": {
+      "name": "z500_clim_0106.nc",
+      "sha256": "3c599632c2ac821eab83a36222817d82c2f2b466425658ad4da9dc47002958d8",
+      "size_bytes": 789839
+    },
+    "0107": {
+      "name": "z500_clim_0107.nc",
+      "sha256": "c91a8aed50a17171282111d56a16e4c76e9d75179028a5174a5faa64b3531181",
+      "size_bytes": 789558
+    },
+    "0108": {
+      "name": "z500_clim_0108.nc",
+      "sha256": "4975063bded8ef6d5f574d95a74582f7d62426e08622159942feb3412c179502",
+      "size_bytes": 789730
+    },
+    "0109": {
+      "name": "z500_clim_0109.nc",
+      "sha256": "704e1ff87ca68243ecbcbfe43301ebad10c51325ddd19704908069708f68bf56",
+      "size_bytes": 790103
+    },
+    "0110": {
+      "name": "z500_clim_0110.nc",
+      "sha256": "a350af61fce80214d29807707de80be21945d8cb2f2c4eea5aae20d44948fa86",
+      "size_bytes": 790457
+    },
+    "0111": {
+      "name": "z500_clim_0111.nc",
+      "sha256": "57c97dcd3b4e8a1dcbdc91978cc811c0531190f8738513cda49b393f5d467b0b",
+      "size_bytes": 790170
+    },
+    "0112": {
+      "name": "z500_clim_0112.nc",
+      "sha256": "ccbd0ebece31830f0aeadf96c693687d0fabea6b138bdccb86406ca4043a73f7",
+      "size_bytes": 791067
+    },
+    "0113": {
+      "name": "z500_clim_0113.nc",
+      "sha256": "688c81cc999e59f8e4296982e8d5e23140b584ae2e42e993a3aa17f9b595bfb8",
+      "size_bytes": 791123
+    },
+    "0114": {
+      "name": "z500_clim_0114.nc",
+      "sha256": "8967875ff193a331a889aa06671454ed0ccd41931068e67ba297c8df3d9d8002",
+      "size_bytes": 791254
+    },
+    "0115": {
+      "name": "z500_clim_0115.nc",
+      "sha256": "4f5ebcefff099552eb5a097b037c0f19a29f84b3c541ec889b491eb395a27a31",
+      "size_bytes": 791326
+    },
+    "0116": {
+      "name": "z500_clim_0116.nc",
+      "sha256": "d8b9ad4c1e92bef9f975b7b649c5be87fdfb0c4ab7c7c74945d588f1ed9b8fc4",
+      "size_bytes": 791636
+    },
+    "0117": {
+      "name": "z500_clim_0117.nc",
+      "sha256": "53228af0025964d731104d8b23a54415571956907ba8e00e64ea4daf71987445",
+      "size_bytes": 791946
+    },
+    "0118": {
+      "name": "z500_clim_0118.nc",
+      "sha256": "3dc3787e855c89a3c2181e5a4f68234af54abfe5ad70bf21d191a933244bb45a",
+      "size_bytes": 791799
+    },
+    "0119": {
+      "name": "z500_clim_0119.nc",
+      "sha256": "123a8541da1c7ed82e0814fd1fbe810cee1c13b325da401cfb201d3ae4923b4f",
+      "size_bytes": 792116
+    },
+    "0120": {
+      "name": "z500_clim_0120.nc",
+      "sha256": "2bc48868d97dbc8bb9e06d4012b4a889d40bac5da27cd60ae25b580e3311483c",
+      "size_bytes": 792864
+    },
+    "0121": {
+      "name": "z500_clim_0121.nc",
+      "sha256": "6061881126bb5c6163780def103130830745b3c759ded04ef68bf4cbec5bdeee",
+      "size_bytes": 793262
+    },
+    "0122": {
+      "name": "z500_clim_0122.nc",
+      "sha256": "e7b84af50df559ad476558ca5a81a11d602f3c6fd0773af199b56d67d2d2eff6",
+      "size_bytes": 793396
+    },
+    "0123": {
+      "name": "z500_clim_0123.nc",
+      "sha256": "fb869837a102f51f689f535ed564c6b976e00ff4834fcb80fba9e5d6a7811b5b",
+      "size_bytes": 793484
+    },
+    "0124": {
+      "name": "z500_clim_0124.nc",
+      "sha256": "b75d0a03e11af3ea9e939298efc17f2d493818793b68064a9418dd0409585c1f",
+      "size_bytes": 794889
+    },
+    "0125": {
+      "name": "z500_clim_0125.nc",
+      "sha256": "e012532e0cf45508c92ac820b7e5641b197e04c119329d860f521dfb7409e75c",
+      "size_bytes": 795563
+    },
+    "0126": {
+      "name": "z500_clim_0126.nc",
+      "sha256": "a6aa607eac43a738ebada46f278b786848c40e9ad190ee632da883371a3db49e",
+      "size_bytes": 795433
+    },
+    "0127": {
+      "name": "z500_clim_0127.nc",
+      "sha256": "5f4b4203384d010f685d4ce21df69cfef817ef063e554e4cbd126c8fb42b57a4",
+      "size_bytes": 795934
+    },
+    "0128": {
+      "name": "z500_clim_0128.nc",
+      "sha256": "f8a1740351dbd259a304627d5bc4764b5d45d8e64b5cf4772c102deac82036d2",
+      "size_bytes": 797159
+    },
+    "0129": {
+      "name": "z500_clim_0129.nc",
+      "sha256": "954414eda185ec8292695051d2252344402f35cc6990891e775c1724c782e78a",
+      "size_bytes": 798151
+    },
+    "0130": {
+      "name": "z500_clim_0130.nc",
+      "sha256": "775f8db9cddf29a642aca4b1774151741ecd87118a12dfb194306301a5312cb8",
+      "size_bytes": 797776
+    },
+    "0131": {
+      "name": "z500_clim_0131.nc",
+      "sha256": "efd3e1115af5d1522be58ce32dc5b75a16f431a9e45d7e94069859fbd7f0afe1",
+      "size_bytes": 798428
+    },
+    "0201": {
+      "name": "z500_clim_0201.nc",
+      "sha256": "6cd2e523817bb54cd98a28b81769096963d09378490d0417d0a491900e6ffd40",
+      "size_bytes": 798218
+    },
+    "0202": {
+      "name": "z500_clim_0202.nc",
+      "sha256": "de9e3a69f3c250e932db62169c9d983e2039d0c8f9aca2f2d9ee3b0b0e14e374",
+      "size_bytes": 799433
+    },
+    "0203": {
+      "name": "z500_clim_0203.nc",
+      "sha256": "9247411de8e11d2d24a3c991523199e7fe7c51d8f82792962da65fa24b7b6412",
+      "size_bytes": 799283
+    },
+    "0204": {
+      "name": "z500_clim_0204.nc",
+      "sha256": "0dfd2184e26e08496abc1582fa1393d664944f97695a84943a578149c9d99bac",
+      "size_bytes": 800009
+    },
+    "0205": {
+      "name": "z500_clim_0205.nc",
+      "sha256": "e95d3908c456d01d5764e876d6f88149252f23e2eda812eb931923460878034f",
+      "size_bytes": 799740
+    },
+    "0206": {
+      "name": "z500_clim_0206.nc",
+      "sha256": "4e2045c83b007a200a3d81d6c90bcd8ac0cb6a57cd3c430e60ac3279d3a23686",
+      "size_bytes": 800188
+    },
+    "0207": {
+      "name": "z500_clim_0207.nc",
+      "sha256": "731a973d84835c912ef87428fed87705b4708ffe16f286eeb90404bd10416a68",
+      "size_bytes": 800694
+    },
+    "0208": {
+      "name": "z500_clim_0208.nc",
+      "sha256": "b2745429926851bf8c8b1257edad646eb12a19739400d064ddb79bce718d0735",
+      "size_bytes": 801226
+    },
+    "0209": {
+      "name": "z500_clim_0209.nc",
+      "sha256": "39f457d274d754509419c5de7b27e3b4b4b6aa14e81659fdcb0d229682c0cd1d",
+      "size_bytes": 799628
+    },
+    "0210": {
+      "name": "z500_clim_0210.nc",
+      "sha256": "25214654cdb464e635a7e6d3c556ae199692f6e31accbebd1ff6138ab445c45c",
+      "size_bytes": 801421
+    },
+    "0211": {
+      "name": "z500_clim_0211.nc",
+      "sha256": "e609bb407bacacb34349cb8bb45101c52c3589e59f45988287bed5100cdfa121",
+      "size_bytes": 801408
+    },
+    "0212": {
+      "name": "z500_clim_0212.nc",
+      "sha256": "1206f188d67bec4f7b22e6f3447c789afeaab30dde130ec59e3eb90b925bdf94",
+      "size_bytes": 801320
+    },
+    "0213": {
+      "name": "z500_clim_0213.nc",
+      "sha256": "8bf7c49d9cc0b4df159cd2e792c8f1db911bf1e32226f07ab0cce588d614c53d",
+      "size_bytes": 801520
+    },
+    "0214": {
+      "name": "z500_clim_0214.nc",
+      "sha256": "acb0de3e6dbbcd4621146c3c0c9f6870ca2958ff9b2869e6a3674db414b83153",
+      "size_bytes": 801599
+    },
+    "0215": {
+      "name": "z500_clim_0215.nc",
+      "sha256": "a289e4f852d1c559e087e061bb77ca873888ff007ad04c0434dde215428299db",
+      "size_bytes": 801632
+    },
+    "0216": {
+      "name": "z500_clim_0216.nc",
+      "sha256": "2b6bf396ac9631d1df2b1d50a6799ff14d8b58f4a88bc2e7769df27409dde232",
+      "size_bytes": 802037
+    },
+    "0217": {
+      "name": "z500_clim_0217.nc",
+      "sha256": "57fc97e6f1c394f29f42352d775aab639f03dc6ca76310d3bae03d54e7c5e496",
+      "size_bytes": 801447
+    },
+    "0218": {
+      "name": "z500_clim_0218.nc",
+      "sha256": "2a32fb28efd1a55d0fe6b441935a706affcfc9880db0239113ac73ec8bdb5182",
+      "size_bytes": 801760
+    },
+    "0219": {
+      "name": "z500_clim_0219.nc",
+      "sha256": "64d9886e9d113e87f564336d57a48aaeb77fe306567edc4388d7f72def448e8d",
+      "size_bytes": 801485
+    },
+    "0220": {
+      "name": "z500_clim_0220.nc",
+      "sha256": "ac122e9103ae1a3fdfb5ddf184b6b8757cac6992bfca0243044db63d927f4cea",
+      "size_bytes": 801438
+    },
+    "0221": {
+      "name": "z500_clim_0221.nc",
+      "sha256": "2e918a66453e0924cc12ab4d391ea769fbcd32b7eb405578b5762a39bc26d1bb",
+      "size_bytes": 801546
+    },
+    "0222": {
+      "name": "z500_clim_0222.nc",
+      "sha256": "68c0639e4a91f158c0777f3e5ab01301894ffd2b41d5d33f6559ce14aeb35332",
+      "size_bytes": 801241
+    },
+    "0223": {
+      "name": "z500_clim_0223.nc",
+      "sha256": "18b046889f54c661b6f23b2755f9cef07ca5219cc8d5cdf5896b04ef1e903aaa",
+      "size_bytes": 800988
+    },
+    "0224": {
+      "name": "z500_clim_0224.nc",
+      "sha256": "7e2828873f995c24701f0929cf8cfbf158e862977ced35b257ec5ebab9baa280",
+      "size_bytes": 801246
+    },
+    "0225": {
+      "name": "z500_clim_0225.nc",
+      "sha256": "f688b9c5f1ed6fb5d5eede3eef228fc60153ae24713da9000a33febbcf47b8c2",
+      "size_bytes": 801286
+    },
+    "0226": {
+      "name": "z500_clim_0226.nc",
+      "sha256": "97034c01782ff0a71f4303828177e5c82e5bd89bc4aa0b3037c6687f4e449022",
+      "size_bytes": 800686
+    },
+    "0227": {
+      "name": "z500_clim_0227.nc",
+      "sha256": "e2f8e9e18d4ce8b22e4e8baafaaa0a754b9ae80d5c9fae4664cfbe3adb058b5b",
+      "size_bytes": 799847
+    },
+    "0228": {
+      "name": "z500_clim_0228.nc",
+      "sha256": "9139785099a3eb2a1fbc031961d0ad70b17a1b2b675c94b8a5009b7d19eea113",
+      "size_bytes": 799822
+    },
+    "0229": {
+      "name": "z500_clim_0229.nc",
+      "sha256": "e9b6f9785563ff427febc047cac0ad33c1952c8634dbfdd5d24ed0cea32c22c0",
+      "size_bytes": 792087
+    },
+    "0301": {
+      "name": "z500_clim_0301.nc",
+      "sha256": "a5777cddd60769a6a8ced2a2576412c93498425d7ddd2a8cac5dfeeabb6ef1e7",
+      "size_bytes": 800685
+    },
+    "0302": {
+      "name": "z500_clim_0302.nc",
+      "sha256": "c53eddb5e07def955cc327f3811e463e81a9a22deefe7181bb887765add6cf06",
+      "size_bytes": 799892
+    },
+    "0303": {
+      "name": "z500_clim_0303.nc",
+      "sha256": "926156a32c52d7a779708923448f97df785c2c761ca909b378fd1a8ff5ebe676",
+      "size_bytes": 798707
+    },
+    "0304": {
+      "name": "z500_clim_0304.nc",
+      "sha256": "fca5715a6943512b3114d8001fb7e48a798100483b1a6f7b94fe7209f9925726",
+      "size_bytes": 798880
+    },
+    "0305": {
+      "name": "z500_clim_0305.nc",
+      "sha256": "d20245b2b92b37db0e1f2d60d7aa69e5ec51a8d62aa6bf5e90861337b7fb936f",
+      "size_bytes": 798026
+    },
+    "0306": {
+      "name": "z500_clim_0306.nc",
+      "sha256": "20b77afb775f952d9a8ca91ad64ea7432b07fa1c16c66d48d9b0cea015d44270",
+      "size_bytes": 798011
+    },
+    "0307": {
+      "name": "z500_clim_0307.nc",
+      "sha256": "5a9956772bfa3170b031b312afa4baf766bed66faf8c2e2413700685b0521e5d",
+      "size_bytes": 797054
+    },
+    "0308": {
+      "name": "z500_clim_0308.nc",
+      "sha256": "c06eb3f44c62a7595fea8aa5dcd5b1f05ddc8f24fe4d2fd1bedd11391360297c",
+      "size_bytes": 796930
+    },
+    "0309": {
+      "name": "z500_clim_0309.nc",
+      "sha256": "1e5a9195d322474d10200d8682dc90db1e995695359d1ebd466a3928e2502203",
+      "size_bytes": 796956
+    },
+    "0310": {
+      "name": "z500_clim_0310.nc",
+      "sha256": "0604e09f699033890400488f1e710f2fcefefef1e178940949a8918023eff1ba",
+      "size_bytes": 795995
+    },
+    "0311": {
+      "name": "z500_clim_0311.nc",
+      "sha256": "d44beb3f9611a690a47652fd3e60db4f7dba5d17c4c9d958c4be62eabd5de137",
+      "size_bytes": 796012
+    },
+    "0312": {
+      "name": "z500_clim_0312.nc",
+      "sha256": "1b3ce98e38fbc9d5041ed03447059d4f7f0c8126b72d8122a23c714bc4f022c8",
+      "size_bytes": 795627
+    },
+    "0313": {
+      "name": "z500_clim_0313.nc",
+      "sha256": "1598824a44f26fa6790cac031212c8f7fa6b84519698f83359606f13720fe503",
+      "size_bytes": 794664
+    },
+    "0314": {
+      "name": "z500_clim_0314.nc",
+      "sha256": "a5acbe50470a7555199d423963aabc662194d3cd525714accec90dcbde36c6c7",
+      "size_bytes": 793946
+    },
+    "0315": {
+      "name": "z500_clim_0315.nc",
+      "sha256": "4f05987ea897e7cf03704b798b7b72b7d64232dc55e8bb2abcc2d332be2afde3",
+      "size_bytes": 793993
+    },
+    "0316": {
+      "name": "z500_clim_0316.nc",
+      "sha256": "761ad366b5a56585a502fc4b26b45ed997f69895209f75ee7698fc473b593643",
+      "size_bytes": 793554
+    },
+    "0317": {
+      "name": "z500_clim_0317.nc",
+      "sha256": "a8affe19a83e5819e9bfd687d198d5a32964777d6617a9e59346599d4816510a",
+      "size_bytes": 793055
+    },
+    "0318": {
+      "name": "z500_clim_0318.nc",
+      "sha256": "e681d6c1f08a5763b65a09dd5db8ae1bde1fc3a7746b94cb2c68529a059e2dbb",
+      "size_bytes": 792949
+    },
+    "0319": {
+      "name": "z500_clim_0319.nc",
+      "sha256": "b00898572f21dcb4dc260797511b4ae13fdbdea86170ca3b9a244764bce14b9c",
+      "size_bytes": 792489
+    },
+    "0320": {
+      "name": "z500_clim_0320.nc",
+      "sha256": "c02efbc23b1ed2c46dc5ed6096ed9af2485940ee8fb4782300e5344f99a21f93",
+      "size_bytes": 792604
+    },
+    "0321": {
+      "name": "z500_clim_0321.nc",
+      "sha256": "82bdcfdb8fcdac909e477fddda776e26d7c861e6e236c375754406ab3dce2744",
+      "size_bytes": 792640
+    },
+    "0322": {
+      "name": "z500_clim_0322.nc",
+      "sha256": "535e94fafc21828825915d50f7d15b155b17eceeaaddb3b832b03d88580ccb59",
+      "size_bytes": 792419
+    },
+    "0323": {
+      "name": "z500_clim_0323.nc",
+      "sha256": "6b2826bd8055e11978aaf65ac595a687ac2932e634266811b7f9cc2793f8f153",
+      "size_bytes": 792169
+    },
+    "0324": {
+      "name": "z500_clim_0324.nc",
+      "sha256": "6d9c884a2d4ececb6d3359158e007abe20efdc132fd6e4f643f461fc5974ea94",
+      "size_bytes": 792331
+    },
+    "0325": {
+      "name": "z500_clim_0325.nc",
+      "sha256": "7b945c503d2d8beb9a5a101d5a4a5adb7e522f9249d2348221732397169da9e0",
+      "size_bytes": 792141
+    },
+    "0326": {
+      "name": "z500_clim_0326.nc",
+      "sha256": "e92249d4f1e7ce5614d51622742d719f2c2c44d753e196c6d6131f550271bad8",
+      "size_bytes": 792313
+    },
+    "0327": {
+      "name": "z500_clim_0327.nc",
+      "sha256": "06db43d41d1139267ed12c2376ae2fa048762a0a4269709cefea75f4bc9adf69",
+      "size_bytes": 792408
+    },
+    "0328": {
+      "name": "z500_clim_0328.nc",
+      "sha256": "ed6ae04c3c32c5c640d2de41cdde938e0e95145486c48ead3fef5d15aef882f7",
+      "size_bytes": 792323
+    },
+    "0329": {
+      "name": "z500_clim_0329.nc",
+      "sha256": "3c1eb86f30ea875b40fd58a26d102f0e8de2568909ad2e58d7946746a0adb2f4",
+      "size_bytes": 792104
+    },
+    "0330": {
+      "name": "z500_clim_0330.nc",
+      "sha256": "e8513cf93efb7e264c77794977c0577e682babd2ca8fe77fe2e9811c6c48227d",
+      "size_bytes": 792392
+    },
+    "0331": {
+      "name": "z500_clim_0331.nc",
+      "sha256": "f1428756ddea5ad2117306bc988775cc9a7ac679196db2d7f80041d82518fa4d",
+      "size_bytes": 792235
+    },
+    "0401": {
+      "name": "z500_clim_0401.nc",
+      "sha256": "52c29567926a9fc4b915570d05447d8de816711a8e0622504507f8777a565a92",
+      "size_bytes": 792467
+    },
+    "0402": {
+      "name": "z500_clim_0402.nc",
+      "sha256": "457f48a5359c7fb9506761ea12e40310214a7d700fba7a2444cf48ef8c43464a",
+      "size_bytes": 792158
+    },
+    "0403": {
+      "name": "z500_clim_0403.nc",
+      "sha256": "f48604b9f06b67dc9adddb3825118c654e7d39f37c2eb107a22cd954f8d652f9",
+      "size_bytes": 792351
+    },
+    "0404": {
+      "name": "z500_clim_0404.nc",
+      "sha256": "da4a8eecca89904e536e5b924eabec812f1b3e3a3f231dae377bf123c820086b",
+      "size_bytes": 792408
+    },
+    "0405": {
+      "name": "z500_clim_0405.nc",
+      "sha256": "61e1532df0d168a52fccb28dcd7e9469ff4d0debff4bc75b9f24dcad3a4484c7",
+      "size_bytes": 792621
+    },
+    "0406": {
+      "name": "z500_clim_0406.nc",
+      "sha256": "3d190a16f7c4e0713d8c4827bfb92a3b8bc98b78a9ac919937a36bc8950b1d55",
+      "size_bytes": 792653
+    },
+    "0407": {
+      "name": "z500_clim_0407.nc",
+      "sha256": "8efd1524f9b63b2f5b7fa8439c6271fe52b7979040a09173ec813a23d7acf7a6",
+      "size_bytes": 792288
+    },
+    "0408": {
+      "name": "z500_clim_0408.nc",
+      "sha256": "cab43a971d7e3b0a17f2afe49fd0313acacddcfd3fafa013389186809aaa0448",
+      "size_bytes": 793114
+    },
+    "0409": {
+      "name": "z500_clim_0409.nc",
+      "sha256": "88c6534d19c6ce91d4de032f679ef13aa6e60a8bdc9d3d40d6f9efd888edcafa",
+      "size_bytes": 792886
+    },
+    "0410": {
+      "name": "z500_clim_0410.nc",
+      "sha256": "a7ca6867c540d2fd10611b16d9eadb90e38252c121a2fbbec225672e9583441d",
+      "size_bytes": 792930
+    },
+    "0411": {
+      "name": "z500_clim_0411.nc",
+      "sha256": "f1f8b5f2007881e817d5e7fd13769c4aa0836f57508ae297b2badbfc0b262e12",
+      "size_bytes": 793114
+    },
+    "0412": {
+      "name": "z500_clim_0412.nc",
+      "sha256": "5821401739666e7228a894f4b791bc4dfe0f4f38eda8b97412d71b9073cab7a6",
+      "size_bytes": 794121
+    },
+    "0413": {
+      "name": "z500_clim_0413.nc",
+      "sha256": "dcf0a4ad75cf727035564792d66bb3322297f815ed78a4bb3d92bc8576e59adb",
+      "size_bytes": 794604
+    },
+    "0414": {
+      "name": "z500_clim_0414.nc",
+      "sha256": "f25306b8c862a0905d6ba777e65b807e724a0b7d89aca0470333681c5605e182",
+      "size_bytes": 795392
+    },
+    "0415": {
+      "name": "z500_clim_0415.nc",
+      "sha256": "6cfd08ad1067ef143ad7a9af72bfd8b045b324ff40f6bf516b1602576beeb267",
+      "size_bytes": 794961
+    },
+    "0416": {
+      "name": "z500_clim_0416.nc",
+      "sha256": "30ecd8a0bb9a336179a16e2a4ffdb48d65e1da3a59a0e875a6c272f7c66df1ad",
+      "size_bytes": 795985
+    },
+    "0417": {
+      "name": "z500_clim_0417.nc",
+      "sha256": "d77cee9bec3e74336947e4a1fbfe4cb35fcc323c9a9b53ef8cf80a747e548729",
+      "size_bytes": 796994
+    },
+    "0418": {
+      "name": "z500_clim_0418.nc",
+      "sha256": "a0d0dff3a91682686cd3a654cf2080cc093032a06e5d0635fdafc91689da4278",
+      "size_bytes": 797191
+    },
+    "0419": {
+      "name": "z500_clim_0419.nc",
+      "sha256": "350ab4921e232633ff364319a541ab202d779153bac3cbed413a3a0819fd4079",
+      "size_bytes": 798162
+    },
+    "0420": {
+      "name": "z500_clim_0420.nc",
+      "sha256": "aa90b2004fc863cbf51ff436c6f8edcdcae1df17b12f8031f10b57d0d703583f",
+      "size_bytes": 798302
+    },
+    "0421": {
+      "name": "z500_clim_0421.nc",
+      "sha256": "156a77ea1824852ecb61ab199370c9061d23d8f1905ad037815869e0d393311b",
+      "size_bytes": 799346
+    },
+    "0422": {
+      "name": "z500_clim_0422.nc",
+      "sha256": "75db18f81786621046e69a50a8a3f31df76f8e436b5728dd1c433f7ea39c8d49",
+      "size_bytes": 799052
+    },
+    "0423": {
+      "name": "z500_clim_0423.nc",
+      "sha256": "6c253299eb51b2bb7057fddc62a0ca29332d98a2a17f5e7976b15a41f08bdb4c",
+      "size_bytes": 799875
+    },
+    "0424": {
+      "name": "z500_clim_0424.nc",
+      "sha256": "a4d584429b79caf060755764bafb44834e58e3a304d5e46e5328e5c8cbcc8662",
+      "size_bytes": 800215
+    },
+    "0425": {
+      "name": "z500_clim_0425.nc",
+      "sha256": "1f5f5f1bad84f6f7e0863bb32903fb3392e6dfe2887695b5117de2df267828f8",
+      "size_bytes": 800858
+    },
+    "0426": {
+      "name": "z500_clim_0426.nc",
+      "sha256": "475d1e3d8a1b25b6f8d5138ccc32248fd517109b3e5c600f644af572d7144d78",
+      "size_bytes": 801425
+    },
+    "0427": {
+      "name": "z500_clim_0427.nc",
+      "sha256": "20958bdf2d13f4260e4bdf3978e570de5b98f505a6eb4af94c03b37295168234",
+      "size_bytes": 802035
+    },
+    "0428": {
+      "name": "z500_clim_0428.nc",
+      "sha256": "0b374e9e36dae7585bcd6d171239aef1d043e6374f90c6a201c1d4348cb1ae49",
+      "size_bytes": 802422
+    },
+    "0429": {
+      "name": "z500_clim_0429.nc",
+      "sha256": "8d28ce9e7ad4b5831b20047d482f1ec0eff720aa5e37abe6b803fed481361c90",
+      "size_bytes": 802575
+    },
+    "0430": {
+      "name": "z500_clim_0430.nc",
+      "sha256": "ea8a1fb97287405fddf22ded0e6ec93f29dc7e01fa54c74f6235ebd6b307fc4b",
+      "size_bytes": 802781
+    },
+    "0501": {
+      "name": "z500_clim_0501.nc",
+      "sha256": "cf5db115a36b0d7333c9791d31b42dc43061214b2cbe3378a01acbe021759b40",
+      "size_bytes": 803033
+    },
+    "0502": {
+      "name": "z500_clim_0502.nc",
+      "sha256": "0030812f686081ac27ade68647282f4f44f347fd2e6f7e7ccc1fe17b5a0e4f70",
+      "size_bytes": 803959
+    },
+    "0503": {
+      "name": "z500_clim_0503.nc",
+      "sha256": "0ac35b714f77ab51e40690c390c5deff0e2ee3cf9891c60ef80566f7fa8eba64",
+      "size_bytes": 803455
+    },
+    "0504": {
+      "name": "z500_clim_0504.nc",
+      "sha256": "348072c2c0ebbbc6ca86aec7aa5e960cf13980a5dd36a66f5a2400d2c990e844",
+      "size_bytes": 804023
+    },
+    "0505": {
+      "name": "z500_clim_0505.nc",
+      "sha256": "e26cf4b9426403f6dcd82b2cba6a39eef96b4c2a137cfc510a5b42f8a58d61e5",
+      "size_bytes": 804611
+    },
+    "0506": {
+      "name": "z500_clim_0506.nc",
+      "sha256": "96a115b4d0d546e4ea4e04464dc35a9281bea72c70743323e75a3406f4647ca9",
+      "size_bytes": 804817
+    },
+    "0507": {
+      "name": "z500_clim_0507.nc",
+      "sha256": "16f1a6fa4599149d413650271f1f61985b56a5d31290cc956019b60923e60b4e",
+      "size_bytes": 805486
+    },
+    "0508": {
+      "name": "z500_clim_0508.nc",
+      "sha256": "31417670168e9b88f80319f72c475762ea4db357ec9dad39fcd4501a317cc054",
+      "size_bytes": 805213
+    },
+    "0509": {
+      "name": "z500_clim_0509.nc",
+      "sha256": "4e0866100de076a119458b38944cac72859057b115599b7c1dce68e40e697d87",
+      "size_bytes": 805569
+    },
+    "0510": {
+      "name": "z500_clim_0510.nc",
+      "sha256": "f0fdd6589cbb44b208506e3625c5e27f05a75b2827ffcab55d19aa805d264538",
+      "size_bytes": 806233
+    },
+    "0511": {
+      "name": "z500_clim_0511.nc",
+      "sha256": "5a95e641cb51c9f1778822ade3c3c7d966f005e55ad4ae7cd8893d4c8c31cfb4",
+      "size_bytes": 806047
+    },
+    "0512": {
+      "name": "z500_clim_0512.nc",
+      "sha256": "3c67627feda47814e7c3de651fdce9749a89e66cbccb646a4f8bfe15ac1ca09f",
+      "size_bytes": 806425
+    },
+    "0513": {
+      "name": "z500_clim_0513.nc",
+      "sha256": "2d62b215c58cd7d942fb621a611c3a774fef390d67957b3ef00abd53c899ed4d",
+      "size_bytes": 806896
+    },
+    "0514": {
+      "name": "z500_clim_0514.nc",
+      "sha256": "43300d6ad19d7f52da29ed4d629ce15e1a29f85fe82613cf7b42cf9b3f00c723",
+      "size_bytes": 806537
+    },
+    "0515": {
+      "name": "z500_clim_0515.nc",
+      "sha256": "9bc24c0d7f99524281d4f58bfcb99a5717441705c4454b9b53894ebb48e4da8e",
+      "size_bytes": 806810
+    },
+    "0516": {
+      "name": "z500_clim_0516.nc",
+      "sha256": "1e9957470c53c3b919fabaf0d5d3b34655b69d17c066994f21afce6abfcf0884",
+      "size_bytes": 806706
+    },
+    "0517": {
+      "name": "z500_clim_0517.nc",
+      "sha256": "273385ac0f821b5d9894bad99497dbc395196249afb6f740f6e0bbc53d328364",
+      "size_bytes": 807002
+    },
+    "0518": {
+      "name": "z500_clim_0518.nc",
+      "sha256": "1b0b8544c51b316ff4c2b329f8edd7daf7ff5f34593d1e9b6ad1eb3a10029b59",
+      "size_bytes": 806791
+    },
+    "0519": {
+      "name": "z500_clim_0519.nc",
+      "sha256": "3de94eed82a35522c63dff5fbd1d70c33d7964d8910d56b9f4d305772130376c",
+      "size_bytes": 807383
+    },
+    "0520": {
+      "name": "z500_clim_0520.nc",
+      "sha256": "b6c645364575efaafc792a74acc329e805c5195e4d5e2aa833cbcc03dfa96d13",
+      "size_bytes": 806864
+    },
+    "0521": {
+      "name": "z500_clim_0521.nc",
+      "sha256": "2c4abf6e3a509b67be6b8d71b747547abf5b0eecec7b0661bd73ecdabd2f36a4",
+      "size_bytes": 806829
+    },
+    "0522": {
+      "name": "z500_clim_0522.nc",
+      "sha256": "fd11046f029d2b8cfb2494e2cd68f01d5d893e7d4e697b633a14cfa82ad88fc9",
+      "size_bytes": 807060
+    },
+    "0523": {
+      "name": "z500_clim_0523.nc",
+      "sha256": "1d72547adda98697b476d03d9184d42a1158ad83ddd3cca0434b3665e490bfbe",
+      "size_bytes": 806990
+    },
+    "0524": {
+      "name": "z500_clim_0524.nc",
+      "sha256": "4ccb7ee4ef8d7d7287e882dee79bd32d8c3e8edd1298b325355b316e9663d7c7",
+      "size_bytes": 806625
+    },
+    "0525": {
+      "name": "z500_clim_0525.nc",
+      "sha256": "485ecbc2a48cf52de31c38163c9a24c2889297bb9040592cd0e792d44736de8d",
+      "size_bytes": 807065
+    },
+    "0526": {
+      "name": "z500_clim_0526.nc",
+      "sha256": "107d140086b63b07638f908a8213836b480f039b5e2ccf19f897eb0490acceea",
+      "size_bytes": 806585
+    },
+    "0527": {
+      "name": "z500_clim_0527.nc",
+      "sha256": "33b1ce120bcb68e3e9e3dcc7bd01ee855bef6cca8ae406086fe10377409a7830",
+      "size_bytes": 807080
+    },
+    "0528": {
+      "name": "z500_clim_0528.nc",
+      "sha256": "b2c78f00a7b89367058ec1ab76d51c9272159965ed6e699e0d733c4bc99722cb",
+      "size_bytes": 806637
+    },
+    "0529": {
+      "name": "z500_clim_0529.nc",
+      "sha256": "1432bcd73142d3ba124425d56b1dd6926b630248eca8248c4ba2bd9e398a6dbb",
+      "size_bytes": 807154
+    },
+    "0530": {
+      "name": "z500_clim_0530.nc",
+      "sha256": "ee4b5538fa3234ff3bac4482645341b33c0535f63d094a7378a4f84cda0a1637",
+      "size_bytes": 807127
+    },
+    "0531": {
+      "name": "z500_clim_0531.nc",
+      "sha256": "c450c6511caf227fc319abcd9835f53aee78ab2f9510627f4a790a16b3dd8149",
+      "size_bytes": 806818
+    },
+    "0601": {
+      "name": "z500_clim_0601.nc",
+      "sha256": "bb422768955f6f9611ee0d90dcb0948ece62f5ea03e815ce76eace14f9cbfd6d",
+      "size_bytes": 806842
+    },
+    "0602": {
+      "name": "z500_clim_0602.nc",
+      "sha256": "d42506e86f1169f0889ea0991841c9df7ec1c52a6d2d3097f1789828f019eaca",
+      "size_bytes": 807061
+    },
+    "0603": {
+      "name": "z500_clim_0603.nc",
+      "sha256": "2164747d55a10d542fabf10f27d8f299f5934f51433c5e8ace55effb70a724ca",
+      "size_bytes": 806237
+    },
+    "0604": {
+      "name": "z500_clim_0604.nc",
+      "sha256": "f2989bc85073758cbb20de503e36213246284b076388c658245155c027aa97b0",
+      "size_bytes": 806319
+    },
+    "0605": {
+      "name": "z500_clim_0605.nc",
+      "sha256": "c7363d17521094a04c9e1360ae35a0865c288c2289bb80d129e2956b88a3d00c",
+      "size_bytes": 806889
+    },
+    "0606": {
+      "name": "z500_clim_0606.nc",
+      "sha256": "5389af11edc880469c4a2fceaa567753be300b1a7cd59ab6e39a2d824fab0e11",
+      "size_bytes": 806934
+    },
+    "0607": {
+      "name": "z500_clim_0607.nc",
+      "sha256": "0a9f17f8534eeef5242c38ae853609fee968a787cf126fb50072085a10e714a6",
+      "size_bytes": 806144
+    },
+    "0608": {
+      "name": "z500_clim_0608.nc",
+      "sha256": "2e05f187ff67b108cccffa79ff558d28c534e4e64b8e5cfbcbf7537fd8f809f4",
+      "size_bytes": 806949
+    },
+    "0609": {
+      "name": "z500_clim_0609.nc",
+      "sha256": "3bd14b9fdab013e19147fd7c5f1a088bcdb509fda5fae27a8dbfc2b6fc333f0f",
+      "size_bytes": 806824
+    },
+    "0610": {
+      "name": "z500_clim_0610.nc",
+      "sha256": "c5188864d630b91854706714b967133e515373b5513b69db4e7b13603bec8a92",
+      "size_bytes": 807012
+    },
+    "0611": {
+      "name": "z500_clim_0611.nc",
+      "sha256": "7119e2228ef62ed701fc59a5b2f057a13518c95e1b6d141f2ba9160eaa02432b",
+      "size_bytes": 807399
+    },
+    "0612": {
+      "name": "z500_clim_0612.nc",
+      "sha256": "f3f55d3ff202b29d7c5b1ad5f3b83c819577e5dc9f2bf86d97086d6a3b4492af",
+      "size_bytes": 807174
+    },
+    "0613": {
+      "name": "z500_clim_0613.nc",
+      "sha256": "4d0de995e7216c8996ab5d08184a9558c18633dec1961c5354cda890ae7cc81d",
+      "size_bytes": 806530
+    },
+    "0614": {
+      "name": "z500_clim_0614.nc",
+      "sha256": "fb924f6d36265553b1b891e8a6151f262771c265c7e763f7575f46c7a2097fad",
+      "size_bytes": 807368
+    },
+    "0615": {
+      "name": "z500_clim_0615.nc",
+      "sha256": "a88a580cbc48325ca0d9594209fa1da9987d9da88d14092d264ecd76a3c5b78c",
+      "size_bytes": 807118
+    },
+    "0616": {
+      "name": "z500_clim_0616.nc",
+      "sha256": "fbd9a0ca5d08abab2197810d5bf68363121cb22038cc340643a18f2924330b8a",
+      "size_bytes": 807601
+    },
+    "0617": {
+      "name": "z500_clim_0617.nc",
+      "sha256": "96d964ad3c4752a8bbcc6cf12e3b503419d5a0b1824d94878429f0bee2928f84",
+      "size_bytes": 807453
+    },
+    "0618": {
+      "name": "z500_clim_0618.nc",
+      "sha256": "a28f36be1156583eba647c05e3358464c30df21463e0bce8d79b54f26ba57e44",
+      "size_bytes": 807176
+    },
+    "0619": {
+      "name": "z500_clim_0619.nc",
+      "sha256": "12b9f82aeee7b101e03a299c1452b23a6bba4e02f48d1381416147b817a76a89",
+      "size_bytes": 807563
+    },
+    "0620": {
+      "name": "z500_clim_0620.nc",
+      "sha256": "c0ba2e5d2316b0c123de0afe2ce93f29d7f58afca1182251509f6ae18632c0f7",
+      "size_bytes": 807195
+    },
+    "0621": {
+      "name": "z500_clim_0621.nc",
+      "sha256": "93949ee87074e7ad08283894839cedf18daffad7ab8617531cca192924672881",
+      "size_bytes": 807157
+    },
+    "0622": {
+      "name": "z500_clim_0622.nc",
+      "sha256": "18d7014f83c6e4830878ad43e215b0e92e802da59edce8ceb05c4b2da5caab30",
+      "size_bytes": 807594
+    },
+    "0623": {
+      "name": "z500_clim_0623.nc",
+      "sha256": "ae108488eae2faa3bfdce59e389afe1d316036de363c5b54a91495ab820df626",
+      "size_bytes": 807708
+    },
+    "0624": {
+      "name": "z500_clim_0624.nc",
+      "sha256": "9a7c026a96a06d90c79f4ee71500b1c3fa4338d49baaf1bbe87400aa63102c26",
+      "size_bytes": 807180
+    },
+    "0625": {
+      "name": "z500_clim_0625.nc",
+      "sha256": "288c929cdc242c48e5d8c9a4f8facb795cceadc151b9e99f8646a8aedc14dc99",
+      "size_bytes": 807281
+    },
+    "0626": {
+      "name": "z500_clim_0626.nc",
+      "sha256": "15e2c309159728b83578d61d5f538977ea78483842120e029414609d106db40b",
+      "size_bytes": 806950
+    },
+    "0627": {
+      "name": "z500_clim_0627.nc",
+      "sha256": "807f288d4cd17e24c7d1e874fbd69286ac1ebb588b4f6c742e5df81479ee9382",
+      "size_bytes": 807368
+    },
+    "0628": {
+      "name": "z500_clim_0628.nc",
+      "sha256": "172d11019ae9895454969b7ab847f8b34b106621b69520282558a8efc8c0c09e",
+      "size_bytes": 807159
+    },
+    "0629": {
+      "name": "z500_clim_0629.nc",
+      "sha256": "ae1e0b7664b133eb9b102ecd19741a7203d57538a4c90dae9822e909ce08a61b",
+      "size_bytes": 806433
+    },
+    "0630": {
+      "name": "z500_clim_0630.nc",
+      "sha256": "906816439b659a99ba7d06a16344b5a6aa160d8149a7565142a117ef511de4a1",
+      "size_bytes": 806764
+    },
+    "0701": {
+      "name": "z500_clim_0701.nc",
+      "sha256": "f2bc65509aa18dd8052bf37cc71f57d6c97a0bebdddac14629778b655aeca12e",
+      "size_bytes": 806829
+    },
+    "0702": {
+      "name": "z500_clim_0702.nc",
+      "sha256": "a3ad35e302e1558f11c90795ea924dd1327bbfb4b918e60c74f22fc7d3f6d175",
+      "size_bytes": 806712
+    },
+    "0703": {
+      "name": "z500_clim_0703.nc",
+      "sha256": "514c908007761709b1f5b85857d293440a084093c646cd13cce22cd1a75974dd",
+      "size_bytes": 806959
+    },
+    "0704": {
+      "name": "z500_clim_0704.nc",
+      "sha256": "3bd4c7cd935a999c7085d6a20abe0458014ea0b12520b44f1a37bdd7f666384b",
+      "size_bytes": 806804
+    },
+    "0705": {
+      "name": "z500_clim_0705.nc",
+      "sha256": "05f8e5b2d987dceff04cc9ef6c763042d287deedc8ab7639aa487dc0626f7f48",
+      "size_bytes": 807347
+    },
+    "0706": {
+      "name": "z500_clim_0706.nc",
+      "sha256": "c84a17684783e35680351fd494a37dfb08192c3cc181d45ab7f9ac873fc65ced",
+      "size_bytes": 807041
+    },
+    "0707": {
+      "name": "z500_clim_0707.nc",
+      "sha256": "256b683ca368fcb078be01bcf1c0e66cfeaf3cb54799cd0abf92e85e76fabf8c",
+      "size_bytes": 807568
+    },
+    "0708": {
+      "name": "z500_clim_0708.nc",
+      "sha256": "0cd641a1d075b271905030f062583bc280399ebcce3568ed17022800026feead",
+      "size_bytes": 807624
+    },
+    "0709": {
+      "name": "z500_clim_0709.nc",
+      "sha256": "2ea25e16cf7070d9f16c4b900d41a410ef8f290c59cccbdce1323d2501d4bec8",
+      "size_bytes": 806904
+    },
+    "0710": {
+      "name": "z500_clim_0710.nc",
+      "sha256": "4a704a9a4e6eab03c115a13436a8124c9f0aa1456cf5e73f0be172918683df1d",
+      "size_bytes": 807162
+    },
+    "0711": {
+      "name": "z500_clim_0711.nc",
+      "sha256": "1d2ad9df65874dea1b8e49cc7115ff370e3b720db07da1e32e13fa4c7367d41e",
+      "size_bytes": 806913
+    },
+    "0712": {
+      "name": "z500_clim_0712.nc",
+      "sha256": "b4c0259237bb3e322a718708b7b9a9f2eb5e1f9ba14e45e6d1338bfa5d620cb3",
+      "size_bytes": 806157
+    },
+    "0713": {
+      "name": "z500_clim_0713.nc",
+      "sha256": "ed7ccdc0cfc0e86b3f4ad12c2b7eb1d86548039eedbcf219868d213ef0bef58c",
+      "size_bytes": 806336
+    },
+    "0714": {
+      "name": "z500_clim_0714.nc",
+      "sha256": "aeaf99a9cc39722f5aef2a35a560b70bfd3f418a0e58211308283441e1ee45df",
+      "size_bytes": 806352
+    },
+    "0715": {
+      "name": "z500_clim_0715.nc",
+      "sha256": "d80d7f7ef08d4f291364e95c589e861610badb6e2cd126ca215951211dd9d851",
+      "size_bytes": 806468
+    },
+    "0716": {
+      "name": "z500_clim_0716.nc",
+      "sha256": "9e0b70f12a522b21a1ea6dedf309538fef0b4ec17a0786ac3f3c6986c003870b",
+      "size_bytes": 805974
+    },
+    "0717": {
+      "name": "z500_clim_0717.nc",
+      "sha256": "fa95584ed1f1bc53325f398cd21584453a044e4a705ad0b2562e7b26d38f3d6a",
+      "size_bytes": 806364
+    },
+    "0718": {
+      "name": "z500_clim_0718.nc",
+      "sha256": "d312d55e1192f9689ab828b30485239f959fe8046840bf3a4a9cea002111616c",
+      "size_bytes": 806525
+    },
+    "0719": {
+      "name": "z500_clim_0719.nc",
+      "sha256": "54ff0ee682f1721f4112de931dcb4af3ff3189f44e609cbaabf41fd0600d547b",
+      "size_bytes": 806345
+    },
+    "0720": {
+      "name": "z500_clim_0720.nc",
+      "sha256": "3781fde87b24d7237ee5d4d6b9d823783c0ca934c671809c494bc5873be6c2fb",
+      "size_bytes": 806336
+    },
+    "0721": {
+      "name": "z500_clim_0721.nc",
+      "sha256": "28e0dfedba7d8ffbc076b703dbdc3b8d0bde464ac32d51ced2908624f46441b8",
+      "size_bytes": 806557
+    },
+    "0722": {
+      "name": "z500_clim_0722.nc",
+      "sha256": "b52d230ce22b37b749ab9ad37bfb8f71351bb40a5c992eecda54ccf4870876ec",
+      "size_bytes": 805633
+    },
+    "0723": {
+      "name": "z500_clim_0723.nc",
+      "sha256": "f94cf6db2762720aa82238fd15166acb694616ecd16ae6fea196abd35d60fe64",
+      "size_bytes": 805978
+    },
+    "0724": {
+      "name": "z500_clim_0724.nc",
+      "sha256": "313e81d0920549a9727c0eb47eff0cb4a58391399fd2c3b75e8066b08a461ef1",
+      "size_bytes": 806027
+    },
+    "0725": {
+      "name": "z500_clim_0725.nc",
+      "sha256": "15fa645305e3dc8b7506885b4e52dd2e689ee572d2af1585c223541e01835744",
+      "size_bytes": 806042
+    },
+    "0726": {
+      "name": "z500_clim_0726.nc",
+      "sha256": "1be40c6fb49db169c7f3c1c107ebdebbeaf4fe16857df8255a575f3ae1febb79",
+      "size_bytes": 806219
+    },
+    "0727": {
+      "name": "z500_clim_0727.nc",
+      "sha256": "76f2fe5e7dd74c4e33d551c83da6c00770eb0b23d4ab05bd3fdc3fd1d04a52bd",
+      "size_bytes": 805845
+    },
+    "0728": {
+      "name": "z500_clim_0728.nc",
+      "sha256": "dc4ae8610e1f81f12a0fb7f738e4785268a9b85df1c7f1375a6f16701aadae9b",
+      "size_bytes": 806229
+    },
+    "0729": {
+      "name": "z500_clim_0729.nc",
+      "sha256": "77d3feb8c61b429af4be1de6a644b6891be9c158505062a8c935e71af6671c7c",
+      "size_bytes": 806486
+    },
+    "0730": {
+      "name": "z500_clim_0730.nc",
+      "sha256": "d9f3ec8c57945c52dc3a8d9724636612a51940654399eda9d28ac8e3cca99c66",
+      "size_bytes": 806460
+    },
+    "0731": {
+      "name": "z500_clim_0731.nc",
+      "sha256": "5906f17d47717ac2489c816f1cec64e73108e5c572d96edf24b2f83a043b9eec",
+      "size_bytes": 806939
+    },
+    "0801": {
+      "name": "z500_clim_0801.nc",
+      "sha256": "f73fd79afc5fdae4b565cbb50ea5643bdc2abfa20d58d50705aa33184d905771",
+      "size_bytes": 806813
+    },
+    "0802": {
+      "name": "z500_clim_0802.nc",
+      "sha256": "a74d23508105b59871205ac575d8a7628725557c217b5ce3d1b78972eb5161fa",
+      "size_bytes": 806855
+    },
+    "0803": {
+      "name": "z500_clim_0803.nc",
+      "sha256": "5420a1d16b82bb27f741e1c088aba513844a87bfbaa492709719c923dee9f4f9",
+      "size_bytes": 807166
+    },
+    "0804": {
+      "name": "z500_clim_0804.nc",
+      "sha256": "bdeb59b5fd6e873d57fd6069264d2faf6efc532dcec1ce26ecb806e561b6e919",
+      "size_bytes": 807056
+    },
+    "0805": {
+      "name": "z500_clim_0805.nc",
+      "sha256": "546587e83302499d1d885a3acd0d3905be42f8037b84c8b52b5da9a218755397",
+      "size_bytes": 807008
+    },
+    "0806": {
+      "name": "z500_clim_0806.nc",
+      "sha256": "c445c517babb952b72cdd48bc4e4d263fde5e88b591dcb0d250805bffde41d87",
+      "size_bytes": 807738
+    },
+    "0807": {
+      "name": "z500_clim_0807.nc",
+      "sha256": "8c50e48a656c94cfd8ea91b21f2fcc17bef1eea1c71a5d38b6ad939c80de91b5",
+      "size_bytes": 807775
+    },
+    "0808": {
+      "name": "z500_clim_0808.nc",
+      "sha256": "a616aa8c23416de5e787bc0db44389acefcf950af0417f4ce229e7256927011c",
+      "size_bytes": 807845
+    },
+    "0809": {
+      "name": "z500_clim_0809.nc",
+      "sha256": "71d430c377d951bec2673a6620d34f0b55b69b22be9bdbbb786db9e524f71d9d",
+      "size_bytes": 807875
+    },
+    "0810": {
+      "name": "z500_clim_0810.nc",
+      "sha256": "a4ec93bd382f2c57420a2ed2430200b4dd6c4f92f0297c9b5340aeaabe43bbcb",
+      "size_bytes": 807882
+    },
+    "0811": {
+      "name": "z500_clim_0811.nc",
+      "sha256": "32103e17d3f5899d5281291823f38bcba8c59cb898c32842c94fa692a8f6fcab",
+      "size_bytes": 808114
+    },
+    "0812": {
+      "name": "z500_clim_0812.nc",
+      "sha256": "eaea667ed8018bc989a414792355f7dc2b062845d78473dea089d5a2f0e79828",
+      "size_bytes": 808231
+    },
+    "0813": {
+      "name": "z500_clim_0813.nc",
+      "sha256": "9967af14defb195ed7c7880671104bd1dbd27c37507adbd0b53111bd556e965d",
+      "size_bytes": 808037
+    },
+    "0814": {
+      "name": "z500_clim_0814.nc",
+      "sha256": "6157600000f1434e309f2fb48091d7d5b0db6fccb6cdc148789fa4036c85df05",
+      "size_bytes": 808317
+    },
+    "0815": {
+      "name": "z500_clim_0815.nc",
+      "sha256": "d432b7c84c49d72e864b1b1d8e55d5cc31d9e2d63f7d9dfbe9bf75137472987a",
+      "size_bytes": 808380
+    },
+    "0816": {
+      "name": "z500_clim_0816.nc",
+      "sha256": "ae69a4f8e2cd8c0c33efe8c7f0c49d29658c984b73f105dced0e4b28497a1a26",
+      "size_bytes": 808130
+    },
+    "0817": {
+      "name": "z500_clim_0817.nc",
+      "sha256": "b35b4a4bbb11d30ee7ec68f3777e9b01025b163e86d96e358c4bf0cfb77c948f",
+      "size_bytes": 808204
+    },
+    "0818": {
+      "name": "z500_clim_0818.nc",
+      "sha256": "15a645bb3dce54d8cd822c8e3a226ad846bbae1e408f596e85cc6ce1a3e2b16b",
+      "size_bytes": 808325
+    },
+    "0819": {
+      "name": "z500_clim_0819.nc",
+      "sha256": "41c743b7ad988c308e86b7522542d005833637c941388884436abc93c8a53a75",
+      "size_bytes": 808623
+    },
+    "0820": {
+      "name": "z500_clim_0820.nc",
+      "sha256": "814941d6e2a385b5964159103d720f6d79ca819542001019ea8bbc1040b22a05",
+      "size_bytes": 808482
+    },
+    "0821": {
+      "name": "z500_clim_0821.nc",
+      "sha256": "3e5833d3be2a9ccbe8ee6c93dbe221833396e379240a51a7eb405f5339921b77",
+      "size_bytes": 808173
+    },
+    "0822": {
+      "name": "z500_clim_0822.nc",
+      "sha256": "494d76a3e9f3f63eaa930f597b5fc7909c9607bf34f95760b9f452caf8464643",
+      "size_bytes": 808575
+    },
+    "0823": {
+      "name": "z500_clim_0823.nc",
+      "sha256": "7aac8e4148f7eab849f62660ea427a77f3746b527745bc2466c588021b8ebc5d",
+      "size_bytes": 808648
+    },
+    "0824": {
+      "name": "z500_clim_0824.nc",
+      "sha256": "5f3fa895651e7d4810d3cee5a4aa69bb1c6a5c06abe585576bc9e5a9161e3dd8",
+      "size_bytes": 808871
+    },
+    "0825": {
+      "name": "z500_clim_0825.nc",
+      "sha256": "3079856dd1326fc856aee6c07c745cb49c08523194964531ac6c7b2549d8ffc0",
+      "size_bytes": 808720
+    },
+    "0826": {
+      "name": "z500_clim_0826.nc",
+      "sha256": "67791747f1321d42701e787f093c255b9a5fdf6195f6c515408e8accb6387873",
+      "size_bytes": 808834
+    },
+    "0827": {
+      "name": "z500_clim_0827.nc",
+      "sha256": "82c7aa2a0cd89c7448c1bce66caf55f5603961d0d9c3a3a5875b747feedaf1f0",
+      "size_bytes": 808711
+    },
+    "0828": {
+      "name": "z500_clim_0828.nc",
+      "sha256": "d5e5e941738090300703e15ebd0d5111f73561c403616d86566079c29bf30c5a",
+      "size_bytes": 809181
+    },
+    "0829": {
+      "name": "z500_clim_0829.nc",
+      "sha256": "41ed20779aac8a71e1ebc1720dd14b1131b291b6159241cf554c62355e591aa6",
+      "size_bytes": 808723
+    },
+    "0830": {
+      "name": "z500_clim_0830.nc",
+      "sha256": "63e2fb46e408046bcc429bdf56d9bdda0797a2543aed64588a9fd58c3f456281",
+      "size_bytes": 808563
+    },
+    "0831": {
+      "name": "z500_clim_0831.nc",
+      "sha256": "898e5e4eaa0f3c0797f7b3f452d798c02d551c1049b56c727249e1a2ffb2aa90",
+      "size_bytes": 808676
+    },
+    "0901": {
+      "name": "z500_clim_0901.nc",
+      "sha256": "293f15843b2be1a1c50cb5330f8e8545943f635efdb94999b91f7016c0115197",
+      "size_bytes": 808935
+    },
+    "0902": {
+      "name": "z500_clim_0902.nc",
+      "sha256": "6b8f2770f0b46ae7ed4b99115a5e88d263921bb4040747878bd87e4ddbe2a298",
+      "size_bytes": 808663
+    },
+    "0903": {
+      "name": "z500_clim_0903.nc",
+      "sha256": "cd6567a20245da36a6b0d8a2ac28d3c558ca4e46acdc0bce8a0fac02e68025df",
+      "size_bytes": 808147
+    },
+    "0904": {
+      "name": "z500_clim_0904.nc",
+      "sha256": "2721aa5ec808695997a0f22c78f68fe347cdab7f6c9c4f2c58ef763c2364497e",
+      "size_bytes": 808104
+    },
+    "0905": {
+      "name": "z500_clim_0905.nc",
+      "sha256": "df360eec826c5a89321e8db8e820e5d53a7993ba7e87d917f6bdd98ae3892a16",
+      "size_bytes": 808343
+    },
+    "0906": {
+      "name": "z500_clim_0906.nc",
+      "sha256": "495baa2bdb10ff1a2eebaa81908f466ec02f946265c83d6941e79447d1459059",
+      "size_bytes": 807828
+    },
+    "0907": {
+      "name": "z500_clim_0907.nc",
+      "sha256": "2055120c7a7729ee4af6283fc0c392322c122e455c60dc1c14b13d83eadf307e",
+      "size_bytes": 807838
+    },
+    "0908": {
+      "name": "z500_clim_0908.nc",
+      "sha256": "647f0cc64298dee0c51a419f02812022b4d6b4c93eee7c8f0d4c1fb2991c85ee",
+      "size_bytes": 807907
+    },
+    "0909": {
+      "name": "z500_clim_0909.nc",
+      "sha256": "cc1e955619995b3e909fe9de30c7450aa945a4abc3907728dcaec3cad62e4424",
+      "size_bytes": 807425
+    },
+    "0910": {
+      "name": "z500_clim_0910.nc",
+      "sha256": "02b23e9cfaad4bf128b11dcd5119224bea70c95adc986a9d9cb86f8fed3068f4",
+      "size_bytes": 807483
+    },
+    "0911": {
+      "name": "z500_clim_0911.nc",
+      "sha256": "b57cae0a44e4d0be0da684baf0244e09d575bb9d4c5b03fb57a882131fab326f",
+      "size_bytes": 807316
+    },
+    "0912": {
+      "name": "z500_clim_0912.nc",
+      "sha256": "10043a8275398a67dc6d53bd3a905928168ef656e3ddf2c80f4223e922ff9a66",
+      "size_bytes": 807554
+    },
+    "0913": {
+      "name": "z500_clim_0913.nc",
+      "sha256": "d349a96d068052190b6bcb3dd227b12c8f23e3d02e741347ca69ebd4f595e19b",
+      "size_bytes": 807125
+    },
+    "0914": {
+      "name": "z500_clim_0914.nc",
+      "sha256": "de52dbc8b0d1184a3d8d32ca62b8b8297d86a4b926c5f3e5fa52452a6c9a8e13",
+      "size_bytes": 806550
+    },
+    "0915": {
+      "name": "z500_clim_0915.nc",
+      "sha256": "f60203989e9a31c4cbe26477adc056765c8e36d16c7305f8e8594d49977ba062",
+      "size_bytes": 806623
+    },
+    "0916": {
+      "name": "z500_clim_0916.nc",
+      "sha256": "7c552d755b1dff36e20cefa06126ece3f240d6d075ec80add02d39c968961dba",
+      "size_bytes": 806129
+    },
+    "0917": {
+      "name": "z500_clim_0917.nc",
+      "sha256": "6e50f433bb9ca9a57ca0c10b5ba4119edb892f1922daa56eb51f43d4ece8865a",
+      "size_bytes": 805939
+    },
+    "0918": {
+      "name": "z500_clim_0918.nc",
+      "sha256": "ab78bae51b58cfd1c4453d2a9964c4bdcc04b3d3856853e4d3bf07cd06d9311e",
+      "size_bytes": 805316
+    },
+    "0919": {
+      "name": "z500_clim_0919.nc",
+      "sha256": "6a030cc503f16c92d6823a8286763a12e37faffef5faccf61f6827b2482c6d69",
+      "size_bytes": 805303
+    },
+    "0920": {
+      "name": "z500_clim_0920.nc",
+      "sha256": "c5aadcb823df37910e11e580e999d195dddcf16f0183607598737c5bc13ba454",
+      "size_bytes": 805207
+    },
+    "0921": {
+      "name": "z500_clim_0921.nc",
+      "sha256": "38196debc0b992f648103f0472368dfb6c186e238a075fe9e44dff4326fecce5",
+      "size_bytes": 804576
+    },
+    "0922": {
+      "name": "z500_clim_0922.nc",
+      "sha256": "71c565f1317408ccde56bf03cb137c05331d9ce9b79ddd9c01b97e553241e778",
+      "size_bytes": 804817
+    },
+    "0923": {
+      "name": "z500_clim_0923.nc",
+      "sha256": "a691c104ede1e7fca675d7141c83f1f3a55f5955c44522c56ddec31b1437bcea",
+      "size_bytes": 804439
+    },
+    "0924": {
+      "name": "z500_clim_0924.nc",
+      "sha256": "b9391b29c72fe32a4810fa788c0d92599ceb5b58fa3d9e1b1b4ee928f76dd2ea",
+      "size_bytes": 803800
+    },
+    "0925": {
+      "name": "z500_clim_0925.nc",
+      "sha256": "38d6df1b25a0814f2b4ab787ba6c372a4d6bfb209be181098281b7d34beb036d",
+      "size_bytes": 803948
+    },
+    "0926": {
+      "name": "z500_clim_0926.nc",
+      "sha256": "c8f4dd00bd6741128f9ded256545b1f8c5bf8cfb838a4cba97511df8b6947fe3",
+      "size_bytes": 803471
+    },
+    "0927": {
+      "name": "z500_clim_0927.nc",
+      "sha256": "f97040ec2c5370d9e5c5a42442adadd28242ae3aca465526a03430f9e1cbb9d0",
+      "size_bytes": 803375
+    },
+    "0928": {
+      "name": "z500_clim_0928.nc",
+      "sha256": "4509fea497e2b97f402b2a231d9d6612765de6c56634d398d58f6ebe85f70e0d",
+      "size_bytes": 801891
+    },
+    "0929": {
+      "name": "z500_clim_0929.nc",
+      "sha256": "95a69cffc0c8ff32339b633db4661f121aeb361c908bc660c969f5ba099172ee",
+      "size_bytes": 802247
+    },
+    "0930": {
+      "name": "z500_clim_0930.nc",
+      "sha256": "503d91ac361fb416631369d9af786edbd77d6dfe14647a0a6040f81e3b083f75",
+      "size_bytes": 801421
+    },
+    "1001": {
+      "name": "z500_clim_1001.nc",
+      "sha256": "79ffb5b4946cb536db54a1211f19f4c661641aae4ea35b64a08d7f94dacb6dc8",
+      "size_bytes": 801336
+    },
+    "1002": {
+      "name": "z500_clim_1002.nc",
+      "sha256": "695e675e52fc641af358b5933aa7bd122572b90609836926bd42408d29dc0037",
+      "size_bytes": 801135
+    },
+    "1003": {
+      "name": "z500_clim_1003.nc",
+      "sha256": "cd0609a762840af94e24ae7b8b6ab240248d214da34ce460c47c37a45e1af43d",
+      "size_bytes": 800686
+    },
+    "1004": {
+      "name": "z500_clim_1004.nc",
+      "sha256": "a997ae64fdb6914e4cb7e8f6ae807f97e9fe82e8682a251e3c844fa49b321e26",
+      "size_bytes": 800074
+    },
+    "1005": {
+      "name": "z500_clim_1005.nc",
+      "sha256": "b6dd7baa0c282ead31743602a2a26adc91b1bd2f7a93627602306a481f892ea0",
+      "size_bytes": 799557
+    },
+    "1006": {
+      "name": "z500_clim_1006.nc",
+      "sha256": "19bcb4055d6c759bf04982836bcd419e447a94d41783c750818bc81fd04074d6",
+      "size_bytes": 799493
+    },
+    "1007": {
+      "name": "z500_clim_1007.nc",
+      "sha256": "da31bfd6031c3a251b73513d5ccb7af181bcd8979052d654de9cf44586a6b9e4",
+      "size_bytes": 798643
+    },
+    "1008": {
+      "name": "z500_clim_1008.nc",
+      "sha256": "9a2dc1a3815206a5dec4916af968134b6b98d5e0ba2260447579f42183166833",
+      "size_bytes": 798195
+    },
+    "1009": {
+      "name": "z500_clim_1009.nc",
+      "sha256": "f19d428410b3435d51156b98bdf35dccc79a10084810d429ca67e12be856b52f",
+      "size_bytes": 797696
+    },
+    "1010": {
+      "name": "z500_clim_1010.nc",
+      "sha256": "f21c8eb5684ed379ad0a10f8060480889a56dc7dbafb1beaf5e10febe7205b78",
+      "size_bytes": 797335
+    },
+    "1011": {
+      "name": "z500_clim_1011.nc",
+      "sha256": "39fa697c21bc824365717d118fe7a517cc0e6c5fa7f2b6508c290f5ad4046a16",
+      "size_bytes": 797540
+    },
+    "1012": {
+      "name": "z500_clim_1012.nc",
+      "sha256": "3f57571829cc605ea99f4039d3ffec29738876925b210e174afa3e6801e71b76",
+      "size_bytes": 796613
+    },
+    "1013": {
+      "name": "z500_clim_1013.nc",
+      "sha256": "0dd675f8fff3e45ca4da34f65327f75a144243d3764bef01a2b04e4cbf64ba32",
+      "size_bytes": 796322
+    },
+    "1014": {
+      "name": "z500_clim_1014.nc",
+      "sha256": "ca5fd495678b845595ee5e9292974b1c2b91142926a7cff36ba64219b5bf892d",
+      "size_bytes": 796155
+    },
+    "1015": {
+      "name": "z500_clim_1015.nc",
+      "sha256": "75dd0d117219c7f112015af58d2e6ca6788b02a68f6e9c17d77463fe662023ae",
+      "size_bytes": 795209
+    },
+    "1016": {
+      "name": "z500_clim_1016.nc",
+      "sha256": "9905b6d5f726aa51d703c028ccaf1e6df7600cdd129ae564ca23da759082d667",
+      "size_bytes": 794892
+    },
+    "1017": {
+      "name": "z500_clim_1017.nc",
+      "sha256": "dc1c290217f7e92d302b67ecc08cdaa12aa6f70df5ac663fd513d6847d927e80",
+      "size_bytes": 794345
+    },
+    "1018": {
+      "name": "z500_clim_1018.nc",
+      "sha256": "33cf4cc7c65a2ff287047480472971e8c55c9fa73dfd7715bf9c9cf8d90f5edb",
+      "size_bytes": 794759
+    },
+    "1019": {
+      "name": "z500_clim_1019.nc",
+      "sha256": "e2d3102b95b0abe46e046b8be47f4a7b0981a503fbc07c99df559c8144c84cf2",
+      "size_bytes": 793475
+    },
+    "1020": {
+      "name": "z500_clim_1020.nc",
+      "sha256": "c6c53c26e09736e6570355e5aa0489db599d93d3d66d1ae51eb0bb6e846159cb",
+      "size_bytes": 793380
+    },
+    "1021": {
+      "name": "z500_clim_1021.nc",
+      "sha256": "40d0d2a4f9f4077780cf7952aa03214de5a3cd8482ae75101a1b53bbb0a25c22",
+      "size_bytes": 793018
+    },
+    "1022": {
+      "name": "z500_clim_1022.nc",
+      "sha256": "ce5fbbfd3a51efbd461f68c660d197c877eb343d43dcfd35acee763c3ac429fe",
+      "size_bytes": 792668
+    },
+    "1023": {
+      "name": "z500_clim_1023.nc",
+      "sha256": "4cf56ff5a8983b0d871eaea928ec7e0f023832144a27bf7aa02c15af8f73f662",
+      "size_bytes": 792103
+    },
+    "1024": {
+      "name": "z500_clim_1024.nc",
+      "sha256": "190cb428bffffd1c64c7dfdd197f794ae895621117dc59a74196e960c46bdd75",
+      "size_bytes": 792157
+    },
+    "1025": {
+      "name": "z500_clim_1025.nc",
+      "sha256": "dc6bdbd826382926c1b1b78daf851a5dbecca6947daaebec42b2721403a10562",
+      "size_bytes": 791375
+    },
+    "1026": {
+      "name": "z500_clim_1026.nc",
+      "sha256": "321f3d728ebe2fd7210ff66fbc5200005500be78d5b2d8bdd32467782c265959",
+      "size_bytes": 791431
+    },
+    "1027": {
+      "name": "z500_clim_1027.nc",
+      "sha256": "eede0c22d2e909778309275a3a051484d3ad8de6e085e69d64a87d99fc3cb160",
+      "size_bytes": 791108
+    },
+    "1028": {
+      "name": "z500_clim_1028.nc",
+      "sha256": "7ac488b20f68571e28ccf3be582ce8f19f9d6c9d61aebb39db5ad5d7654da73d",
+      "size_bytes": 790595
+    },
+    "1029": {
+      "name": "z500_clim_1029.nc",
+      "sha256": "847ce329cc47d390b0b3becfc41127917ae5b2632bd2282d9c79085e8d69b224",
+      "size_bytes": 791401
+    },
+    "1030": {
+      "name": "z500_clim_1030.nc",
+      "sha256": "b4eb98d631b13dbb9def58c9fb4e3967dc7271b77b4358e0d2adbd9a42852a81",
+      "size_bytes": 791393
+    },
+    "1031": {
+      "name": "z500_clim_1031.nc",
+      "sha256": "84733aaf04c538309bca03e3fb41c3254013a4e823db1782980ecbabb2264cdb",
+      "size_bytes": 790193
+    },
+    "1101": {
+      "name": "z500_clim_1101.nc",
+      "sha256": "85a749925105d6cce8d1c1d89089c2396a728cef76c5822d1a36ef6dc312b774",
+      "size_bytes": 790866
+    },
+    "1102": {
+      "name": "z500_clim_1102.nc",
+      "sha256": "9ed7bc0def1334150a04ce02e4422b57f961715113d51ab97b3a32a218b21441",
+      "size_bytes": 791333
+    },
+    "1103": {
+      "name": "z500_clim_1103.nc",
+      "sha256": "bdb5d5a4a6dba51827c972dd39da3ab6f472152eeaffcbd263c85359ff25aa37",
+      "size_bytes": 790318
+    },
+    "1104": {
+      "name": "z500_clim_1104.nc",
+      "sha256": "03187a47ff86b87c511ffd90832414ec280930564f83f1aa5f3f8c562c3fc60e",
+      "size_bytes": 790250
+    },
+    "1105": {
+      "name": "z500_clim_1105.nc",
+      "sha256": "7604298e645f3b529aa1706c553b0556e8411d30e845acbb5235ef1668570f7f",
+      "size_bytes": 789910
+    },
+    "1106": {
+      "name": "z500_clim_1106.nc",
+      "sha256": "2e97d2c2754113d44afac6aff436fde7155b36134ec663bb854a308f97dd8ed5",
+      "size_bytes": 789971
+    },
+    "1107": {
+      "name": "z500_clim_1107.nc",
+      "sha256": "371d009e71000009d87a18eae5f7c6492c75118b70e1b97b7d2cbaad7fad9fb9",
+      "size_bytes": 789667
+    },
+    "1108": {
+      "name": "z500_clim_1108.nc",
+      "sha256": "75a95802b8182cfbfc915b099a613c68ed25dfe1064b0bee69f1ec0c7a391f1e",
+      "size_bytes": 789653
+    },
+    "1109": {
+      "name": "z500_clim_1109.nc",
+      "sha256": "3ae0f4069e428be2b655dcd600cd3daa3780fdb529a36166656c3145f2ff8478",
+      "size_bytes": 789776
+    },
+    "1110": {
+      "name": "z500_clim_1110.nc",
+      "sha256": "e5b35f1b1e4616250c0da653b13a896afaa0e5947a629bf174f2682572839cc4",
+      "size_bytes": 789961
+    },
+    "1111": {
+      "name": "z500_clim_1111.nc",
+      "sha256": "d3e5b928e268b59bc45a3a07aa1641127cefe03e07e9dce4718cdf4b882e8387",
+      "size_bytes": 789594
+    },
+    "1112": {
+      "name": "z500_clim_1112.nc",
+      "sha256": "052fa3f0d8566e83ffac681171984197b2b9bba1a0ad46afa40ccc6725a63e5d",
+      "size_bytes": 789846
+    },
+    "1113": {
+      "name": "z500_clim_1113.nc",
+      "sha256": "1eef75cb9b6bf028a9fdaa2de441e2405832083d8d90b048399a9a443ea06fd7",
+      "size_bytes": 789779
+    },
+    "1114": {
+      "name": "z500_clim_1114.nc",
+      "sha256": "025de67e2b67cf0b98fe7f69ca88f0ae871e9106a4084be0525e1933cb0549e0",
+      "size_bytes": 789766
+    },
+    "1115": {
+      "name": "z500_clim_1115.nc",
+      "sha256": "32a4e5b07827ddbce3c13693e2c6074eca4a53b2c6f58a4f6f4c567b817b88fb",
+      "size_bytes": 789602
+    },
+    "1116": {
+      "name": "z500_clim_1116.nc",
+      "sha256": "080797dbc51c47a1ff823262558313d18fa21f56b7abe3869a85ead7fa12307e",
+      "size_bytes": 789573
+    },
+    "1117": {
+      "name": "z500_clim_1117.nc",
+      "sha256": "220f0a48d27429dcfc588e5d6630344de6fa6eb738cf219553609a0c08e8e32a",
+      "size_bytes": 789029
+    },
+    "1118": {
+      "name": "z500_clim_1118.nc",
+      "sha256": "b47e3b49c3df2a7f0ae9a67065f394452ebebf6b98a738d45391a1d911d1d366",
+      "size_bytes": 788994
+    },
+    "1119": {
+      "name": "z500_clim_1119.nc",
+      "sha256": "3f6f6faf91a520368567d5922736112cab5068dc005b522e01fd70df953f66ed",
+      "size_bytes": 789061
+    },
+    "1120": {
+      "name": "z500_clim_1120.nc",
+      "sha256": "1d1cf96c38a8188f962ea907b0c07a38bbf9c35eb04c4c92280c7e500e63b40e",
+      "size_bytes": 788943
+    },
+    "1121": {
+      "name": "z500_clim_1121.nc",
+      "sha256": "de96aed3a5525cc65d086422e90e6e341e5ddd16c388e1c6bae28cb45ef8f69c",
+      "size_bytes": 789060
+    },
+    "1122": {
+      "name": "z500_clim_1122.nc",
+      "sha256": "ff52078fa6d4b49a7d3db345002dcb239c72d455f9a52751c045aac4abcad91a",
+      "size_bytes": 789073
+    },
+    "1123": {
+      "name": "z500_clim_1123.nc",
+      "sha256": "dfe60f14d38ecca060a9a242cacfb8d611559398ae725ee931f2fbfa950cc15d",
+      "size_bytes": 789085
+    },
+    "1124": {
+      "name": "z500_clim_1124.nc",
+      "sha256": "c71e33ada54b35eeb0f28a99660b710a174a605798e7ea789c38a7550cfbe590",
+      "size_bytes": 788745
+    },
+    "1125": {
+      "name": "z500_clim_1125.nc",
+      "sha256": "d1191c4dfb048d5af872dbc335550f5f7674d3399bdd69159d5fd7a44836c629",
+      "size_bytes": 788888
+    },
+    "1126": {
+      "name": "z500_clim_1126.nc",
+      "sha256": "002d955771005f63ca8581f119b0f54ef401370ba2060708b8c22b4afa965466",
+      "size_bytes": 788328
+    },
+    "1127": {
+      "name": "z500_clim_1127.nc",
+      "sha256": "62ac1308ca435ce23ce8a258173fb81c1ca01260838ed5d5a5e98c9799120d4c",
+      "size_bytes": 788366
+    },
+    "1128": {
+      "name": "z500_clim_1128.nc",
+      "sha256": "7e28a2a97084b926a193796e2639694664f451cf82b300129612432e4185ce1a",
+      "size_bytes": 788457
+    },
+    "1129": {
+      "name": "z500_clim_1129.nc",
+      "sha256": "4f715bb881b5c859a9278c583dce15ae131d8a6c49e4669f5549a983da9a2f04",
+      "size_bytes": 788179
+    },
+    "1130": {
+      "name": "z500_clim_1130.nc",
+      "sha256": "4a7c1e8fdaba2bf9f6e859a3143221b3f5897abe08038c81cd775f77207a9b7d",
+      "size_bytes": 788215
+    },
+    "1201": {
+      "name": "z500_clim_1201.nc",
+      "sha256": "154c8ec1ae9dc7911f1c3735eff20cad48aa7e7e426f0a565171f2e6ff692c20",
+      "size_bytes": 788360
+    },
+    "1202": {
+      "name": "z500_clim_1202.nc",
+      "sha256": "d6568ddef504ea1a02af1c17002fb0ab7275a67ba4d2a60f7f5414fa2f1e7865",
+      "size_bytes": 788491
+    },
+    "1203": {
+      "name": "z500_clim_1203.nc",
+      "sha256": "10bf2383dbcc972ac4e5437599139a0052f517ae539f1a75ec1cbae3c63bb38f",
+      "size_bytes": 788265
+    },
+    "1204": {
+      "name": "z500_clim_1204.nc",
+      "sha256": "f8b6fbf7c29c6e2d998c8dc56192b417c51d2f8f7caada170d1de2a0dd80bd58",
+      "size_bytes": 788391
+    },
+    "1205": {
+      "name": "z500_clim_1205.nc",
+      "sha256": "eacf3bf2c862731e111ba8c92ac5b9cefe03d9f54602f24ae901e32beebdd80d",
+      "size_bytes": 787847
+    },
+    "1206": {
+      "name": "z500_clim_1206.nc",
+      "sha256": "9bb9da5a5fb43db3ea72cfe9b35f593989a279518ac753ca580b2567b12ccdbd",
+      "size_bytes": 788126
+    },
+    "1207": {
+      "name": "z500_clim_1207.nc",
+      "sha256": "146f2b162391fc2a117078d30d78560219753b247e6782c066d292401f908619",
+      "size_bytes": 788263
+    },
+    "1208": {
+      "name": "z500_clim_1208.nc",
+      "sha256": "21dbce4dbd7282a0f8718440bf7c9355b1c8818fd53cf95ef7fa89fdf0347167",
+      "size_bytes": 788528
+    },
+    "1209": {
+      "name": "z500_clim_1209.nc",
+      "sha256": "00b3874eb778716dcee0535a69b85923608306dcdd84bf8ac3a69b1b45c4980a",
+      "size_bytes": 788259
+    },
+    "1210": {
+      "name": "z500_clim_1210.nc",
+      "sha256": "e287237e2f72e024d23b27d49217d6b2ce1d27e148db36bdd0482f74021fb1f7",
+      "size_bytes": 788346
+    },
+    "1211": {
+      "name": "z500_clim_1211.nc",
+      "sha256": "ae75cfd204164326bad4967574b2ccf793cc32fd318a0c939f9a94cc07d77f11",
+      "size_bytes": 787812
+    },
+    "1212": {
+      "name": "z500_clim_1212.nc",
+      "sha256": "479403c743b976604bc816251cbf0d5b553a63cc460ffb94a5be5b78a49e7db2",
+      "size_bytes": 788221
+    },
+    "1213": {
+      "name": "z500_clim_1213.nc",
+      "sha256": "b8b63e3aca9e2a7e0a026b8454ce9780024328b449ae82e5bc16ebf08576d42e",
+      "size_bytes": 787516
+    },
+    "1214": {
+      "name": "z500_clim_1214.nc",
+      "sha256": "d928e0ca33fb03eaeaf51db5ffb9045d922f50625004f40c98d9b5e0d8826535",
+      "size_bytes": 788174
+    },
+    "1215": {
+      "name": "z500_clim_1215.nc",
+      "sha256": "ae9bab80193b4ab523295ccfd5cd5ed0f0bfae0964a2feb1808c18e8cf045b47",
+      "size_bytes": 787778
+    },
+    "1216": {
+      "name": "z500_clim_1216.nc",
+      "sha256": "d000e19a7de725102c0efaeecd53c0cd2ab17017aeb5f8bafb8ff6ab9fde2f7c",
+      "size_bytes": 788023
+    },
+    "1217": {
+      "name": "z500_clim_1217.nc",
+      "sha256": "c00689c0f8bb8b93ccb45d3d3d51a517d4ca502da499b311cb98b0c38de61240",
+      "size_bytes": 788477
+    },
+    "1218": {
+      "name": "z500_clim_1218.nc",
+      "sha256": "fd951695eb2ccffffb55740cfed4869044583b4265dfa3c8345614fbec194548",
+      "size_bytes": 788271
+    },
+    "1219": {
+      "name": "z500_clim_1219.nc",
+      "sha256": "cdf3e1e3243be2530b21e1baeabfd42351bc42dafc4a218a630226d58d7ea7d8",
+      "size_bytes": 788569
+    },
+    "1220": {
+      "name": "z500_clim_1220.nc",
+      "sha256": "0cbc5790c5dbcdd26234342c29cfad5401de6d42cd06e3c40b0e61a101fbca30",
+      "size_bytes": 788393
+    },
+    "1221": {
+      "name": "z500_clim_1221.nc",
+      "sha256": "102ad71e1a3b550b18b5c46c12d0b0bc667bf5d904d2177b1a6b1774714bbb8d",
+      "size_bytes": 788100
+    },
+    "1222": {
+      "name": "z500_clim_1222.nc",
+      "sha256": "b649949118e15a168950ac72dab596fc6ee39e7635e6b858e5bbc0a8198682e1",
+      "size_bytes": 788635
+    },
+    "1223": {
+      "name": "z500_clim_1223.nc",
+      "sha256": "cc1162801dc83885e771ff1004994045da99e3bd7f73c3bd39d73191e7a36b99",
+      "size_bytes": 788623
+    },
+    "1224": {
+      "name": "z500_clim_1224.nc",
+      "sha256": "fa99aef6d4653da9abd3341800ac55fa117816fb81edebd5c1469cf7a30f463b",
+      "size_bytes": 788579
+    },
+    "1225": {
+      "name": "z500_clim_1225.nc",
+      "sha256": "ee2e13705d40a8bb1f38ea94b0260c6866558c0ec8a5e6d16cfacc633f23c94a",
+      "size_bytes": 788180
+    },
+    "1226": {
+      "name": "z500_clim_1226.nc",
+      "sha256": "50198ff36fb3fd2ff892c7d520753f74654ba83463f17e50d3c842e9535ab353",
+      "size_bytes": 788315
+    },
+    "1227": {
+      "name": "z500_clim_1227.nc",
+      "sha256": "27384f1c6c23d89b43dd576610ec1f280638da1a2b192ae7dc5022efd48ab7df",
+      "size_bytes": 788640
+    },
+    "1228": {
+      "name": "z500_clim_1228.nc",
+      "sha256": "68b1df21bd3acf53e85b669fb047903451f03eb08fb28129718a0c8971b111b2",
+      "size_bytes": 788296
+    },
+    "1229": {
+      "name": "z500_clim_1229.nc",
+      "sha256": "83ae414e8f51594eded8dfa5ff1749372c7590f70c39694f2f1ec7c9ec13df65",
+      "size_bytes": 788724
+    },
+    "1230": {
+      "name": "z500_clim_1230.nc",
+      "sha256": "dbdfc734c287a828d7bddb8416f29bcc69b0fc8f614d14130bbe694ed3e6c1e1",
+      "size_bytes": 789027
+    },
+    "1231": {
+      "name": "z500_clim_1231.nc",
+      "sha256": "d32b2df545fc466447085470bd4c23e680ee90fe866215f4e32032c2c571f98a",
+      "size_bytes": 789040
+    }
+  }
+}
