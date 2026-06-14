@@ -68,11 +68,19 @@ Equações e fluxogramas são renderizados pelo seu navegador.</div>
 """
 
 
-def _protect(text: str, pattern: str, store: list, flags: int = 0) -> str:
-    """Substitui trechos casados por placeholders inertes (guardados em `store`)."""
+def _protect(text: str, pattern: str, store: list, prefix: str, flags: int = 0) -> str:
+    """Substitui trechos casados por placeholders inertes (guardados em `store`).
+
+    O `prefix` isola o namespace de cada tipo de conteúdo (ex.: ``MM`` p/ mermaid,
+    ``MX`` p/ math) para que os tokens **nunca colidam** entre stores diferentes —
+    do contrário o primeiro fluxograma e a primeira equação receberiam o mesmo
+    token e um sobrescreveria o outro na restauração. Os tokens usam só letras e
+    dígitos (sem ``_``, que o Markdown transformaria em ênfase) para sobreviverem
+    intactos à conversão.
+    """
     def _repl(m: re.Match) -> str:
         store.append(m.group(0))
-        return f"@@CMTOKEN{len(store) - 1}@@"
+        return f"@@CMTOK{prefix}{len(store) - 1}@@"
     return re.sub(pattern, _repl, text, flags=flags)
 
 
@@ -91,9 +99,10 @@ def render_methodology_html(md_path: Path, out_path: Path | None = None) -> Path
     math: list[str] = []
 
     # 1) Protege blocos mermaid (viram <div class="mermaid">), depois math.
-    text = _protect(text, r"```mermaid\s*\n(.*?)```", mermaid, flags=re.DOTALL)
-    text = _protect(text, r"\$\$.+?\$\$", math, flags=re.DOTALL)   # display
-    text = _protect(text, r"\$[^$\n]+?\$", math)                   # inline
+    #    Prefixos distintos (MM / MX) evitam colisão de token entre os dois stores.
+    text = _protect(text, r"```mermaid\s*\n(.*?)```", mermaid, "MM", flags=re.DOTALL)
+    text = _protect(text, r"\$\$.+?\$\$", math, "MX", flags=re.DOTALL)   # display
+    text = _protect(text, r"\$[^$\n]+?\$", math, "MX")                   # inline
 
     # 2) Markdown → HTML
     body = _md.markdown(
@@ -105,15 +114,18 @@ def render_methodology_html(md_path: Path, out_path: Path | None = None) -> Path
         inner = re.sub(r"^```mermaid\s*\n", "", block)
         inner = re.sub(r"```$", "", inner).strip()
         div = f'<div class="mermaid">\n{inner}\n</div>'
-        body = body.replace(f"@@CMTOKEN{i}@@", div)
+        body = body.replace(f"@@CMTOKMM{i}@@", div)
         body = body.replace(f"<p>{div}</p>", div)
     for i, expr in enumerate(math):
-        body = body.replace(f"@@CMTOKEN{i}@@", expr)
+        body = body.replace(f"@@CMTOKMX{i}@@", expr)
 
     html = _HTML_TEMPLATE.format(body=body)
 
     if out_path is None:
-        out_path = Path(tempfile.gettempdir()) / "cartomet_metodologia_loczcit_pa.html"
+        # Nome derivado do .md de origem: a metodologia do LOCZCIT-PA e a do Bloqueio
+        # Z500 usam esta mesma função; sem isso, ambas gravariam no MESMO arquivo
+        # temporário e uma sobrescreveria a outra ao abrir no navegador.
+        out_path = Path(tempfile.gettempdir()) / f"cartomet_{Path(md_path).stem}.html"
     out_path = Path(out_path)
     out_path.write_text(html, encoding="utf-8")
     return out_path
