@@ -73,10 +73,39 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
   - **∇TSM** — gradiente térmico do oceano (*skin temperature*, máscara `lsm ≤ 0.2` que preserva a costa do Amapá/Marajó)
   - **C** — convergência do vento de baixos níveis (10 m), via MetPy
   - **F<sub>OLR</sub>** — Radiação de Onda Longa **desacumulada** (Técnica B: rodada anterior madura, steps 12−9, mitigando o *spin-up* da microfísica)
-- Normalização Min-Max meridional (Navalha de Ockham) → filtro espacial **IQR de Tukey** → classificação por limiares físicos de OLR num **raster categórico**: 🔴 Forte (≤180 W/m²), 🟡 Moderada (≤210), 🟢 Fraca (≤240); céu limpo e *outliers* ficam transparentes
+- Normalização Min-Max meridional (Navalha de Ockham) → **máscara ativa acoplada** `oceano ∧ (OLR<240 ∨ C>C_THR)` + **envelope sazonal de latitude** → classificação por limiares físicos de OLR num **raster categórico de 4 classes**: 🔴 Forte (≤180 W/m²), 🟡 Moderada (≤210), 🟢 Fraca (≤240) e 🟣 **Cinemática** (>240, banda ativa por convergência — o ramo sul resgatado); céu limpo verdadeiro fica transparente
+- A **máscara ativa resgata o ramo sul** da ZCIT (nítido na convergência, cego na OLR) e o **envelope sazonal** rejeita transientes subtropicais sem clipar a banda. Filtro de **Coerência Espacial (LISA / Moran Local)** opcional ao IQR (extra `spatial`)
+- **Overlay opcional do eixo** (banda simples/dupla, com nó de bifurcação) — camada togglável, desligada por padrão, que orienta sem substituir o traçado manual
 - Botão **🛰 ZCIT (LOCZCIT-PA)** no painel *Análises prontas* — calcula em *thread*, auto-enquadra no Atlântico equatorial e injeta o raster como **guia visual** para o traçado manual da simbologia `[6] ZCIT` (*human-in-the-loop*)
 - Render com `pcolormesh` + `ListedColormap` + `BoundaryNorm` (blocos exatos, sem vazamento de cor); costa/fronteiras/estados visíveis por cima
 - Menu **Ajuda → "Sobre o Índice ZCIT (LOCZCIT-PA)"** com categorias, cores, limiares e a metodologia completa. Linhagem científica: **Rocha (2022)**, **Ferreira et al. (2005)**
+
+### Refinamentos científicos e de engenharia (v3.0.0)
+
+Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* científico:
+
+- **Coerência Espacial (LISA / Moran Local)** — novo método de delimitação da banda, **alternativo ao IQR**, oferecido num **modal** ao acionar o índice. Isola o *envelope* contíguo da convecção por *hotspots* estatisticamente significativos (convecção cercada por convecção); mais robusto contra sistemas órfãos sem amputar excursões legítimas da banda. **Opcional** (extra `spatial`: `esda`, `libpysal`); o IQR continua o padrão rápido. Reprodutível (semente fixa).
+- **Mitigação da Camada Quente Diurna (DWL)** — suavização Gaussiana *ciente-de-NaN* da *skin temperature* sobre o oceano **antes** do ∇TSM (mascara o continente primeiro, então **não contamina a costa**), atenuando o ruído diurno apontado pela revisão científica
+- **Consistência temporal da OLR** — a desacumulação genérica agora **ancora a data da rodada** na requisição de rede (antes podia baixar a "mais recente" e rotular o cache errado)
+- **Anti-404 pós-144 h** — o *step*-alvo da Técnica B é arredondado à **grade publicada do IFS** (3 h até 144 h; 6 h além), evitando *steps* inexistentes (ex.: 147/153)
+- **Triangulação temporal unificada (DRY)** — a regra de tempo da OLR madura tem agora uma **fonte única** (`olr_timing.py`), compartilhada pelo motor e pela camada de serviços, com *fallback* de data robusto
+- **Documentação científica harmonizada** — metodologia alinhada ao código: vocabulário de *spin-up*, justificativa honesta da `skt`/DWL, pesos iguais ancorados em **Dawes (1979)**, natureza *relativa por meridiano* da normalização, ressalva ao IQR e documentação do LISA
+
+### 🌀 Bloqueio Atmosférico (Z500)
+
+- Nova **Análise Pronta** (botão azul no painel) que calcula e plota a **anomalia de altura geopotencial em 500 hPa** — o campo `gh` do IFS (rodada + *step* selecionados) menos a **climatologia diária**: `anomalia = gh − z500_clim`
+- **Climatologia ERA5 1991–2020** própria (00Z/12Z, média anual + 4 harmônicos via FFT, setor 150°W–30°E / 75°S–15°N, 0.25°), na **mesma grade do IFS Open Data** → subtração direta, sem regrid. Distribuída no próprio repositório (`climatology/z500/` — 366 NetCDFs + `manifest.json`) e baixada **só o arquivo do dia** (~800 KB), com verificação **sha256**, retentativas com *backoff* e **cache local** — funciona offline depois do primeiro acesso
+- Render **divergente** (`RdBu_r`, níveis fixos de 40 gpm) com o **contorno do zero** destacado e **auto-enquadramento** no setor; camada togglável/removível no painel de camadas
+- **Leitura sinótica:** anomalias **positivas persistentes** (≳ +100 gpm) em latitudes médias-altas sinalizam **bloqueio**; o clássico padrão **ômega** aparece como **dipolo A–B** (cordilheira anticiclônica ladeada por cavados). Em rodadas **06Z/18Z** usa-se o *slot* climatológico mais próximo, sinalizado com **"≈"** na carta
+- Cálculo e download em **thread separada** (cancelável); o GRIB de `gh` 500 hPa **compartilha o cache** com a camada normal de geopotencial
+- Menu **Ajuda → "Sobre a Análise de Bloqueio (Z500)"** com resumo e a metodologia completa. Climatologia: **ERA5** (Hersbach et al., 2020) via **Copernicus Climate Change Service (C3S)**
+
+### ✏ Caneta e ⬜ Formas customizáveis
+
+- **Caneta (traço livre)** — pressione e arraste para rabiscar a carta com o **mouse ou mesa digitalizadora** (o tablet funciona como mouse de precisão). Cor (8 presets meteorológicos + cor personalizada via diálogo), espessura (1–10 pt) e opacidade ajustáveis no painel **Simbologias**. Decimação de pontos mantém o traço fluido mesmo em tablets de alta taxa
+- **Formas** — **Retângulo, Elipse/Círculo, Seta e Linha reta** por arraste com *preview* ao vivo, e **Polígono livre** por cliques nos vértices (Enter ou duplo-clique fecha). Borda, **preenchimento opcional**, espessura, estilo (sólida/tracejada/pontilhada) e opacidade customizáveis
+- Tudo integrado ao **undo/redo** ([Z]/[Y]/`Ctrl+Z`/`Ctrl+Y`), ao **[C] Limpar** e ao `Esc` (cancela o rascunho em andamento); modos mutuamente exclusivos com simbologias, emojis, zoom/pan e Sonda Vertical
+- Render seguro no GeoAxes do Cartopy pela **doutrina dos códigos poligonais** (`PathPatch` apenas com MOVETO/LINETO/CLOSEPOLY — sem códigos curvos), validada por spike e pelo precedente dos símbolos pontuais
 
 ### Observações de superfície — SYNOP e METAR
 
@@ -86,6 +115,15 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 - **Sincronização temporal**: as observações usam o `valid_time` do modelo carregado
 - **Afinamento por densidade** (`reduce_point_density`) que responde ao zoom — ao recortar para um domínio menor, mais estações aparecem
 - Liga/desliga por checkbox no painel **Observações de superfície** (re-renderiza só o overlay; rede em thread; falhas não travam a interface)
+
+### Sonda Vertical — Radiossondagem (Skew-T Log-P)
+
+- Botão **📍 Sonda Vertical** na barra principal: ative e **clique no mapa** — o sistema **ancora (*snap*) automaticamente na estação de radiossonda mais próxima** (lista RAOB curada: Belém 82193, Fortaleza, Natal, Manaus, Brasília, Galeão, Porto Alegre…) e desenha um marcador temporário
+- O perfil abre num **painel lateral direito deslizante** (`QDockWidget`): o meteorologista vê o **mapa 2D à esquerda e o Skew-T à direita ao mesmo tempo** — sem pop-ups que escondam o contexto (UX *Single Page*)
+- Diagrama completo via **MetPy**: **Skew-T Log-P** (temperatura, orvalho, perfil da parcela, sombreamento de CAPE/CIN, barbelas de vento), **hodógrafo** e **tabela de índices** termodinâmicos (CAPE, CIN, LCL, LFC, EL, Água Precipitável, Showalter)
+- **Sincronia temporal mestra**: o painel é *escravo* do seletor de **Step** do mapa — avançar o horário recarrega a sondagem automaticamente. A radiossonda (lançada só às **00Z/12Z**) é buscada no horário sinótico mais próximo do `valid_time`
+- **Fail-states elegantes**: dados baixados da **Universidade de Wyoming** (via `siphon`) em **`QThread`** — a GUI nunca congela; instabilidade de rede vira mensagem amigável; horário **futuro** ("o balão ainda não foi lançado") é bloqueado **sem** tocar no servidor
+- Robustez de sensor: cada índice e o hodógrafo são calculados isoladamente — uma sonda com vento defeituoso em altitude **não derruba** o resto do diagrama
 
 ### Zoom no mapa
 
@@ -236,8 +274,10 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 | Recurso | Descrição |
 |---------|-----------|
 | **Dados ECMWF** | Download automático de dados gratuitos do modelo IFS (resolução 0.25°) |
-| **Índice ZCIT (LOCZCIT-PA)** | Localização da ZCIT acoplando ∇TSM + convergência + OLR desacumulada num raster categórico (Forte/Moderada/Fraca) — guia para o traçado manual |
+| **Índice ZCIT (LOCZCIT-PA)** | Localização da ZCIT acoplando ∇TSM + convergência + OLR desacumulada num raster categórico de 4 classes (Forte/Moderada/Fraca/Cinemática), com máscara ativa, envelope sazonal e overlay opcional de eixo — guia para o traçado manual |
+| **Bloqueio Atmosférico (Z500)** | Anomalia de altura geopotencial em 500 hPa (`gh` − climatologia ERA5 1991–2020) com render divergente e contorno do zero — realça cordilheiras de bloqueio e o padrão ômega; climatologia baixada por dia (cache + sha256) |
 | **Observações SYNOP/METAR** | Sobreposição de observações reais de superfície (METAR via NOAA AWC; SYNOP via OGIMET) sincronizadas com o `valid_time` do modelo |
+| **Caneta e Formas** | Traço livre (mouse/mesa digitalizadora) e formas customizáveis (retângulo, elipse, seta, linha, polígono) com cor, preenchimento, espessura, estilo e opacidade — integrados ao undo/redo |
 | **Zoom no mapa** | Zoom por roda do mouse, pan, recorte por retângulo (replota e reafina estações), histórico de extents (Home/Ctrl+0) |
 | **Satélite GOES-East** | Imagem IR Banda 13 com paleta clássica, seleção por data/hora/minuto |
 | **TSM — MUR SST 1km** | Temperatura da Superfície do Mar operacional (NASA/NOAA via ERDDAP) |
@@ -402,6 +442,10 @@ uv sync
 uv run python -m cartomet_br gui
 ```
 
+> **Opcional — Coerência Espacial (LISA):** o método avançado de delimitação da ZCIT
+> requer dependências extras. Instale com `uv sync --extra spatial` (adiciona `esda` e
+> `libpysal`). Sem elas, o índice usa o filtro **IQR** (padrão) — nada quebra.
+
 ### Primeira Execução
 
 Na primeira execução, o programa exibirá uma **janela de boas-vindas** e solicitará que você escolha um **diretório de dados** para armazenar os arquivos meteorológicos e de satélite baixados.
@@ -453,6 +497,8 @@ Na primeira execução, o programa exibirá uma **janela de boas-vindas** e soli
 - **xarray + cfgrib** — Leitura e manipulação de dados GRIB2
 - **SciPy** — Suavização gaussiana e processamento numérico
 - **MetPy** — Processamento meteorológico
+- **statsmodels** — Suavização robusta LOWESS (overlay de eixo da ZCIT)
+- **siphon** — Radiossondagem da Universidade de Wyoming (Skew-T Log-P)
 - **ECMWF Open Data** — Fonte de dados meteorológicos
 - **NOAA GOES-East (AWS S3)** — Imagens de satélite
 - **NASA/NOAA MUR SST (ERDDAP)** — Temperatura da Superfície do Mar (1 km)
@@ -496,6 +542,15 @@ Na primeira execução, o programa exibirá uma **janela de boas-vindas** e soli
 - **Fonte**: [NOAA AWC](https://aviationweather.gov/) (METAR) · [OGIMET](https://www.ogimet.com/) (SYNOP)
 - **Licença**: Domínio Público (NOAA) / dados abertos (OGIMET)
 
+### Climatologia de Z500 — ERA5 (Copernicus/C3S)
+
+- **Uso**: base da Análise de **Bloqueio Atmosférico** — anomalia `gh − z500_clim`
+- **Dataset**: ERA5 reanalysis (ECMWF) — altura geopotencial em 500 hPa
+- **Período**: normais diárias **1991–2020** (30 anos), 00Z e 12Z
+- **Processamento**: média anual + 4 harmônicos (FFT; 29/02 interpolado); setor 150°W–30°E / 75°S–15°N a 0.25° (mesma grade do IFS Open Data)
+- **Distribuição**: empacotada no repositório (`climatology/z500/` — 366 NetCDFs + `manifest.json` com sha256), baixada por dia e cacheada localmente
+- **Fonte/Licença**: [Copernicus Climate Change Service (C3S) — ERA5](https://cds.climate.copernicus.eu/) · Hersbach et al. (2020), doi:10.1002/qj.3803 · Licença Copernicus
+
 ---
 
 ## Estrutura do Projeto
@@ -511,6 +566,12 @@ CartoMet_BR/
 │   │   ├── ecmwf.py             # Download ECMWF, GOES, VARIABLE_REGISTRY
 │   │   ├── sst.py               # Download MUR SST 1km via ERDDAP
 │   │   ├── loczcit_pa_engine.py # Motor do índice ZCIT (LOCZCIT-PA)
+│   │   ├── olr_timing.py        # Triangulação temporal da OLR (Técnica B) — fonte única
+│   │   ├── zcit_axis.py         # Detecção do eixo da ZCIT (centroide + IQR + LOWESS)
+│   │   ├── zcit_dual.py         # Banda dupla da ZCIT (bimodalidade + bifurcação)
+│   │   ├── spatial_coherence.py # Filtro de Coerência Espacial (LISA / Moran Local)
+│   │   ├── blocking_engine.py   # Bloqueio: anomalia de Z500 vs. climatologia ERA5
+│   │   ├── raob_stations.py     # Estações RAOB (snap da Sonda Vertical)
 │   │   └── stations.py          # Observações SYNOP (OGIMET) e METAR (NOAA AWC)
 │   ├── symbols/
 │   │   ├── base.py              # Classe base e helpers
@@ -528,6 +589,9 @@ CartoMet_BR/
 │   │   ├── drawing_panel.py     # Painel de simbologias
 │   │   ├── layer_panel.py       # Painéis de camadas e configurações
 │   │   ├── download_dialog.py   # Threads de download e diálogo de progresso
+│   │   ├── draw_tools.py        # Caneta e formas: comandos de desenho serializáveis
+│   │   ├── sounding_engine.py   # Worker da radiossondagem (Wyoming/siphon, QThread)
+│   │   ├── sounding_panel.py    # Painel lateral Skew-T Log-P (MetPy)
 │   │   ├── dialogs.py           # Welcome, FirstRun
 │   │   ├── themes.py            # Temas visuais e estilos
 │   │   ├── methodology.py       # Renderiza a metodologia LOCZCIT-PA (md → HTML)
@@ -535,17 +599,25 @@ CartoMet_BR/
 │   └── assets/
 │       ├── CartoMet_BR_logo_*   # Logos e ícones
 │       └── Logos_UFPA_IG_FAMET_PPGGRD.png
+├── climatology/
+│   └── z500/                    # Climatologia diária de Z500 (ERA5) + manifest.json (sha256)
 ├── tests/
 │   ├── conftest.py
+│   ├── test_blocking.py
 │   ├── test_config.py
 │   ├── test_data_service.py
 │   ├── test_deaccumulation.py
 │   ├── test_drawing_history.py
+│   ├── test_draw_tools.py
 │   ├── test_ecmwf.py
 │   ├── test_interactive.py
 │   ├── test_loczcit_pa.py
+│   ├── test_olr_deaccum_characterization.py
+│   ├── test_raob_stations.py
+│   ├── test_spatial_coherence.py
 │   ├── test_stations.py
 │   ├── test_symbols.py
+│   ├── test_zcit_axis.py
 │   └── test_zoom.py
 ├── output/
 │   └── instalador_script.iss    # Script Inno Setup para gerar instalador
@@ -689,6 +761,7 @@ Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para ma
 - **ECMWF** — Por disponibilizar dados meteorológicos gratuitamente através do Open Data
 - **NOAA** — Pelas imagens de satélite GOES-East disponíveis no AWS S3
 - **NASA/NOAA** — Pelo dataset MUR SST de alta resolução disponível via ERDDAP
+- **Copernicus / ECMWF (C3S)** — Pela reanálise ERA5, base da climatologia de bloqueio (Z500)
 - **CPTEC/INPE** — Pela metodologia operacional de detecção de ZCAS (Escobar, 2019)
 - **Comunidade Python** — Pelas excelentes bibliotecas científicas (xarray, cartopy, matplotlib, MetPy)
 - **UFPA, IG, FAMET e PPGGRD** — Pela formação acadêmica e inspiração
@@ -734,6 +807,7 @@ Se você utilizar o CartoMet BR em pesquisas, trabalhos acadêmicos ou publicaç
 
 - **Escobar, G. C. J. (2019)** — Zona de Convergência do Atlântico Sul (ZCAS): critério de detecção para uso em centros operacionais de previsão de tempo. *Nota Técnica*, CPTEC/INPE.
 - **Petterssen, S. (1936)** — Contribution to the theory of frontogenesis. *Geofysiske Publikasjoner*, 11(6), 1-27.
+- **Hersbach, H. et al. (2020)** — The ERA5 global reanalysis. *Quarterly Journal of the Royal Meteorological Society*, 146(730), 1999-2049. doi:10.1002/qj.3803.
 
 ---
 
@@ -746,5 +820,5 @@ Se você utilizar o CartoMet BR em pesquisas, trabalhos acadêmicos ou publicaç
 </p>
 
 <p align="center">
-  <sub>Dados: ECMWF Open Data (CC BY 4.0) | Satélite: NOAA GOES-East (Domínio Público) | TSM: NASA/NOAA MUR SST (Domínio Público)</sub>
+  <sub>Dados: ECMWF Open Data (CC BY 4.0) | Satélite: NOAA GOES-East (Domínio Público) | TSM: NASA/NOAA MUR SST (Domínio Público) | Climatologia: Copernicus ERA5</sub>
 </p>
