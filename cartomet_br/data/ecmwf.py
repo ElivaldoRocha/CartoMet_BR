@@ -20,6 +20,8 @@ import xarray as xr
 from ecmwf.opendata import Client
 from scipy.ndimage import gaussian_filter
 
+from cartomet_br.data.olr_timing import resolve_olr_window
+
 warnings.filterwarnings("ignore", message=".*skipping variable.*")
 
 logger = logging.getLogger(__name__)
@@ -1342,6 +1344,8 @@ def _read_accum_field(
         levels=None,
         step=step,
         cycle=cycle,
+        date=date_str,                 # P0: ancora a rodada calculada (Técnica B);
+        # sem isto o cliente baixa a "latest" e o cache fica rotulado errado.
         output_path=Path(data_dir) / f"ecmwf_{param}_{date_str}_{cycle_tag}_f{step:03d}.grib2",
         data_dir=data_dir,
         source=source,
@@ -1377,25 +1381,15 @@ def _resolve_accum_window(
     date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
 
     if technique == "stabilized":
-        # Técnica B DINÂMICA (mitiga spin-up): rodada-base 12h antes da rodada
-        # selecionada (sempre real); step alvo = step+12; janela 3h(≤144)/6h.
-        # Ancorar na rodada (não no valid_time) evita rodada-base no futuro p/ previsões.
-        c = cycle if cycle is not None else 0
-        try:
-            run_dt = datetime.strptime(date_str, "%Y%m%d").replace(
-                hour=c, tzinfo=timezone.utc
-            )
-        except ValueError:
-            run_dt = datetime.now(timezone.utc).replace(
-                hour=c, minute=0, second=0, microsecond=0
-            )
-        base = run_dt - timedelta(hours=12)
-        target = step + 12
-        window_h = 3 if target <= 144 else 6
-        step_lo = target - window_h
-        label = (f"Estabilizada · rodada {base.strftime('%HZ %d/%m')} "
-                 f"(steps {step_lo}–{target})")
-        return base.hour, base.strftime("%Y%m%d"), target, step_lo, label
+        # Técnica B DINÂMICA (mitiga spin-up): DELEGA à fonte única
+        # `resolve_olr_window` (olr_timing.py) — rodada-base 12h antes, step
+        # alvo=step+12, janela 3h(≤144)/6h, snapping anti-404 (P1) e fallback de
+        # data (C2). Aqui só formatamos o rótulo da camada.
+        plan = resolve_olr_window(cycle if cycle is not None else 0, date_str, step)
+        label = (f"Estabilizada · rodada {plan.base_cycle:02d}Z "
+                 f"{plan.base_date[6:8]}/{plan.base_date[4:6]} "
+                 f"(steps {plan.step_lo}–{plan.step_hi})")
+        return plan.base_cycle, plan.base_date, plan.step_hi, plan.step_lo, label
 
     # Direta: janela [step-w, step] da rodada selecionada (w=3h até 144h, senão 6h)
     window_h = 3 if step <= 144 else 6

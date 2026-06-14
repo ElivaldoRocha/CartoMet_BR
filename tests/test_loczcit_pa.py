@@ -5,18 +5,27 @@ import pytest
 
 from cartomet_br.data.loczcit_pa_engine import (
     CATEGORY_COLORS,
+    CATEGORY_LABELS,
+    C_THR,
     IQR_CONSTANT,
     OCEAN_MASK_THRESHOLD,
     OLR_THRESHOLD_MODERATE,
     OLR_THRESHOLD_STRONG,
     OLR_THRESHOLD_WEAK,
     OLR_WINDOW_SECONDS,
+    SKT_SMOOTH_SIGMA,
     STRICT_EXTENT,
+    CAT_CINEMATICA,
     LoczcitResult,
+    _nanaware_gaussian,
+    active_mask,
     build_raster,
+    categorical_raster,
     classify_by_olr,
     couple_ockham,
     iqr_latitude_band,
+    itcz_central_latitude,
+    itcz_lat_band,
     normalize_meridional,
     plan_olr_deaccumulation,
     save_loczcit_netcdf,
@@ -46,8 +55,10 @@ class TestConstants:
     def test_olr_window_is_3h(self):
         assert OLR_WINDOW_SECONDS == 10800.0
 
-    def test_three_categories(self):
-        assert len(CATEGORY_COLORS) == 3
+    def test_four_categories(self):
+        # 0 Cinemática (magenta), 1 Fraca, 2 Moderada, 3 Forte
+        assert len(CATEGORY_COLORS) == 4
+        assert set(CATEGORY_LABELS) == {0, 1, 2, 3}
 
     def test_iqr_constant_tukey(self):
         assert IQR_CONSTANT == 1.5
@@ -222,22 +233,73 @@ class TestBuildRaster:
             lons=np.linspace(-55, 15, 30),
             lats=np.linspace(-15, 15, 20),
         )
-        raster, izcit = build_raster(nf)
+        raster, izcit, active = build_raster(nf)   # agora retorna a máscara ativa também
         vals = raster[np.isfinite(raster)]
+        # Sem convergência (conv_abs=None), a banda só ativa onde OLR<240 → cats {1,2,3}
         assert set(np.unique(vals)).issubset({1.0, 2.0, 3.0})
         # I_ZCIT contínuo (potencial acoplado) em [0,1]
         fin = izcit[np.isfinite(izcit)]
         assert fin.min() >= 0.0 and fin.max() <= 1.0
+        assert active.dtype == bool and active.shape == shape
 
-    def test_clear_sky_excluded(self):
+    def test_clear_sky_excluded_without_convergence(self):
         shape = (10, 10)
         nf = NF(
             tsm_n=np.ones(shape), conv_n=np.ones(shape), olr_n_inv=np.ones(shape),
             olr_abs=np.full(shape, 300.0),          # tudo céu limpo (>240)
             lons=np.linspace(-55, 15, 10), lats=np.linspace(-15, 15, 10),
         )
-        raster, _izcit = build_raster(nf)
-        assert np.all(np.isnan(raster))             # nada sobrevive
+        raster, _izcit, _active = build_raster(nf)
+        assert np.all(np.isnan(raster))             # sem convergência, nada sobrevive
+
+    def test_clear_sky_rescued_by_convergence_is_cinematica(self):
+        # OLR>240 (céu limpo radiativo) MAS convergência organizada → categoria Cinemática.
+        shape = (12, 12)
+        conv = np.full(shape, 5e-5)                 # > C_THR em toda parte
+        nf = NF(
+            tsm_n=np.ones(shape), conv_n=np.ones(shape), olr_n_inv=np.ones(shape),
+            olr_abs=np.full(shape, 300.0),          # nenhuma assinatura radiativa
+            lons=np.linspace(-55, 15, 12), lats=np.linspace(-15, 15, 12),
+            conv_abs=conv, lsm=np.zeros(shape),     # tudo oceano
+        )
+        raster, _izcit, active = build_raster(nf)
+        vals = raster[np.isfinite(raster)]
+        assert active.any()
+        assert set(np.unique(vals)) == {float(CAT_CINEMATICA)}   # só Cinemática
+
+
+class TestActiveMaskAndEnvelope:
+    def test_c_thr_value(self):
+        assert C_THR == 3.0e-5
+
+    def test_active_mask_union_rescues_convergence(self):
+        shape = (40, 40)
+        olr = np.full(shape, 300.0)                 # tudo céu limpo radiativo
+        conv = np.zeros(shape)
+        conv[10:30, 10:30] = 5e-5                   # bloco coeso de convergência (>C_THR)
+        lsm = np.zeros(shape)                       # oceano
+        am = active_mask(olr, conv, lsm)
+        assert am[20, 20]                           # ativado pela convergência
+        assert not am[0, 0]                         # céu limpo sem convergência → inativo
+
+    def test_envelope_rejects_subtropics_keeps_equatorial_in_april(self):
+        # doy ~103 (13 abr): φ_c ≈ 1.6°N, faixa ≈ [-5.9, 9.1] → 12°N fora, 3°N dentro.
+        lats = np.linspace(15, -15, 61)
+        inside, (lo, phi_c, hi) = itcz_lat_band(lats, 103)
+        assert phi_c < 3.0                          # posição ao sul na primavera boreal
+        assert not inside[np.argmin(np.abs(lats - 12.0))]
+        assert inside[np.argmin(np.abs(lats - 3.0))]
+
+    def test_central_latitude_peaks_in_september(self):
+        # doy 245 (~2 set): posição mais ao norte (≈ φ_mean + amp = 9.5°N).
+        assert itcz_central_latitude(245) == pytest.approx(9.5, abs=0.2)
+
+    def test_categorical_raster_four_classes(self):
+        olr = np.array([[170.0, 195.0], [225.0, 300.0]])   # Forte, Moderada, Fraca, Cinemática
+        active = np.ones((2, 2), dtype=bool)
+        cr = categorical_raster(olr, active)
+        assert cr[0, 0] == 3.0 and cr[0, 1] == 2.0
+        assert cr[1, 0] == 1.0 and cr[1, 1] == 0.0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -253,6 +315,37 @@ class TestLoczcitResult:
         assert r.raster.shape == (5, 5)
         assert r.meta == {}
         assert r.index is None
+
+
+class TestSktSmoothing:
+    """Mitigação da DWL: suavização Gaussiana ciente-de-NaN da skt (revisões N1/N2)."""
+
+    def test_default_sigma(self):
+        # Calibração exposta; 1.0 é a convenção do projeto (OLR/vento)
+        assert SKT_SMOOTH_SIGMA == 1.0
+
+    def test_reduces_noise(self):
+        rng = np.random.default_rng(0)
+        field = 25.0 + rng.standard_normal((30, 30))      # oceano ruidoso (DWL)
+        out = _nanaware_gaussian(field, sigma=1.0)
+        assert np.nanstd(out) < np.nanstd(field)          # suaviza
+
+    def test_preserves_land_nan(self):
+        field = np.full((10, 10), 25.0)
+        field[4, 4] = np.nan                              # "continente" mascarado
+        out = _nanaware_gaussian(field, sigma=1.0)
+        assert np.isnan(out[4, 4])                        # continente segue NaN
+        assert np.isfinite(out[0, 0])                     # oceano permanece válido
+
+    def test_no_land_bleed_across_coast(self):
+        # Oceano uniforme + 1 pixel de "terra" (NaN). O denoise NÃO puxa os
+        # vizinhos oceânicos: a terra está mascarada ANTES de suavizar (Blindagem #1).
+        field = np.full((9, 9), 25.0)
+        field[4, 4] = np.nan
+        out = _nanaware_gaussian(field, sigma=1.0)
+        block = out[3:6, 3:6]
+        neigh = block[np.isfinite(block)]
+        assert np.allclose(neigh, 25.0, atol=1e-6)        # vizinhos intactos
 
 
 class TestSaveNetCDF:
