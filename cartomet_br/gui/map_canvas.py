@@ -25,6 +25,7 @@ import cartopy.feature as cfeature
 
 from PyQt6.QtWidgets import QSizePolicy
 from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QCursor
 
 from cartomet_br.core.config import Config, COLORS, LEVELS
 from cartomet_br.symbols import MODOS
@@ -35,6 +36,18 @@ from cartomet_br.data.sst import SSTData
 from cartomet_br.charts.interactive import interpolar_pontos
 from cartomet_br.charts.synoptic import plot_maxmin_points
 from cartomet_br.gui._constants import APP_VERSION
+from cartomet_br.gui.draw_tools import (
+    PEN_MIN_PIXEL_DIST,
+    SHAPE_MIN_DRAG_PIXELS,
+    SHAPE_OUTLINE_ZORDER,
+    DrawStyle,
+    PenCommand,
+    ShapeCommand,
+    build_preview_ring,
+    create_pen_artist,
+    create_shape_artist,
+    default_arrow_head_size,
+)
 from cartomet_br.gui.themes import MAP_THEMES
 
 logger = logging.getLogger(__name__)
@@ -79,8 +92,10 @@ class DrawingHistory:
     """Pilha de histórico com suporte a undo/redo."""
 
     def __init__(self, max_size: int = 50):
-        self._undo_stack: list[DrawCommand | PointCommand | AnnotationCommand] = []
-        self._redo_stack: list[DrawCommand | PointCommand | AnnotationCommand] = []
+        # Comandos: DrawCommand | PointCommand | AnnotationCommand
+        #           | PenCommand | ShapeCommand (draw_tools)
+        self._undo_stack: list[object] = []
+        self._redo_stack: list[object] = []
         self._max_size = max_size
 
     @property
@@ -122,6 +137,18 @@ class DrawingHistory:
         self._undo_stack.append(cmd)
         return cmd
 
+    def remove_last_of(self, types: tuple) -> object | None:
+        """Remove e devolve o comando MAIS RECENTE cujo tipo ∈ `types`.
+
+        Busca da ponta para a base da pilha de undo (pode remover do meio, se
+        outros desenhos vieram depois). Não interage com a pilha de redo —
+        mesma semântica do "desfazer emoji" (sem refazer dedicado).
+        """
+        for i in range(len(self._undo_stack) - 1, -1, -1):
+            if isinstance(self._undo_stack[i], types):
+                return self._undo_stack.pop(i)
+        return None
+
     def clear(self) -> None:
         """Limpa todo o histórico."""
         self._undo_stack.clear()
@@ -134,8 +161,10 @@ class MapCanvas(FigureCanvas):
     point_added = pyqtSignal(float, float)
     coords_updated = pyqtSignal(float, float)
     annotation_requested = pyqtSignal(float, float)
+    shape_draft_changed = pyqtSignal(int)  # nº de vértices do polígono em rascunho
     extent_changed = pyqtSignal(list)  # [lon_min, lat_min, lon_max, lat_max] após zoom/recorte
     figure_zoom_requested = pyqtSignal(int)  # +1 ampliar / -1 reduzir a FIGURA (Ctrl+roda)
+    vertical_sounding_requested = pyqtSignal(object)  # estação RAOB ancorada (dict) p/ Sonda Vertical
 
     def __init__(self, parent: QSizePolicy | None = None, config: Config | None = None) -> None:
         self.config: Config = config or Config()
@@ -164,6 +193,22 @@ class MapCanvas(FigureCanvas):
 
         # Histórico de undo/redo
         self.history = DrawingHistory(max_size=50)
+
+        # Caneta (traço livre) e Formas customizáveis
+        self.pen_style = DrawStyle(edge_color="#E74C3C", fill_color=None)
+        self.shape_style = DrawStyle(edge_color="#E74C3C", fill_color=None)
+        self.shape_tool: str = "rect"      # "rect"|"ellipse"|"arrow"|"line"|"polygon"
+        self._pen_active: bool = False
+        self._pen_draft_x: list[float] = []
+        self._pen_draft_y: list[float] = []
+        self._pen_last_px: tuple[float, float] | None = None
+        self._shape_anchor: tuple[float, float] | None = None      # lon/lat do press
+        self._shape_anchor_px: tuple[float, float] | None = None   # pixels do press
+        self._shape_drag_current: tuple[float, float] | None = None  # lon/lat do cursor
+        self._shape_last_px: tuple[float, float] | None = None       # pixels do cursor
+        self._shape_draft_x: list[float] = []   # vértices do polígono em rascunho
+        self._shape_draft_y: list[float] = []
+        self._draft_preview = None               # Line2D de preview (caneta/forma)
 
         # Anotações de texto
         self._annotations: list = []
@@ -210,6 +255,14 @@ class MapCanvas(FigureCanvas):
         # Índice LOCZCIT-PA (raster categórico da ZCIT)
         self._loczcit_artist = None
         self._loczcit_colorbar = None
+        self._loczcit_axis_artists: list = []   # overlay opcional do eixo (linhas/scatter/nó)
+
+        # Bloqueio atmosférico (anomalia de Z500)
+        self._blocking_artists: list = []
+        self._blocking_colorbar = None
+
+        # Sonda Vertical (marcador temporário da estação RAOB ancorada)
+        self._sounding_marker = None
 
         # Zoom / navegação
         self._extent_history: list[list[float]] = []   # pilha de extents anteriores
@@ -242,6 +295,18 @@ class MapCanvas(FigureCanvas):
         self.preview_line = None
         self.points_x.clear()
         self.points_y.clear()
+        # Rascunhos de caneta/forma (troca de tema dá ax.clear() — sem fantasmas)
+        self._pen_active = False
+        self._pen_draft_x.clear()
+        self._pen_draft_y.clear()
+        self._pen_last_px = None
+        self._shape_anchor = None
+        self._shape_anchor_px = None
+        self._shape_drag_current = None
+        self._shape_last_px = None
+        self._shape_draft_x.clear()
+        self._shape_draft_y.clear()
+        self._draft_preview = None
         self._annotations.clear()
         self._ruler_points.clear()
         self._ruler_artists.clear()
@@ -254,6 +319,9 @@ class MapCanvas(FigureCanvas):
         self._station_data = {"metar": None, "synop": None}
         self._loczcit_artist = None
         self._loczcit_colorbar = None
+        self._loczcit_axis_artists = []
+        self._blocking_artists = []
+        self._blocking_colorbar = None
         self.history.clear()
 
         self.ax.clear()
@@ -310,13 +378,17 @@ class MapCanvas(FigureCanvas):
         gl.xlabel_style = {"size": 9, "color": "#333333"}
         gl.ylabel_style = {"size": 9, "color": "#333333"}
 
+        # Dentro da carta (canto inferior direito): fora da linha dos rótulos de
+        # longitude, com quem a posição antiga (y=-0.02) colidia em todo export.
         self.ax.text(
-            1.0, -0.02, f"CartoMet BR v{APP_VERSION}",
+            0.995, 0.012, f"CartoMet BR v{APP_VERSION}",
             transform=self.ax.transAxes,
-            fontsize=8, color="#999999", ha="right", va="top",
-            style="italic",
+            fontsize=8, color="#999999", ha="right", va="bottom",
+            style="italic", zorder=30,
         )
 
+        # Maximiza a carta na "mesa branca" (startup e troca de tema)
+        self._reflow_layout()
         self.draw()
 
     def set_theme(self, theme_name: str) -> None:
@@ -644,6 +716,77 @@ class MapCanvas(FigureCanvas):
         elif self.interaction_mode == "emoji":
             self.interaction_mode = None
 
+    # ─── Caneta (traço livre) e Formas customizáveis ─────────────────────────
+
+    def set_pen_mode(self, enabled: bool) -> None:
+        """Modo 'caneta' — pressionar e arrastar desenha um traço livre."""
+        if enabled:
+            self.interaction_mode = "pen"
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+        elif self.interaction_mode == "pen":
+            self.interaction_mode = None
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        if not enabled:
+            self.cancel_active_draft()
+
+    def set_shape_mode(self, enabled: bool) -> None:
+        """Modo 'formas' — arrastar insere a forma atual; polígono é por cliques."""
+        if enabled:
+            self.interaction_mode = "shape"
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+        elif self.interaction_mode == "shape":
+            self.interaction_mode = None
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        if not enabled:
+            self.cancel_active_draft()
+
+    def set_shape_tool(self, tool: str) -> None:
+        """Troca a ferramenta de forma atual (cancela rascunho em andamento)."""
+        self.cancel_active_draft()
+        self.shape_tool = tool
+
+    def set_pen_style(self, style: dict) -> None:
+        self.pen_style = DrawStyle.from_dict(style)
+
+    def set_shape_style(self, style: dict) -> None:
+        self.shape_style = DrawStyle.from_dict(style)
+
+    def cancel_active_draft(self) -> None:
+        """Cancela qualquer rascunho de caneta/forma (preview + estado)."""
+        had_draft = (
+            self._draft_preview is not None or self._pen_active
+            or self._shape_anchor is not None or bool(self._shape_draft_x)
+        )
+        if self._draft_preview is not None:
+            try:
+                self._draft_preview.remove()
+            except (ValueError, AttributeError):
+                pass
+            self._draft_preview = None
+        self._pen_active = False
+        self._pen_draft_x.clear()
+        self._pen_draft_y.clear()
+        self._pen_last_px = None
+        self._shape_anchor = None
+        self._shape_anchor_px = None
+        self._shape_drag_current = None
+        self._shape_last_px = None
+        if self._shape_draft_x:
+            self._shape_draft_x.clear()
+            self._shape_draft_y.clear()
+            self.shape_draft_changed.emit(0)
+        if had_draft:
+            self.draw_idle()
+
+    def set_sounding_mode(self, enabled: bool) -> None:
+        """Modo 'Sonda Vertical' — o clique ancora na estação RAOB mais próxima."""
+        if enabled:
+            self.interaction_mode = "vertical_sounding"
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+        elif self.interaction_mode == "vertical_sounding":
+            self.interaction_mode = None
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+
     # ═══════════════════════════════════════════════════════════════════════
     #  ZOOM / NAVEGAÇÃO
     # ═══════════════════════════════════════════════════════════════════════
@@ -678,7 +821,7 @@ class MapCanvas(FigureCanvas):
                     useblit=False, button=[1], minspanx=1, minspany=1,
                     spancoords="data", interactive=False,
                     props=dict(facecolor="none", edgecolor="#E74C3C",
-                               linewidth=1.5, linestyle="--"),
+                               linewidth=1.5, linestyle="--", zorder=60),
                 )
             self._rect_selector.set_active(True)
         elif self._rect_selector is not None:
@@ -718,10 +861,14 @@ class MapCanvas(FigureCanvas):
             pass
 
     def _on_release(self, event: object) -> None:
-        """Fim do pan."""
+        """Fim do pan, do traço de caneta ou do arraste de forma."""
         if self._pan_active:
             self._pan_active = False
             self._pan_start = None
+        if self._pen_active:
+            self._end_pen_stroke()
+        if self._shape_anchor is not None:
+            self._end_shape_drag(event.x, event.y)
 
     def _pan_to(self, event: object) -> None:
         """Desloca o mapa conforme o arraste (modo pan)."""
@@ -761,11 +908,18 @@ class MapCanvas(FigureCanvas):
     def apply_extent(self, extent: list[float], push_history: bool = True) -> None:
         """Aplica um novo extent: atualiza config, replota a sinótica e avisa a GUI.
 
+        ``extent`` na ordem do Config: ``[lon_min, lat_min, lon_max, lat_max]`` —
+        NÃO a ordem ``[x0, x1, y0, y1]`` do ``set_extent`` do Cartopy (a conversão
+        é feita aqui). O extent é clampado antes de aplicar: um intervalo
+        degenerado (lat_min == lat_max) tornaria a transformação singular e
+        esmagaria a carta silenciosamente.
+
         Após o `set_extent` (que muda a proporção geométrica do GeoAxes), o layout
         é recalculado para reposicionar as barras de cores e as margens — sem isso,
         ao resetar de um domínio quadrado (ex.: LOCZCIT-PA) para a AmSul o eixo fica
         "esmagado" no canto com colorbars descentralizadas.
         """
+        extent = self._clamp_extent(list(extent))
         if push_history:
             self._extent_history.append(list(self.config.extent))
         self.config.extent = list(extent)
@@ -775,13 +929,24 @@ class MapCanvas(FigureCanvas):
             self._clear_synoptic_artists()
             self._plot_synoptic_fields()
         # Realinha o layout (colorbars/margens) para a nova proporção e centraliza
-        try:
-            self.fig.tight_layout()
-        except Exception as e:
-            logger.debug("Aviso ao recalcular layout no reset de extent: %s", e)
-        self._recenter_axes_horizontally()
+        self._reflow_layout()
         self.draw()
         self.extent_changed.emit(list(extent))
+
+    def _reflow_layout(self) -> None:
+        """Maximiza o eixo na figura (margens mínimas p/ rótulos/título) e centraliza.
+
+        Sequência consagrada do apply_extent: `tight_layout` encolhe as margens ao
+        mínimo que acomoda os rótulos do gridliner e o título; a recentragem alinha
+        a união eixo+colorbars. Também chamada no fim de `_setup_base_map` — sem
+        isso, o startup/troca de tema ficava no retângulo padrão do add_subplot
+        (margens de ~12%), desperdiçando a "mesa branca" em volta da carta.
+        """
+        try:
+            self.fig.tight_layout(pad=0.6)
+        except Exception as e:
+            logger.debug("Aviso ao recalcular layout: %s", e)
+        self._recenter_axes_horizontally()
 
     def _recenter_axes_horizontally(self) -> None:
         """Centraliza horizontalmente o conjunto (mapa + barras de cores) na figura.
@@ -857,9 +1022,55 @@ class MapCanvas(FigureCanvas):
         elif self.interaction_mode == "emoji":
             self.add_emoji(event.xdata, event.ydata, self.current_emoji, self._emoji_fontsize)
 
+        elif self.interaction_mode == "pen":
+            self._begin_pen_stroke(event.xdata, event.ydata, event.x, event.y)
+
+        elif self.interaction_mode == "shape":
+            if self.shape_tool == "polygon":
+                if getattr(event, "dblclick", False):
+                    self.finalize_shape()
+                else:
+                    self._add_polygon_vertex(event.xdata, event.ydata)
+            else:
+                self._begin_shape_drag(event.xdata, event.ydata, event.x, event.y)
+
         elif self.interaction_mode == "pan":
             self._pan_active = True
             self._pan_start = (event.xdata, event.ydata)
+
+        elif self.interaction_mode == "vertical_sounding":
+            self._on_sounding_click(event.xdata, event.ydata)
+
+    def _on_sounding_click(self, lon: float, lat: float) -> None:
+        """Ancora o clique na estação de radiossonda mais próxima e emite o pedido."""
+        from cartomet_br.data.raob_stations import nearest_raob
+
+        station = nearest_raob(float(lon), float(lat))
+        if station is None:
+            return
+
+        # Remove marcador anterior (padrão de remoção segura das anotações)
+        self.clear_sounding_marker()
+
+        marker, = self.ax.plot(
+            station["lon"], station["lat"],
+            marker="*", color="#E74C3C", markersize=20,
+            markeredgecolor="white", markeredgewidth=1.2,
+            transform=ccrs.PlateCarree(), zorder=27,
+        )
+        self._sounding_marker = marker
+        self.draw()
+        self.vertical_sounding_requested.emit(station)
+
+    def clear_sounding_marker(self) -> None:
+        """Remove o marcador temporário da estação ancorada."""
+        if self._sounding_marker is not None:
+            try:
+                self._sounding_marker.remove()
+            except (ValueError, AttributeError):
+                pass
+            self._sounding_marker = None
+            self.draw()
 
     def _place_point_symbol(self, x: float, y: float) -> None:
         """Coloca um símbolo pontual (ex.: centro de pressão, furacão) com um único clique."""
@@ -893,6 +1104,13 @@ class MapCanvas(FigureCanvas):
             self.coords_updated.emit(event.xdata, event.ydata)
         if self._pan_active and event.inaxes == self.ax:
             self._pan_to(event)
+        # Caneta: acumula pontos decimados durante o arraste
+        if self._pen_active and event.xdata is not None and event.ydata is not None:
+            self._extend_pen_stroke(event.xdata, event.ydata, event.x, event.y)
+        # Formas por arraste: rubber-band ao vivo
+        if (self._shape_anchor is not None
+                and event.xdata is not None and event.ydata is not None):
+            self._update_shape_drag(event.xdata, event.ydata, event.x, event.y)
 
     def _update_preview(self) -> None:
         if self.preview_line:
@@ -931,8 +1149,235 @@ class MapCanvas(FigureCanvas):
         self.points_y.clear()
         self.draw()
 
+    # ═══════════════════════════════════════════════════════════════════════
+    #  CANETA (traço livre) — motor (APIs internas livres de eventos)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _begin_pen_stroke(self, lon: float, lat: float, px: float, py: float) -> None:
+        """Inicia um traço de caneta no press do mouse/tablet."""
+        if lon is None or lat is None:
+            return
+        self.cancel_active_draft()
+        self._pen_active = True
+        self._pen_draft_x = [float(lon)]
+        self._pen_draft_y = [float(lat)]
+        self._pen_last_px = (float(px), float(py))
+        # O preview já É o artista final em potencial (promovido no release).
+        self._draft_preview = create_pen_artist(
+            self.ax, self._pen_draft_x, self._pen_draft_y,
+            self.pen_style, transform=ccrs.PlateCarree(),
+        )
+
+    def _extend_pen_stroke(self, lon: float, lat: float, px: float, py: float) -> None:
+        """Acrescenta um ponto decimado ao traço (chamado a cada motion)."""
+        if not self._pen_active or self._draft_preview is None:
+            return
+        if self._pen_last_px is not None:
+            dx = float(px) - self._pen_last_px[0]
+            dy = float(py) - self._pen_last_px[1]
+            if (dx * dx + dy * dy) ** 0.5 < PEN_MIN_PIXEL_DIST:
+                return                              # decimação anti-flood (tablet)
+        self._pen_draft_x.append(float(lon))
+        self._pen_draft_y.append(float(lat))
+        self._pen_last_px = (float(px), float(py))
+        self._draft_preview.set_data(self._pen_draft_x, self._pen_draft_y)
+        self.draw_idle()
+
+    def _end_pen_stroke(self) -> None:
+        """Finaliza o traço no release: ≥2 pontos vira PenCommand; senão descarta."""
+        if not self._pen_active:
+            return
+        self._pen_active = False
+        artist = self._draft_preview
+        self._draft_preview = None
+        if artist is None:
+            return
+        if len(self._pen_draft_x) < 2:              # clique sem arraste → descarte
+            try:
+                artist.remove()
+            except (ValueError, AttributeError):
+                pass
+            self._pen_draft_x.clear()
+            self._pen_draft_y.clear()
+            self._pen_last_px = None
+            self.draw_idle()
+            return
+        cmd = PenCommand(
+            points_x=list(self._pen_draft_x),
+            points_y=list(self._pen_draft_y),
+            style=self.pen_style.to_dict(),
+            artist=artist,
+        )
+        self.history.push(cmd)
+        self.lines.append(artist)
+        self._pen_draft_x.clear()
+        self._pen_draft_y.clear()
+        self._pen_last_px = None
+        self.draw_idle()
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  FORMAS — arraste (rect/elipse/linha/seta) e polígono por cliques
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _begin_shape_drag(self, lon: float, lat: float, px: float, py: float) -> None:
+        """Ancora o arraste de uma forma e cria o preview (contorno apenas)."""
+        if lon is None or lat is None:
+            return
+        self.cancel_active_draft()
+        self._shape_anchor = (float(lon), float(lat))
+        self._shape_anchor_px = (float(px), float(py))
+        self._shape_last_px = (float(px), float(py))
+        self._shape_drag_current = None
+        st = self.shape_style
+        line, = self.ax.plot(
+            [], [], color=st.edge_color, linewidth=st.linewidth,
+            linestyle=st.mpl_linestyle(), alpha=st.alpha,
+            transform=ccrs.PlateCarree(), zorder=SHAPE_OUTLINE_ZORDER,
+        )
+        self._draft_preview = line
+
+    def _update_shape_drag(self, lon: float, lat: float,
+                           px: float | None = None, py: float | None = None) -> None:
+        """Rubber-band ao vivo: reconstrói o anel âncora→cursor via set_data."""
+        if self._shape_anchor is None or self._draft_preview is None:
+            return
+        if px is not None and py is not None:
+            self._shape_last_px = (float(px), float(py))
+        x0, y0 = self._shape_anchor
+        xs, ys = build_preview_ring(self.shape_tool, x0, y0, float(lon), float(lat))
+        self._shape_drag_current = (float(lon), float(lat))
+        self._draft_preview.set_data(xs, ys)
+        self.draw_idle()
+
+    def _end_shape_drag(self, px: float | None = None, py: float | None = None) -> None:
+        """Finaliza o arraste: cria a forma final (com fill opcional) e registra."""
+        anchor = self._shape_anchor
+        current = self._shape_drag_current
+        anchor_px = self._shape_anchor_px
+        last_px = (float(px), float(py)) if (px is not None and py is not None) \
+            else self._shape_last_px
+        preview = self._draft_preview
+        self._shape_anchor = None
+        self._shape_anchor_px = None
+        self._shape_drag_current = None
+        self._shape_last_px = None
+        self._draft_preview = None
+        if preview is not None:
+            try:
+                preview.remove()
+            except (ValueError, AttributeError):
+                pass
+        if anchor is None or current is None:
+            self.draw_idle()
+            return
+        if anchor_px is not None and last_px is not None:
+            drag = ((last_px[0] - anchor_px[0]) ** 2
+                    + (last_px[1] - anchor_px[1]) ** 2) ** 0.5
+            if drag < SHAPE_MIN_DRAG_PIXELS:        # clique acidental → descarte
+                self.draw_idle()
+                return
+        x0, y0 = anchor
+        x1, y1 = current
+        head = 0.0
+        if self.shape_tool == "arrow":
+            ext = self.ax.get_extent(crs=ccrs.PlateCarree())
+            head = default_arrow_head_size(ext[1] - ext[0], self.shape_style.linewidth)
+        artist = create_shape_artist(
+            self.ax, self.shape_tool, [x0, x1], [y0, y1],
+            self.shape_style, head_size_deg=head, transform=ccrs.PlateCarree(),
+        )
+        cmd = ShapeCommand(
+            tool=self.shape_tool, points_x=[x0, x1], points_y=[y0, y1],
+            style=self.shape_style.to_dict(), head_size_deg=head, artist=artist,
+        )
+        self.history.push(cmd)
+        self.lines.append(artist)
+        self.draw_idle()
+
+    def _add_polygon_vertex(self, lon: float, lat: float) -> None:
+        """Acrescenta um vértice ao polígono em rascunho (preview = polilinha)."""
+        if lon is None or lat is None:
+            return
+        self._shape_draft_x.append(float(lon))
+        self._shape_draft_y.append(float(lat))
+        if self._draft_preview is None:
+            st = self.shape_style
+            line, = self.ax.plot(
+                [], [], color=st.edge_color, linewidth=st.linewidth,
+                linestyle=st.mpl_linestyle(), alpha=st.alpha, marker="o",
+                markersize=3, transform=ccrs.PlateCarree(),
+                zorder=SHAPE_OUTLINE_ZORDER,
+            )
+            self._draft_preview = line
+        self._draft_preview.set_data(self._shape_draft_x, self._shape_draft_y)
+        self.shape_draft_changed.emit(len(self._shape_draft_x))
+        self.draw_idle()
+
+    def _pop_polygon_vertex(self) -> bool:
+        """Remove o último vértice do rascunho do polígono. True se removeu."""
+        if not self._shape_draft_x:
+            return False
+        self._shape_draft_x.pop()
+        self._shape_draft_y.pop()
+        if self._draft_preview is not None:
+            self._draft_preview.set_data(self._shape_draft_x, self._shape_draft_y)
+        self.shape_draft_changed.emit(len(self._shape_draft_x))
+        self.draw_idle()
+        return True
+
+    def finalize_shape(self) -> None:
+        """Fecha o polígono em rascunho (≥3 vértices) e registra no histórico."""
+        if len(self._shape_draft_x) < 3:
+            return                                   # no-op: rascunho mantido
+        xs = list(self._shape_draft_x)
+        ys = list(self._shape_draft_y)
+        if self._draft_preview is not None:
+            try:
+                self._draft_preview.remove()
+            except (ValueError, AttributeError):
+                pass
+            self._draft_preview = None
+        self._shape_draft_x.clear()
+        self._shape_draft_y.clear()
+        artist = create_shape_artist(
+            self.ax, "polygon", xs, ys, self.shape_style,
+            transform=ccrs.PlateCarree(),
+        )
+        cmd = ShapeCommand(
+            tool="polygon", points_x=xs, points_y=ys,
+            style=self.shape_style.to_dict(), artist=artist,
+        )
+        self.history.push(cmd)
+        self.lines.append(artist)
+        self.shape_draft_changed.emit(0)
+        self.draw_idle()
+
+    def _remove_last_drawing_of(self, types: tuple) -> None:
+        """Remove o último desenho finalizado do(s) tipo(s) dado(s) (padrão do emoji)."""
+        cmd = self.history.remove_last_of(types)
+        if cmd is None or cmd.artist is None:
+            return
+        try:
+            cmd.artist.remove()
+        except (ValueError, AttributeError):
+            pass
+        if cmd.artist in self.lines:
+            self.lines.remove(cmd.artist)
+        cmd.artist = None
+        self.draw()
+
+    def remove_last_pen_stroke(self) -> None:
+        """Desfaz o último traço da caneta (mesmo que outros desenhos vieram depois)."""
+        self._remove_last_drawing_of((PenCommand,))
+
+    def remove_last_shape(self) -> None:
+        """Desfaz a última forma finalizada (rascunho de polígono é papel do [Z]/Esc)."""
+        self._remove_last_drawing_of((ShapeCommand,))
+
     def undo_point(self):
-        """Desfaz: remove último ponto da linha atual, ou desfaz última linha finalizada."""
+        """Desfaz: vértice de polígono em rascunho > ponto da linha atual > histórico."""
+        if self._pop_polygon_vertex():
+            return
         if self.points_x:
             self.points_x.pop()
             self.points_y.pop()
@@ -945,7 +1390,8 @@ class MapCanvas(FigureCanvas):
         cmd = self.history.undo()
         if cmd is None:
             return
-        if isinstance(cmd, (DrawCommand, PointCommand)) and cmd.artist is not None:
+        if isinstance(cmd, (DrawCommand, PointCommand, PenCommand, ShapeCommand)) \
+                and cmd.artist is not None:
             try:
                 cmd.artist.remove()
             except (ValueError, AttributeError):
@@ -992,6 +1438,21 @@ class MapCanvas(FigureCanvas):
                 )
             cmd.artist = artist
             self.lines.append(artist)
+        elif isinstance(cmd, PenCommand):
+            artist = create_pen_artist(
+                self.ax, cmd.points_x, cmd.points_y,
+                DrawStyle.from_dict(cmd.style), transform=ccrs.PlateCarree(),
+            )
+            cmd.artist = artist
+            self.lines.append(artist)
+        elif isinstance(cmd, ShapeCommand):
+            artist = create_shape_artist(
+                self.ax, cmd.tool, cmd.points_x, cmd.points_y,
+                DrawStyle.from_dict(cmd.style),
+                head_size_deg=cmd.head_size_deg, transform=ccrs.PlateCarree(),
+            )
+            cmd.artist = artist
+            self.lines.append(artist)
         elif isinstance(cmd, AnnotationCommand):
             txt = self.ax.text(
                 cmd.x, cmd.y, cmd.text,
@@ -1010,6 +1471,8 @@ class MapCanvas(FigureCanvas):
         self.draw()
 
     def clear_all(self):
+        # Cancela rascunhos de caneta/forma antes de varrer os artistas finais
+        self.cancel_active_draft()
         for line in self.lines:
             try:
                 line.remove()
@@ -1050,6 +1513,10 @@ class MapCanvas(FigureCanvas):
         self.remove_stations()
         # Índice LOCZCIT-PA (raster categórico)
         self.remove_loczcit()
+        # Bloqueio atmosférico (anomalia de Z500)
+        self.remove_blocking()
+        # Marcador temporário da estação de radiossondagem (estrela)
+        self.clear_sounding_marker()
         # Camadas sinóticas
         self._clear_synoptic_artists()
         self.synoptic_data = None
@@ -1473,10 +1940,10 @@ class MapCanvas(FigureCanvas):
     def plot_loczcit_raster(self, result) -> None:
         """Injeta o raster categórico do LOCZCIT-PA e auto-enquadra no Atlântico equatorial.
 
-        Blindagem #7: pcolormesh + ListedColormap + BoundaryNorm, antialiased=False,
-        set_bad(alpha=0) — blocos exatos, sem vazamento de cor. NUNCA contourf.
-        zorder=3: ACIMA da imagem de satélite (zorder=2) e da TSM, porém ABAIXO da
-        costa/fronteiras/estados (zorder 4–5), que permanecem visíveis por cima.
+        Raster de 4 classes (0=Cinemática/magenta, 1=Fraca/verde, 2=Moderada/amarelo,
+        3=Forte/vermelho). Blindagem #7: pcolormesh + ListedColormap + BoundaryNorm,
+        antialiased=False, set_bad(alpha=0) — blocos exatos, sem vazamento de cor. NUNCA
+        contourf. zorder=3: ACIMA do satélite (zorder=2) e da TSM, ABAIXO da costa.
         """
         from matplotlib.colors import BoundaryNorm, ListedColormap
 
@@ -1484,9 +1951,10 @@ class MapCanvas(FigureCanvas):
 
         self.remove_loczcit()
 
-        cmap = ListedColormap(CATEGORY_COLORS)   # 1 Verde, 2 Amarelo, 3 Vermelho
+        # 4 cores: 0 Magenta, 1 Verde, 2 Amarelo, 3 Vermelho escuro
+        cmap = ListedColormap(CATEGORY_COLORS)
         cmap.set_bad(alpha=0.0)                   # NaN = transparente
-        norm = BoundaryNorm([0.5, 1.5, 2.5, 3.5], ncolors=3)
+        norm = BoundaryNorm([-0.5, 0.5, 1.5, 2.5, 3.5], ncolors=4)
         masked = np.ma.masked_invalid(result.raster)
 
         self._loczcit_artist = self.ax.pcolormesh(
@@ -1494,12 +1962,16 @@ class MapCanvas(FigureCanvas):
             shading="nearest", antialiased=False,
             transform=ccrs.PlateCarree(), zorder=3,
         )
+        # Endurecimento da Blindagem #7: no mpl 3.10 o kwarg cobre só o caminho
+        # rápido do QuadMesh.draw (`_antialiased`); o set explícito preenche também
+        # o estado da Collection (`_antialiaseds`), usado pelo caminho de fallback.
+        self._loczcit_artist.set_antialiased(False)
 
         cbar = self.fig.colorbar(
             self._loczcit_artist, ax=self.ax, orientation="vertical",
-            fraction=0.046, pad=0.02, ticks=[1, 2, 3], shrink=0.6,
+            fraction=0.046, pad=0.02, ticks=[0, 1, 2, 3], shrink=0.6,
         )
-        cbar.ax.set_yticklabels(["Fraca", "Moderada", "Forte"])
+        cbar.ax.set_yticklabels(["Cinemática", "Fraca", "Moderada", "Forte"])
         cbar.ax.tick_params(labelsize=8)
         cbar.set_label("ZCIT (LOCZCIT-PA)", fontsize=9)
         self._loczcit_colorbar = cbar
@@ -1517,7 +1989,26 @@ class MapCanvas(FigureCanvas):
             fontsize=11, fontweight="bold", loc="left", pad=14,
         )
         self._recenter_axes_horizontally()   # centraliza com a colorbar da ZCIT
+        self._match_colorbar_height(cbar)    # domínio panorâmico: cbar na altura da carta
         self.draw()
+
+    def _match_colorbar_height(self, cbar) -> None:
+        """Alinha a colorbar vertical à altura da carta.
+
+        Em domínios panorâmicos (ex.: LOCZCIT 70°×30°) o GeoAxes fica baixo e a
+        colorbar criada pelo ``fig.colorbar`` sobra acima/abaixo do mapa.
+        """
+        try:
+            self.fig.canvas.draw()           # materializa o apply_aspect do Cartopy
+            pos_map = self.ax.get_position()
+            pos_cb = cbar.ax.get_position()
+            if pos_cb.height > pos_map.height + 1e-3:
+                cbar.ax.set_aspect("auto")   # a caixa passa a mandar na geometria
+                cbar.ax.set_position(
+                    [pos_cb.x0, pos_map.y0, pos_cb.width, pos_map.height]
+                )
+        except Exception as e:
+            logger.debug("Aviso ao alinhar a colorbar à carta: %s", e)
 
     def toggle_loczcit(self, visible: bool) -> None:
         """Mostra ou oculta o raster do LOCZCIT-PA (e sua colorbar)."""
@@ -1527,8 +2018,83 @@ class MapCanvas(FigureCanvas):
             self._loczcit_colorbar.ax.set_visible(visible)
         self.draw()
 
+    def plot_loczcit_axis(self, result) -> None:
+        """Desenha o EIXO detectado da ZCIT (overlay opcional) sobre o raster.
+
+        Banda simples: uma linha. Banda dupla: ramos norte/sul divergem e um nó (estrela
+        branca) marca a bifurcação. É um GUIA — o meteorologista ainda traça a carta OMM
+        (human-in-the-loop). zorder=18: acima do raster (3) e dos campos, abaixo dos
+        desenhos do usuário (20+). Sem-op se ``result.axis`` for None.
+        """
+        self.remove_loczcit_axis()
+        axis = getattr(result, "axis", None)
+        if axis is None:
+            return
+
+        lons = np.asarray(axis.lons, dtype=float)
+        north = np.asarray(axis.lat_north, dtype=float)
+        south = np.asarray(axis.lat_south, dtype=float)
+        halo = [pe.withStroke(linewidth=3.2, foreground="white")]
+
+        self._loczcit_axis_artists += self._plot_axis_segments(lons, north, halo)
+        # Ramo sul só onde diverge do norte (banda dupla)
+        diverge = np.isfinite(north) & np.isfinite(south) & (np.abs(north - south) > 1e-6)
+        if diverge.any():
+            self._loczcit_axis_artists += self._plot_axis_segments(
+                lons, np.where(diverge, south, np.nan), halo,
+            )
+            # Nós de bifurcação: transições simples↔dupla
+            edges = np.flatnonzero(np.diff(diverge.astype(int)) != 0)
+            for e in edges:
+                lon_n, lat_n = lons[e], north[e]
+                if np.isfinite(lon_n) and np.isfinite(lat_n):
+                    star, = self.ax.plot(
+                        lon_n, lat_n, marker="*", color="white",
+                        markeredgecolor="#111111", markeredgewidth=0.8,
+                        markersize=13, zorder=19, transform=ccrs.PlateCarree(),
+                    )
+                    self._loczcit_axis_artists.append(star)
+        self.draw()
+
+    def _plot_axis_segments(self, lons: np.ndarray, lats: np.ndarray, halo) -> list:
+        """Plota a polilinha do eixo em SEGMENTOS contíguos finitos (sem NaN).
+
+        Passar NaN ao ``ax.plot`` em GeoAxes faz o shapely emitir RuntimeWarning
+        ("invalid value encountered in linestrings") a CADA redraw; quebrar nas
+        lacunas e plotar cada corrida finita produz o mesmo visual sem o ruído.
+        """
+        artists: list = []
+        finite = np.isfinite(lons) & np.isfinite(lats)
+        # Fronteiras das corridas contíguas de pontos finitos
+        edges = np.flatnonzero(np.diff(np.concatenate(([False], finite, [False]))))
+        for start, stop in zip(edges[::2], edges[1::2], strict=True):
+            if stop - start < 2:
+                continue        # ponto isolado não forma linha
+            ln, = self.ax.plot(
+                lons[start:stop], lats[start:stop],
+                color="#111111", linewidth=1.8, zorder=18,
+                transform=ccrs.PlateCarree(), path_effects=halo,
+            )
+            artists.append(ln)
+        return artists
+
+    def toggle_loczcit_axis(self, visible: bool) -> None:
+        """Mostra ou oculta o overlay do eixo da ZCIT."""
+        for art in self._loczcit_axis_artists:
+            art.set_visible(visible)
+        self.draw()
+
+    def remove_loczcit_axis(self) -> None:
+        """Remove os artistas do overlay do eixo da ZCIT."""
+        for art in self._loczcit_axis_artists:
+            try:
+                art.remove()
+            except (ValueError, AttributeError):
+                pass
+        self._loczcit_axis_artists = []
+
     def remove_loczcit(self) -> None:
-        """Remove o raster do LOCZCIT-PA e sua colorbar."""
+        """Remove o raster do LOCZCIT-PA, sua colorbar e o overlay de eixo."""
         if self._loczcit_colorbar is not None:
             try:
                 self._loczcit_colorbar.remove()
@@ -1541,6 +2107,85 @@ class MapCanvas(FigureCanvas):
             except (ValueError, AttributeError):
                 pass
             self._loczcit_artist = None
+        self.remove_loczcit_axis()
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  BLOQUEIO ATMOSFÉRICO (ANOMALIA DE Z500)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def plot_blocking_anomaly(self, result) -> None:
+        """Injeta o campo de anomalia de Z500 e auto-enquadra no setor da climatologia.
+
+        Campo CONTÍNUO (≠ raster categórico da ZCIT): contourf divergente RdBu_r
+        com níveis fixos (cartas comparáveis entre si) + contorno do zero destacado
+        (fronteira crista/cavado anômalos). zorder=3: acima do satélite, abaixo da
+        costa. Sem clabel — Texts soltos complicariam toggle/remoção.
+        """
+        from cartomet_br.data.blocking_engine import ANOM_LEVELS, CLIM_EXTENT
+
+        self.remove_blocking()
+
+        fill = self.ax.contourf(
+            result.lons, result.lats, result.anom, levels=ANOM_LEVELS,
+            cmap="RdBu_r", extend="both", transform=ccrs.PlateCarree(),
+            zorder=3, alpha=0.85,
+        )
+        zero = self.ax.contour(
+            result.lons, result.lats, result.anom, levels=[0.0],
+            colors="#3B3B3B", linewidths=1.6,
+            transform=ccrs.PlateCarree(), zorder=3,
+        )
+        self._blocking_artists = [fill, zero]
+
+        cbar = self.fig.colorbar(
+            fill, ax=self.ax, orientation="vertical",
+            fraction=0.046, pad=0.02, shrink=0.7,
+        )
+        cbar.set_label("Anomalia de Z500 (gpm)", fontsize=9)
+        cbar.ax.tick_params(labelsize=8)
+        self._blocking_colorbar = cbar
+
+        # Auto-enquadramento no setor completo da climatologia (ordem Config →
+        # ordem do set_extent, como no LOCZCIT)
+        self.ax.set_extent(
+            [CLIM_EXTENT[0], CLIM_EXTENT[2], CLIM_EXTENT[1], CLIM_EXTENT[3]],
+            crs=ccrs.PlateCarree(),
+        )
+
+        aprox = " (clim. ≈ horário mais próximo)" if result.meta.get("is_approx") else ""
+        vt = f"Válido: {result.valid_time} UTC" if result.valid_time else ""
+        self.ax.set_title(
+            f"Bloqueio Atmosférico — Anomalia de Z500 (IFS − ERA5 1991–2020)\n"
+            f"{vt} · clim {result.clim_mmdd[2:]}/{result.clim_mmdd[:2]} "
+            f"{result.clim_hour:02d}Z{aprox}",
+            fontsize=11, fontweight="bold", loc="left", pad=14,
+        )
+        self._recenter_axes_horizontally()
+        self._match_colorbar_height(cbar)    # setor panorâmico: cbar na altura da carta
+        self.draw()
+
+    def toggle_blocking(self, visible: bool) -> None:
+        """Mostra ou oculta o campo de anomalia de Z500 (e sua colorbar)."""
+        for art in self._blocking_artists:
+            art.set_visible(visible)
+        if self._blocking_colorbar is not None:
+            self._blocking_colorbar.ax.set_visible(visible)
+        self.draw()
+
+    def remove_blocking(self) -> None:
+        """Remove o campo de anomalia de Z500 e sua colorbar."""
+        if self._blocking_colorbar is not None:
+            try:
+                self._blocking_colorbar.remove()
+            except (ValueError, AttributeError):
+                pass
+            self._blocking_colorbar = None
+        for art in self._blocking_artists:
+            try:
+                art.remove()
+            except (ValueError, AttributeError, NotImplementedError):
+                pass
+        self._blocking_artists = []
 
     # ═══════════════════════════════════════════════════════════════════════
     #  OBSERVAÇÕES DE SUPERFÍCIE (SYNOP / METAR)

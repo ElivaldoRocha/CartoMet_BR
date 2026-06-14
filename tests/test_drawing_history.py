@@ -2,6 +2,7 @@
 
 import pytest
 
+from cartomet_br.gui.draw_tools import PenCommand, ShapeCommand
 from cartomet_br.gui.map_canvas import DrawCommand, AnnotationCommand, DrawingHistory
 
 
@@ -184,3 +185,53 @@ class TestDrawingHistory:
         assert h.redo_count == 3
         r = h.redo()
         assert r.symbol_key == "1"
+
+
+class TestRemoveLastOf:
+    """Desfazer tipo-filtrado (botões '↩ Desfazer traço/forma' — padrão do emoji)."""
+
+    @staticmethod
+    def _pen(tag: float) -> PenCommand:
+        return PenCommand(points_x=[tag], points_y=[tag], style={})
+
+    @staticmethod
+    def _shape(tool: str = "rect") -> ShapeCommand:
+        return ShapeCommand(tool=tool, points_x=[0, 1], points_y=[0, 1], style={})
+
+    def test_removes_most_recent_of_type_even_from_middle(self):
+        # traço(1) → forma → traço(2): remover forma tira a do MEIO da pilha
+        h = DrawingHistory()
+        p1, s, p2 = self._pen(1.0), self._shape(), self._pen(2.0)
+        for c in (p1, s, p2):
+            h.push(c)
+        removed = h.remove_last_of((ShapeCommand,))
+        assert removed is s
+        assert h.undo_count == 2
+        # ordem dos demais preservada: undo devolve o traço mais recente
+        assert h.undo() is p2
+        assert h.undo() is p1
+
+    def test_picks_latest_when_multiple_of_type(self):
+        h = DrawingHistory()
+        p1, p2 = self._pen(1.0), self._pen(2.0)
+        h.push(p1)
+        h.push(self._shape())
+        h.push(p2)
+        assert h.remove_last_of((PenCommand,)) is p2
+        assert h.remove_last_of((PenCommand,)) is p1
+        assert h.remove_last_of((PenCommand,)) is None     # esgotou o tipo
+
+    def test_returns_none_when_type_absent(self):
+        h = DrawingHistory()
+        h.push(self._shape())
+        assert h.remove_last_of((PenCommand,)) is None
+        assert h.undo_count == 1                            # nada removido
+
+    def test_does_not_touch_redo_stack(self):
+        h = DrawingHistory()
+        h.push(self._pen(1.0))
+        h.push(self._shape())
+        h.undo()                                            # forma vai p/ redo
+        assert h.can_redo
+        h.remove_last_of((PenCommand,))
+        assert h.can_redo                                   # redo intacto

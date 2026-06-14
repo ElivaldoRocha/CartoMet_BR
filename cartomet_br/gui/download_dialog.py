@@ -427,12 +427,13 @@ class LoczcitThread(QThread):
     finished_cancelled = pyqtSignal()
 
     def __init__(self, config: Config, cycle: int | None, cycle_date: str | None,
-                 step: int = 0, parent=None):
+                 step: int = 0, filter_method: str = "iqr", parent=None):
         super().__init__(parent)
         self.config = config
         self.cycle = cycle
         self.cycle_date = cycle_date
         self.step = step
+        self.filter_method = filter_method   # "iqr" (padrão) | "coherence" (LISA)
         self._cancelled = False
 
     def cancel(self):
@@ -456,12 +457,72 @@ class LoczcitThread(QThread):
                 data_dir=self.config.grib_dir,
                 step=self.step,
                 source=self.config.ecmwf_source,
+                filter_method=self.filter_method,
                 progress_callback=lambda msg: self.progress.emit(msg),
                 cancel_check=lambda: self._cancelled,
             )
             self.progress.emit("Índice LOCZCIT-PA concluído!")
             self.finished_ok.emit(result)
         except LoczcitCancelled:
+            self.finished_cancelled.emit()
+        except Exception as e:
+            self.finished_error.emit(str(e))
+        finally:
+            retry_logger.removeHandler(retry_handler)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  THREAD DA ANÁLISE DE BLOQUEIO ATMOSFÉRICO (ANOMALIA DE Z500)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class BlockingThread(QThread):
+    """Thread da análise de bloqueio: gh 500 (IFS) − climatologia ERA5 do dia.
+
+    Emite `finished_ok(BlockingResult)`. Falha de rede/cálculo nunca trava a GUI.
+    """
+
+    progress = pyqtSignal(str)
+    finished_ok = pyqtSignal(object)   # BlockingResult
+    finished_error = pyqtSignal(str)
+    finished_cancelled = pyqtSignal()
+
+    def __init__(self, config: Config, cycle: int | None, cycle_date: str | None,
+                 step: int = 0, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.cycle = cycle
+        self.cycle_date = cycle_date
+        self.step = step
+        self._cancelled = False
+
+    def cancel(self):
+        """Pede cancelamento cooperativo (abortado entre as etapas)."""
+        self._cancelled = True
+
+    def run(self):
+        from cartomet_br.data.blocking_engine import (
+            BlockingCancelled,
+            compute_blocking,
+        )
+
+        # Intercepta retries do multiurl (HTTP 429 no download do gh) → usuário
+        retry_handler, retry_logger = _attach_retry_handler(
+            lambda msg: self.progress.emit(msg)
+        )
+        try:
+            result = compute_blocking(
+                cycle=self.cycle,
+                cycle_date=self.cycle_date,
+                step=self.step,
+                data_dir=self.config.grib_dir,
+                clim_dir=self.config.climatology_dir,
+                source=self.config.ecmwf_source,
+                progress_callback=lambda msg: self.progress.emit(msg),
+                cancel_check=lambda: self._cancelled,
+            )
+            self.progress.emit("Anomalia de Z500 concluída!")
+            self.finished_ok.emit(result)
+        except BlockingCancelled:
             self.finished_cancelled.emit()
         except Exception as e:
             self.finished_error.emit(str(e))

@@ -45,12 +45,14 @@ from cartomet_br.gui._constants import (
 from cartomet_br.gui.themes import DARK_STYLE
 from cartomet_br.gui.download_dialog import (
     DownloadThread, PLDownloadThread, SatDownloadThread, SSTDownloadThread,
-    StationDownloadThread, LoczcitThread, DownloadProgressDialog,
+    StationDownloadThread, LoczcitThread, BlockingThread, DownloadProgressDialog,
 )
 from cartomet_br.gui.dialogs import WelcomeDialog, FirstRunDialog
 from cartomet_br.gui.drawing_panel import SymbologyPanel
 from cartomet_br.gui.layer_panel import SettingsPanel, FieldLayerPanel, SatellitePanel, SSTPanel
 from cartomet_br.gui.map_canvas import MapCanvas
+from cartomet_br.gui.sounding_panel import SoundingPanel
+from cartomet_br.gui.sounding_engine import SoundingWorker
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,8 @@ class MainWindow(QMainWindow):
         self.sat_download_thread = None
         self.sst_download_thread = None
         self.station_download_thread = None
+        self.sounding_worker = None
+        self._active_sounding_station = None  # estação RAOB ancorada na Sonda Vertical
         self._last_valid_time = None  # datetime do modelo carregado (sync de obs)
 
         self.setWindowTitle(f"{APP_NAME} — {APP_DESCRIPTION}")
@@ -169,6 +173,12 @@ class MainWindow(QMainWindow):
         right_dock.setMinimumWidth(290)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, right_dock)
 
+        # Sonda Vertical (Skew-T) — dock direito deslizante, oculto até o 1º clique.
+        # O mapa central encolhe graciosamente à esquerda (comportamento nativo do dock).
+        self.sounding_panel = SoundingPanel("Sondagem Vertical (Skew-T)", self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.sounding_panel)
+        self.sounding_panel.hide()
+
     def _setup_menu(self):
         menubar = self.menuBar()
 
@@ -257,6 +267,10 @@ class MainWindow(QMainWindow):
         zcit_about_action.triggered.connect(self._show_about_loczcit)
         help_menu.addAction(zcit_about_action)
 
+        blocking_about_action = QAction("Sobre a Análise de Bloqueio (Z500)", self)
+        blocking_about_action.triggered.connect(self._show_about_blocking)
+        help_menu.addAction(blocking_about_action)
+
         help_menu.addSeparator()
 
         about_action = QAction("Sobre", self)
@@ -310,6 +324,18 @@ class MainWindow(QMainWindow):
         """)
         self.ruler_btn.clicked.connect(self._toggle_ruler_mode)
         toolbar.addWidget(self.ruler_btn)
+
+        self.sounding_mode_btn = QPushButton("📍 Sonda Vertical")
+        self.sounding_mode_btn.setCheckable(True)
+        self.sounding_mode_btn.setToolTip(
+            "Clique no mapa para ancorar na estação de radiossonda mais próxima e abrir o Skew-T"
+        )
+        self.sounding_mode_btn.setStyleSheet("""
+            QPushButton { background-color: #16A085; padding: 6px 14px; font-size: 11px; }
+            QPushButton:checked { background-color: #E74C3C; }
+        """)
+        self.sounding_mode_btn.clicked.connect(self._toggle_sounding_mode)
+        toolbar.addWidget(self.sounding_mode_btn)
 
         toolbar.addSeparator()
 
@@ -426,6 +452,15 @@ class MainWindow(QMainWindow):
         self.symbol_panel.emoji_mode_toggled.connect(self._on_emoji_mode_toggled)
         self.symbol_panel.emoji_selected.connect(lambda e: setattr(self.canvas, 'current_emoji', e))
         self.symbol_panel.emoji_size_changed.connect(lambda s: setattr(self.canvas, '_emoji_fontsize', s))
+        self.symbol_panel.emoji_undo_requested.connect(self.canvas.remove_last_emoji)
+        self.symbol_panel.pen_mode_toggled.connect(self._on_pen_mode_toggled)
+        self.symbol_panel.pen_style_changed.connect(self.canvas.set_pen_style)
+        self.symbol_panel.pen_undo_requested.connect(self.canvas.remove_last_pen_stroke)
+        self.symbol_panel.shape_mode_toggled.connect(self._on_shape_mode_toggled)
+        self.symbol_panel.shape_tool_changed.connect(self._on_shape_tool_changed)
+        self.symbol_panel.shape_style_changed.connect(self.canvas.set_shape_style)
+        self.symbol_panel.shape_undo_requested.connect(self.canvas.remove_last_shape)
+        self.canvas.shape_draft_changed.connect(self._on_shape_draft_changed)
 
         self.canvas.point_added.connect(self._on_point_added)
         self.canvas.coords_updated.connect(self._on_coords_updated)
@@ -441,6 +476,7 @@ class MainWindow(QMainWindow):
         self.field_panel.remove_layer_requested.connect(self._on_remove_pl_layer)
         self.field_panel.preset_requested.connect(self._on_preset_requested)
         self.field_panel.loczcit_requested.connect(self._on_loczcit_requested)
+        self.field_panel.blocking_requested.connect(self._on_blocking_requested)
 
         self.canvas.annotation_requested.connect(self._on_annotation_requested)
 
@@ -451,6 +487,11 @@ class MainWindow(QMainWindow):
         self.sst_panel.toggle_requested.connect(self.canvas.toggle_sst)
 
         self.settings_panel.observations_changed.connect(self._on_observations_toggled)
+
+        # Sonda Vertical: clique ancorado → abre/atualiza o painel;
+        # mudança de Step → recarrega a sondagem (sincronia temporal mestra).
+        self.canvas.vertical_sounding_requested.connect(self._on_sounding_station_selected)
+        self.settings_panel.step_combo.currentIndexChanged.connect(self._on_sounding_step_changed)
 
     # ═══════════════════════════════════════════════════════════════════════
     #  MODOS DE INTERAÇÃO
@@ -516,6 +557,77 @@ class MainWindow(QMainWindow):
         if enabled:
             self._uncheck_zoom_buttons()
 
+    _SHAPE_TOOL_NAMES = {
+        "rect": "Retângulo", "ellipse": "Elipse", "arrow": "Seta",
+        "line": "Linha reta", "polygon": "Polígono",
+    }
+
+    def _on_pen_mode_toggled(self, enabled: bool) -> None:
+        """Ativa/desativa a caneta; desativa os demais modos de interação."""
+        if enabled:
+            self.draw_mode_btn.setChecked(False)
+            self.annotate_btn.setChecked(False)
+            self.ruler_btn.setChecked(False)
+            self.canvas.set_drawing_mode(False)
+            self.canvas.set_annotation_mode(False)
+            self.canvas.set_ruler_mode(False)
+            self.canvas.set_emoji_mode(False)
+            self.canvas.set_shape_mode(False)
+            self._uncheck_zoom_buttons()
+            self.canvas.set_pen_mode(True)
+            self.status_label.setText("● Modo Caneta — pressione e arraste para desenhar")
+            self.status_label.setStyleSheet("color: #1ABC9C;")
+        else:
+            self.canvas.set_pen_mode(False)
+            self.status_label.setText("● Pronto")
+            self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_shape_mode_toggled(self, enabled: bool) -> None:
+        """Ativa/desativa o modo formas; desativa os demais modos de interação."""
+        if enabled:
+            self.draw_mode_btn.setChecked(False)
+            self.annotate_btn.setChecked(False)
+            self.ruler_btn.setChecked(False)
+            self.canvas.set_drawing_mode(False)
+            self.canvas.set_annotation_mode(False)
+            self.canvas.set_ruler_mode(False)
+            self.canvas.set_emoji_mode(False)
+            self.canvas.set_pen_mode(False)
+            self._uncheck_zoom_buttons()
+            self.canvas.set_shape_mode(True)
+            self._show_shape_status(self.canvas.shape_tool)
+        else:
+            self.canvas.set_shape_mode(False)
+            self.status_label.setText("● Pronto")
+            self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_shape_tool_changed(self, tool: str) -> None:
+        self.canvas.set_shape_tool(tool)
+        if self.canvas.interaction_mode == "shape":
+            self._show_shape_status(tool)
+
+    def _show_shape_status(self, tool: str) -> None:
+        nome = self._SHAPE_TOOL_NAMES.get(tool, tool)
+        if tool == "polygon":
+            msg = f"● Formas ({nome}) — clique nos vértices e pressione Enter"
+        else:
+            msg = f"● Formas ({nome}) — arraste do início ao fim"
+        self.status_label.setText(msg)
+        self.status_label.setStyleSheet("color: #9B59B6;")
+
+    def _on_shape_draft_changed(self, n: int) -> None:
+        """Contador de vértices do polígono em rascunho na barra de status."""
+        if n > 0:
+            self.status_label.setText(f"● Polígono: {n} vértice(s) — Enter finaliza")
+            self.status_label.setStyleSheet("color: #9B59B6;")
+        elif self.canvas.interaction_mode == "shape":
+            self._show_shape_status(self.canvas.shape_tool)
+
+    def _on_escape(self) -> None:
+        """Esc cancela o retângulo de zoom E qualquer rascunho de caneta/forma."""
+        self.canvas.cancel_rectangle()
+        self.canvas.cancel_active_draft()
+
     def _uncheck_zoom_buttons(self) -> None:
         """Desativa botões de zoom/pan (exclusividade com desenho/anotação/etc.)."""
         for btn in (getattr(self, "zoom_area_btn", None), getattr(self, "pan_btn", None)):
@@ -523,6 +635,7 @@ class MainWindow(QMainWindow):
                 btn.setChecked(False)
         self.canvas.set_zoom_area_mode(False)
         self.canvas.set_pan_mode(False)
+        self._uncheck_sounding_button()
 
     def _uncheck_draw_buttons(self) -> None:
         """Desativa botões de desenho/anotação/régua/emoji ao entrar em zoom/pan."""
@@ -533,9 +646,23 @@ class MainWindow(QMainWindow):
         self.canvas.set_annotation_mode(False)
         self.canvas.set_ruler_mode(False)
         self.canvas.set_emoji_mode(False)
-        # Botão de emoji vive no painel de simbologias
+        self.canvas.set_pen_mode(False)
+        self.canvas.set_shape_mode(False)
+        # Botões de emoji/caneta/formas vivem no painel de simbologias
         if hasattr(self.symbol_panel, "reset_emoji_mode"):
             self.symbol_panel.reset_emoji_mode()
+        if hasattr(self.symbol_panel, "reset_pen_mode"):
+            self.symbol_panel.reset_pen_mode()
+        if hasattr(self.symbol_panel, "reset_shapes_mode"):
+            self.symbol_panel.reset_shapes_mode()
+        self._uncheck_sounding_button()
+
+    def _uncheck_sounding_button(self) -> None:
+        """Desativa a Sonda Vertical (exclusividade com os demais modos de clique)."""
+        btn = getattr(self, "sounding_mode_btn", None)
+        if btn is not None and btn.isChecked():
+            btn.setChecked(False)
+        self.canvas.set_sounding_mode(False)
 
     def _toggle_zoom_area_mode(self, checked: bool) -> None:
         if checked:
@@ -563,6 +690,123 @@ class MainWindow(QMainWindow):
             self.status_label.setText("● Pronto")
             self.status_label.setStyleSheet("color: #27AE60;")
 
+    def _toggle_sounding_mode(self, checked: bool) -> None:
+        """Liga/desliga a Sonda Vertical, exclusiva dos demais modos de clique."""
+        if checked:
+            # Desliga as outras famílias de modo SEM reusar os helpers (que
+            # desmarcariam a própria Sonda que acabamos de ativar).
+            for btn in (self.draw_mode_btn, self.annotate_btn, self.ruler_btn,
+                        self.zoom_area_btn, self.pan_btn):
+                if btn.isChecked():
+                    btn.setChecked(False)
+            self.canvas.set_drawing_mode(False)
+            self.canvas.set_annotation_mode(False)
+            self.canvas.set_ruler_mode(False)
+            self.canvas.set_emoji_mode(False)
+            self.canvas.set_pen_mode(False)
+            self.canvas.set_shape_mode(False)
+            self.canvas.set_zoom_area_mode(False)
+            self.canvas.set_pan_mode(False)
+            if hasattr(self.symbol_panel, "reset_emoji_mode"):
+                self.symbol_panel.reset_emoji_mode()
+            if hasattr(self.symbol_panel, "reset_pen_mode"):
+                self.symbol_panel.reset_pen_mode()
+            if hasattr(self.symbol_panel, "reset_shapes_mode"):
+                self.symbol_panel.reset_shapes_mode()
+
+            self.canvas.set_sounding_mode(True)
+            self.status_label.setText("● Sonda Vertical — clique no mapa para sondar a estação mais próxima")
+            self.status_label.setStyleSheet("color: #16A085;")
+        else:
+            self.canvas.set_sounding_mode(False)
+            self.status_label.setText("● Pronto")
+            self.status_label.setStyleSheet("color: #27AE60;")
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  SONDA VERTICAL (RADIOSSONDAGEM / SKEW-T)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _nearest_synoptic(dt):
+        """Arredonda um datetime UTC para o horário sinótico (00Z/12Z) mais próximo.
+
+        A radiossonda só é lançada às 00Z e 12Z; o painel busca a sondagem do
+        horário sinótico mais próximo do valid_time do modelo.
+        """
+        from datetime import timedelta
+        base = dt.replace(minute=0, second=0, microsecond=0)
+        # Candidatos: 00Z e 12Z do dia, e 00Z do dia seguinte (para horas ≥ 18Z)
+        candidates = [
+            base.replace(hour=0),
+            base.replace(hour=12),
+            base.replace(hour=0) + timedelta(days=1),
+        ]
+        return min(candidates, key=lambda c: abs((dt - c).total_seconds()))
+
+    def _on_sounding_station_selected(self, station: dict) -> None:
+        """Clique ancorado numa estação RAOB → abre o painel e dispara o download."""
+        self._active_sounding_station = station
+        self.sounding_panel.show()
+        self.sounding_panel.raise_()
+        self._launch_sounding()
+
+    def _on_sounding_step_changed(self) -> None:
+        """Step mudou no mapa → recarrega a sondagem (só se a sonda está ativa)."""
+        if not self.sounding_panel.isVisible():
+            return
+        if self._active_sounding_station is None:
+            return
+        self._launch_sounding()
+
+    def _launch_sounding(self) -> None:
+        """Calcula o horário-alvo, blinda o caso futuro e dispara o SoundingWorker."""
+        from datetime import datetime, timezone
+
+        station = self._active_sounding_station
+        if station is None:
+            return
+
+        # Sem rodada carregada ainda: usa o sinótico mais próximo de "agora".
+        base_time = self._last_valid_time or datetime.now(timezone.utc)
+        target = self._nearest_synoptic(base_time)
+        station_label = f"{station.get('name', station['wmo'])} ({station['wmo']})"
+        time_label = target.strftime("%d/%m/%Y %H:%MZ")
+
+        # Fail-state "viagem ao futuro": o balão ainda não foi lançado.
+        # NÃO toca no servidor de Wyoming.
+        now = datetime.now(timezone.utc)
+        if target > now:
+            self.sounding_panel.show_future(time_label)
+            return
+
+        # Evita corridas: se já há um worker rodando, deixa-o terminar.
+        if self.sounding_worker is not None and self.sounding_worker.isRunning():
+            return
+
+        self.sounding_panel.show_loading(station_label, time_label)
+        self.status_label.setText(f"● Baixando sondagem de {station_label}...")
+        self.status_label.setStyleSheet("color: #16A085;")
+
+        worker = SoundingWorker(station=station, target_time=target, parent=self)
+        worker.progress.connect(self._on_sounding_progress)
+        worker.finished_ok.connect(self._on_sounding_ok)
+        worker.finished_error.connect(self._on_sounding_error)
+        self.sounding_worker = worker
+        worker.start()
+
+    def _on_sounding_progress(self, msg: str) -> None:
+        self.status_label.setText(f"● {msg}")
+
+    def _on_sounding_ok(self, result) -> None:
+        self.sounding_panel.render(result)
+        self.status_label.setText("● Pronto")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_sounding_error(self, msg: str) -> None:
+        self.sounding_panel.show_error(msg)
+        self.status_label.setText("● Sondagem indisponível")
+        self.status_label.setStyleSheet("color: #E67E22;")
+
     def _setup_zoom_shortcuts(self) -> None:
         """Atalhos de zoom sem colisão (Ctrl+Z/Ctrl+Y reservados ao desenho)."""
         from PyQt6.QtGui import QShortcut
@@ -573,7 +817,7 @@ class MainWindow(QMainWindow):
         ctrl0 = QShortcut(QKeySequence("Ctrl+0"), self)
         ctrl0.activated.connect(self._figure_zoom_fit)
         esc = QShortcut(QKeySequence("Esc"), self)
-        esc.activated.connect(self.canvas.cancel_rectangle)
+        esc.activated.connect(self._on_escape)
 
     def _on_previous_extent(self) -> None:
         self.canvas.previous_extent()
@@ -992,6 +1236,11 @@ class MainWindow(QMainWindow):
         self.coords_label.setText(f"Lat: {y:.2f}° Lon: {x:.2f}°")
 
     def _finalize_line(self):
+        # No modo formas, Enter fecha o polígono em rascunho (≥3 vértices)
+        if (self.canvas.interaction_mode == "shape"
+                and self.canvas.shape_tool == "polygon"):
+            self.canvas.finalize_shape()
+            return
         self.canvas.finalize_line()
         self.symbol_panel.update_points(0)
 
@@ -1306,6 +1555,12 @@ class MainWindow(QMainWindow):
         if layer_id == "loczcit":
             self.canvas.toggle_loczcit(visible)
             return
+        if layer_id == "loczcit_axis":
+            self.canvas.toggle_loczcit_axis(visible)
+            return
+        if layer_id == "blocking":
+            self.canvas.toggle_blocking(visible)
+            return
         # Re-habilitar linhas de corrente re-renderiza o streamplot (pesado) —
         # mesmo aviso do download para o usuário não achar que travou.
         is_stream = visible and self.canvas.is_stream_layer(layer_id)
@@ -1325,6 +1580,12 @@ class MainWindow(QMainWindow):
     def _on_remove_pl_layer(self, layer_id: str):
         if layer_id == "loczcit":
             self.canvas.remove_loczcit()
+            self.canvas.draw()
+        elif layer_id == "loczcit_axis":
+            self.canvas.remove_loczcit_axis()
+            self.canvas.draw()
+        elif layer_id == "blocking":
+            self.canvas.remove_blocking()
             self.canvas.draw()
         else:
             self.canvas.remove_pl_layer(layer_id)
@@ -1350,6 +1611,44 @@ class MainWindow(QMainWindow):
         self._process_preset_queue()
 
     # ─── Índice ZCIT (LOCZCIT-PA) ───────────────────────────────────────────
+
+    @staticmethod
+    def _spatial_available() -> bool:
+        """True se o extra 'spatial' (esda/libpysal) estiver instalado."""
+        import importlib.util
+        return (importlib.util.find_spec("esda") is not None
+                and importlib.util.find_spec("libpysal") is not None)
+
+    def _ask_loczcit_filter_method(self) -> str | None:
+        """Modal: método de delimitação da banda. Retorna 'iqr'|'coherence'|None.
+
+        Coletado na thread da GUI ANTES de disparar o cálculo (Blindagem #6: a
+        thread de cálculo nunca abre diálogos). Ver Integracao_UX_LOCZCIT-PA.
+        """
+        box = QMessageBox(self)
+        box.setWindowTitle("ZCIT (LOCZCIT-PA) — Método de delimitação")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText("Como deseja delimitar a banda da ZCIT?")
+        box.setInformativeText(
+            "Filtro Espacial (IQR) — Rápido. Limpa o campo por estatística de "
+            "latitude (Tukey). Padrão recomendado.\n\n"
+            "Coerência Espacial (LISA) — Avançado. Isola o envelope físico da "
+            "ZCIT por hotspots confirmados (convecção cercada por convecção). "
+            "Mais robusto contra sistemas órfãos (VCAN isolado), porém usa mais "
+            "CPU/RAM (centenas de simulações de Monte Carlo)."
+        )
+        box.setStyleSheet(DARK_STYLE)
+        iqr_btn = box.addButton("Filtro Espacial (IQR)", QMessageBox.ButtonRole.AcceptRole)
+        lisa_btn = box.addButton("Coerência Espacial (LISA)", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(iqr_btn)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is iqr_btn:
+            return "iqr"
+        if clicked is lisa_btn:
+            return "coherence"
+        return None
 
     def _on_loczcit_requested(self):
         """Calcula o índice LOCZCIT-PA (ZCIT) em thread e injeta o raster categórico."""
@@ -1377,6 +1676,19 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # Escolha do método de delimitação da banda (coletada ANTES de disparar a thread)
+        filter_method = self._ask_loczcit_filter_method()
+        if filter_method is None:
+            return  # usuário cancelou a escolha
+        if filter_method == "coherence" and not self._spatial_available():
+            QMessageBox.information(
+                self, "Coerência Espacial (LISA)",
+                "A Coerência Espacial não está disponível nesta instalação;\n"
+                "usando o filtro IQR.\n\n"
+                "Para habilitar, instale o extra 'spatial':\n    uv sync --extra spatial",
+            )
+            filter_method = "iqr"
+
         self.status_label.setText("● Calculando índice ZCIT (LOCZCIT-PA)...")
         self.status_label.setStyleSheet("color: #E67E22;")
 
@@ -1384,13 +1696,20 @@ class MainWindow(QMainWindow):
         self._loczcit_dl_dialog = DownloadProgressDialog("Índice ZCIT (LOCZCIT-PA)", parent=self)
         self._loczcit_dl_dialog.setStyleSheet(DARK_STYLE)
         self._loczcit_dl_dialog.set_indeterminate()
-        self._loczcit_dl_dialog.update_status("Preparando forçantes (TSM, vento, OLR)...")
+        if filter_method == "coherence":
+            self._loczcit_dl_dialog.update_status(
+                "Coerência espacial (LISA): após o download, roda simulações "
+                "estatísticas — pode levar alguns segundos..."
+            )
+        else:
+            self._loczcit_dl_dialog.update_status("Preparando forçantes (TSM, vento, OLR)...")
         self._loczcit_dl_dialog.cancel_requested.connect(self._cancel_loczcit)
 
         # Horizonte de previsão do slider → valid_time = rodada + step (desacum. dinâmica)
         step = self.settings_panel.get_step()
         self.loczcit_thread = LoczcitThread(
-            config=self.config, cycle=cycle, cycle_date=cycle_date, step=step, parent=self,
+            config=self.config, cycle=cycle, cycle_date=cycle_date, step=step,
+            filter_method=filter_method, parent=self,
         )
         self.loczcit_thread.progress.connect(self._on_loczcit_progress)
         self.loczcit_thread.finished_ok.connect(self._on_loczcit_ok)
@@ -1431,13 +1750,27 @@ class MainWindow(QMainWindow):
             self._loczcit_dl_dialog = None
         self.canvas.plot_loczcit_raster(result)
         m = result.meta
+        method_tag = "LISA" if m.get("filter_method") == "coherence" else "IQR"
 
         # Registra como camada ativa (toggle/remover); recria a entrada se já existia
         self.field_panel.remove_layer_entry("loczcit")
         self.field_panel.add_layer_entry(
             "loczcit", "ZCIT (LOCZCIT-PA)",
-            f"F{m.get('n_strong', 0)} M{m.get('n_moderate', 0)} f{m.get('n_weak', 0)}",
+            f"F{m.get('n_strong', 0)} M{m.get('n_moderate', 0)} "
+            f"f{m.get('n_weak', 0)} C{m.get('n_cinematica', 0)} · {method_tag}",
         )
+
+        # Overlay opcional do EIXO (banda simples/dupla) — calculado, desenhado e
+        # OCULTO por padrão (human-in-the-loop). O usuário liga pelo toggle da camada.
+        self.field_panel.remove_layer_entry("loczcit_axis")
+        if getattr(result, "axis", None) is not None:
+            self.canvas.plot_loczcit_axis(result)
+            self.canvas.toggle_loczcit_axis(False)
+            dbl = "dupla" if m.get("is_double") else "simples"
+            self.field_panel.add_layer_entry(
+                "loczcit_axis", "ZCIT — Eixo (auto)",
+                f"banda {dbl}", checked=False,
+            )
 
         # Salva o produto (raster + índice contínuo) em NetCDF na subpasta loczcit_pa/
         saved_name = ""
@@ -1449,8 +1782,9 @@ class MainWindow(QMainWindow):
             logger.warning("Falha ao salvar produto LOCZCIT-PA: %s", exc)
 
         self.status_label.setText(
-            f"● ZCIT (LOCZCIT-PA): Forte {m.get('n_strong', 0)} | "
-            f"Moderada {m.get('n_moderate', 0)} | Fraca {m.get('n_weak', 0)}{saved_name}"
+            f"● ZCIT (LOCZCIT-PA · {method_tag}): Forte {m.get('n_strong', 0)} | "
+            f"Moderada {m.get('n_moderate', 0)} | Fraca {m.get('n_weak', 0)} | "
+            f"Cinemática {m.get('n_cinematica', 0)}{saved_name}"
         )
         self.status_label.setStyleSheet("color: #27AE60;")
 
@@ -1464,7 +1798,122 @@ class MainWindow(QMainWindow):
         self.status_label.setText("● Erro no índice ZCIT")
         self.status_label.setStyleSheet("color: #E74C3C;")
         QMessageBox.warning(self, "Erro no Índice ZCIT (LOCZCIT-PA)", error_msg)
-        QMessageBox.warning(self, "Erro no índice ZCIT (LOCZCIT-PA)", error_msg)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  BLOQUEIO ATMOSFÉRICO (ANOMALIA DE Z500)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _on_blocking_requested(self):
+        """Calcula a anomalia de Z500 (bloqueio) em thread e injeta o campo no mapa."""
+        if getattr(self, "blocking_thread", None) and self.blocking_thread.isRunning():
+            return
+
+        cycle = self.settings_panel.get_cycle()
+        cycle_date = self.settings_panel.get_cycle_date()
+
+        # A climatologia precisa da DATA do valid_time; resolve a rodada se "auto".
+        if cycle is None or not cycle_date:
+            try:
+                from cartomet_br.data.ecmwf import estimate_available_cycles
+                latest = estimate_available_cycles().get("latest")
+                if latest:
+                    cycle = latest["cycle"]
+                    cycle_date = latest["base_datetime"].strftime("%Y%m%d")
+            except Exception:
+                pass
+        if cycle is None or not cycle_date:
+            QMessageBox.warning(
+                self, "Bloqueio Atmosférico (Z500)",
+                "Não foi possível determinar a rodada do ECMWF.\n\n"
+                "Clique em \"Verificar Rodadas\" e selecione uma rodada primeiro.",
+            )
+            return
+
+        self.status_label.setText("● Calculando anomalia de Z500 (bloqueio)...")
+        self.status_label.setStyleSheet("color: #2980B9;")
+
+        self._blocking_cancelled = False
+        self._blocking_dl_dialog = DownloadProgressDialog(
+            "Bloqueio Atmosférico (Z500)", parent=self,
+        )
+        self._blocking_dl_dialog.setStyleSheet(DARK_STYLE)
+        self._blocking_dl_dialog.set_indeterminate()
+        self._blocking_dl_dialog.update_status(
+            "Preparando gh 500 hPa (IFS) e climatologia ERA5..."
+        )
+        self._blocking_dl_dialog.cancel_requested.connect(self._cancel_blocking)
+
+        step = self.settings_panel.get_step()
+        self.blocking_thread = BlockingThread(
+            config=self.config, cycle=cycle, cycle_date=cycle_date, step=step,
+            parent=self,
+        )
+        self.blocking_thread.progress.connect(self._on_blocking_progress)
+        self.blocking_thread.finished_ok.connect(self._on_blocking_ok)
+        self.blocking_thread.finished_error.connect(self._on_blocking_error)
+        self.blocking_thread.finished_cancelled.connect(self._on_blocking_cancelled)
+        self.blocking_thread.start()
+        self._blocking_dl_dialog.show()
+
+    def _cancel_blocking(self):
+        """Cancela a análise: fecha o diálogo já (UX) e aborta a thread no próximo passo."""
+        self._blocking_cancelled = True
+        if getattr(self, "blocking_thread", None):
+            self.blocking_thread.cancel()
+        if getattr(self, "_blocking_dl_dialog", None):
+            self._blocking_dl_dialog.update_status("Cancelando...")
+            self._blocking_dl_dialog.reject()
+            self._blocking_dl_dialog = None
+        self.status_label.setText("● Bloqueio (Z500) cancelado")
+        self.status_label.setStyleSheet("color: #F39C12;")
+
+    def _on_blocking_cancelled(self):
+        self.blocking_thread = None
+        if getattr(self, "_blocking_dl_dialog", None):
+            self._blocking_dl_dialog.reject()
+            self._blocking_dl_dialog = None
+
+    def _on_blocking_progress(self, msg: str):
+        self.status_label.setText(f"● {msg}")
+        if getattr(self, "_blocking_dl_dialog", None):
+            self._blocking_dl_dialog.update_status(msg)
+
+    def _on_blocking_ok(self, result):
+        self.blocking_thread = None
+        if getattr(self, "_blocking_cancelled", False):
+            return  # usuário cancelou; ignora resultado tardio
+        if getattr(self, "_blocking_dl_dialog", None):
+            self._blocking_dl_dialog.finish_ok()
+            self._blocking_dl_dialog = None
+        self.canvas.plot_blocking_anomaly(result)
+        m = result.meta
+        approx_tag = "≈" if m.get("is_approx") else ""
+
+        # Registra como camada ativa (toggle/remover); recria a entrada se já existia
+        self.field_panel.remove_layer_entry("blocking")
+        self.field_panel.add_layer_entry(
+            "blocking", "Bloqueio (anom. Z500)",
+            f"{result.clim_hour:02d}Z{approx_tag} · "
+            f"{m.get('anom_min', 0):.0f}/{m.get('anom_max', 0):+.0f} gpm",
+        )
+
+        self.status_label.setText(
+            f"● Bloqueio (Z500): anomalia {m.get('anom_min', 0):.0f} a "
+            f"{m.get('anom_max', 0):+.0f} gpm · clim {result.clim_mmdd[2:]}/"
+            f"{result.clim_mmdd[:2]} {result.clim_hour:02d}Z{approx_tag}"
+        )
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_blocking_error(self, error_msg: str):
+        self.blocking_thread = None
+        if getattr(self, "_blocking_cancelled", False):
+            return  # cancelado pelo usuário; não mostra erro
+        if getattr(self, "_blocking_dl_dialog", None):
+            self._blocking_dl_dialog.finish_error()
+            self._blocking_dl_dialog = None
+        self.status_label.setText("● Erro na análise de bloqueio (Z500)")
+        self.status_label.setStyleSheet("color: #E74C3C;")
+        QMessageBox.warning(self, "Erro no Bloqueio Atmosférico (Z500)", error_msg)
 
     def _process_preset_queue(self):
         """Processa a próxima camada da fila de preset."""
@@ -2136,7 +2585,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
 
-        g, y, r = CATEGORY_COLORS
+        m, g, y, r = CATEGORY_COLORS   # 0 Magenta, 1 Verde, 2 Amarelo, 3 Vermelho
         html = f"""
         <h2 style='color:#E67E22; margin-bottom:2px;'>Índice LOCZCIT-PA</h2>
         <p style='color:#BDC3C7; margin-top:0;'><i>Localização da ZCIT — Potencial Acoplado</i></p>
@@ -2150,8 +2599,10 @@ class MainWindow(QMainWindow):
               (Técnica B: rodada anterior madura, mitigação de <i>spin-up</i>)</li>
         </ul>
         <p style='color:#ECF0F1;'>As forçantes são normalizadas (Min-Max meridional) e acopladas
-        por <b>média aritmética</b> (Navalha de Ockham), filtradas por <b>IQR de Tukey</b> e
-        classificadas pelos limiares físicos de OLR:</p>
+        por <b>média aritmética</b> (Navalha de Ockham). A banda é definida pela <b>máscara
+        ativa</b> <code>oceano &and; (OLR&lt;240 &or; C&gt;C<sub>THR</sub>)</code> — que resgata o
+        ramo sul da ZCIT — e por um <b>envelope sazonal de latitude</b>, depois classificadas
+        pelos limiares físicos de OLR:</p>
         <table cellpadding='6' style='color:#ECF0F1; border-collapse:collapse;'>
           <tr style='background:#1A252F;'>
             <th>Categoria</th><th>Cor</th><th>Limiar de F<sub>OLR</sub></th></tr>
@@ -2164,8 +2615,11 @@ class MainWindow(QMainWindow):
           <tr><td><b>Fraca</b></td>
             <td><span style='background:{g}; color:{g};'>&nbsp;&nbsp;&nbsp;</span> Verde</td>
             <td>{OLR_THRESHOLD_MODERATE:.0f} &lt; F<sub>OLR</sub> &le; {OLR_THRESHOLD_WEAK:.0f}</td></tr>
+          <tr><td><b>Cinemática</b></td>
+            <td><span style='background:{m}; color:{m};'>&nbsp;&nbsp;&nbsp;</span> Magenta</td>
+            <td>F<sub>OLR</sub> &gt; {OLR_THRESHOLD_WEAK:.0f}, banda ativa por convergência (ramo sul)</td></tr>
           <tr><td><i>Nulo</i></td><td>transparente</td>
-            <td>F<sub>OLR</sub> &gt; {OLR_THRESHOLD_WEAK:.0f} (céu limpo) ou outlier do IQR</td></tr>
+            <td>fora da máscara ativa / do envelope (céu limpo verdadeiro)</td></tr>
         </table>
         <p style='color:#ECF0F1; margin-top:10px;'>O raster <b>não traça a carta</b> — ele
         quantifica e espacializa o potencial de acoplamento físico, orientando o traçado manual
@@ -2198,6 +2652,117 @@ class MainWindow(QMainWindow):
                 )
                 return
             # Renderiza o .md como HTML legível (equações + diagramas) e abre no navegador
+            try:
+                from cartomet_br.gui.methodology import render_methodology_html
+                html_path = render_methodology_html(p)
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(html_path)))
+            except Exception as exc:
+                logger.warning("Falha ao renderizar metodologia em HTML: %s", exc)
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))  # fallback: abre o .md
+
+        open_btn.clicked.connect(_open_methodology)
+        close_btn = QPushButton("Fechar")
+        close_btn.clicked.connect(dlg.accept)
+        btn_row.addWidget(open_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+
+        dlg.exec()
+
+    def _blocking_methodology_path(self):
+        """Localiza o docs/Metodologia_Bloqueio_Z500.md (dev ou empacotado) ou None."""
+        candidates = [
+            Path(__file__).resolve().parents[2] / "docs" / "Metodologia_Bloqueio_Z500.md",
+            Path.cwd() / "docs" / "Metodologia_Bloqueio_Z500.md",
+        ]
+        if getattr(sys, "frozen", False):  # PyInstaller: docs/ empacotado em _MEIPASS
+            candidates.insert(0, Path(sys._MEIPASS) / "docs" / "Metodologia_Bloqueio_Z500.md")
+        for p in candidates:
+            if p.exists():
+                return p
+        return None
+
+    def _show_about_blocking(self):
+        """Diálogo 'Sobre a Análise de Bloqueio (Z500)' — fórmula, climatologia, leitura."""
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        from PyQt6.QtWidgets import QTextBrowser
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Sobre a Análise de Bloqueio (Z500)")
+        dlg.setMinimumSize(580, 560)
+        dlg.setStyleSheet(DARK_STYLE)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        html = """
+        <h2 style='color:#2980B9; margin-bottom:2px;'>Bloqueio Atmosférico (Z500)</h2>
+        <p style='color:#BDC3C7; margin-top:0;'><i>Anomalia de altura geopotencial em
+        500&nbsp;hPa</i></p>
+        <p style='color:#ECF0F1;'>A carta mostra o desvio do escoamento em relação ao
+        estado médio do dia:</p>
+        <p style='color:#ECF0F1; text-align:center;'>
+        <b>Anomalia&nbsp;=&nbsp;Z<sub>500</sub> (IFS, rodada&nbsp;+&nbsp;step)
+        &nbsp;&minus;&nbsp; Z&#772;<sub>500</sub> (ERA5 1991&ndash;2020, dia-do-ano,
+        hora)</b></p>
+        <ul style='color:#ECF0F1;'>
+          <li><b>Climatologia:</b> ERA5 1991&ndash;2020 (normal OMM), 00Z/12Z, média
+              anual + 4 harmônicos (FFT) — ciclo sazonal removido sem ruído;</li>
+          <li><b>Grade idêntica</b> ao IFS Open Data (0,25°) — subtração direta,
+              sem regrid;</li>
+          <li><b>Download por dia:</b> só o NetCDF do dia (~800&nbsp;KB) é baixado do
+              repositório do CartoMet BR, com verificação <code>sha256</code> e cache
+              local.</li>
+        </ul>
+        <p style='color:#ECF0F1;'><b>Como ler:</b></p>
+        <table cellpadding='6' style='color:#ECF0F1; border-collapse:collapse;'>
+          <tr style='background:#1A252F;'><th>Assinatura</th><th>Leitura</th></tr>
+          <tr><td><span style='background:#B2182B; color:#B2182B;'>&nbsp;&nbsp;&nbsp;</span>
+            anomalia <b>positiva</b> &gtrsim&nbsp;+100&nbsp;gpm, persistente, em
+            latitudes médias-altas</td>
+            <td>crista anômala — <b>candidata a bloqueio</b></td></tr>
+          <tr><td><span style='background:#2166AC; color:#2166AC;'>&nbsp;&nbsp;&nbsp;</span>
+            anomalias <b>negativas</b> ladeando a positiva (~25&ndash;35°S)</td>
+            <td>dipolo do <b>ômega invertido</b> (padrão A&ndash;B)</td></tr>
+          <tr><td>linha <b>cinza-escura</b></td>
+            <td>contorno do zero — fronteira crista/cavado anômalos</td></tr>
+        </table>
+        <p style='color:#ECF0F1; margin-top:10px;'>A <b>persistência</b> é essencial:
+        avalie vários <i>steps</i> consecutivos. O campo orienta — a identificação
+        final do bloqueio é do previsor (<i>human-in-the-loop</i>).</p>
+        <p style='color:#95A5A6; font-size:11px;'>Horários 06Z/18Z usam o horário
+        climatológico mais próximo (ciclo diurno de Z500 é pequeno) — a carta marca a
+        aproximação com "≈".</p>
+        <hr style='border-color:#5D6D7E;'>
+        <p style='color:#95A5A6; font-size:11px;'>Climatologia: <b>Hersbach et al.
+        (2020)</b>, doi:10.1002/qj.3803. <i>Generated using Copernicus Climate Change
+        Service information [2026]</i>. Previsões: ECMWF Open Data (CC&nbsp;BY&nbsp;4.0).
+        Conceito: Rex (1950); Tibaldi &amp; Molteni (1990).</p>
+        """
+        browser = QTextBrowser()
+        browser.setHtml(html)
+        browser.setOpenExternalLinks(True)
+        layout.addWidget(browser)
+
+        btn_row = QHBoxLayout()
+        open_btn = QPushButton("📖 Abrir Metodologia Completa")
+        open_btn.setStyleSheet(
+            "QPushButton{background:#2980B9;padding:7px 14px;font-weight:bold;border-radius:4px;}"
+            "QPushButton:hover{background:#3498DB;}"
+        )
+
+        def _open_methodology():
+            p = self._blocking_methodology_path()
+            if p is None:
+                QMessageBox.information(
+                    dlg, "Metodologia",
+                    "O documento da metodologia não foi encontrado nesta instalação.\n"
+                    "Ele está disponível no repositório do CartoMet BR (docs/).",
+                )
+                return
+            # Renderiza o .md como HTML legível (equações) e abre no navegador
             try:
                 from cartomet_br.gui.methodology import render_methodology_html
                 html_path = render_methodology_html(p)

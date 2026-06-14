@@ -712,6 +712,7 @@ class FieldLayerPanel(QWidget):
     remove_layer_requested = pyqtSignal(str)           # (layer_id)
     preset_requested = pyqtSignal(str)                 # (preset_name)
     loczcit_requested = pyqtSignal()                   # índice ZCIT (LOCZCIT-PA)
+    blocking_requested = pyqtSignal()                  # bloqueio atmosférico (anom. Z500)
 
     ANALYSIS_PRESETS = {
         "Sinótica clássica": [
@@ -829,6 +830,25 @@ class FieldLayerPanel(QWidget):
         )
         zcit_btn.clicked.connect(self.loczcit_requested.emit)
         layout.addWidget(zcit_btn)
+
+        # ─── Bloqueio Atmosférico (anomalia de Z500) ───
+        blocking_btn = QPushButton("🌀 Bloqueio Atmosférico (Z500)")
+        blocking_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2980B9; padding: 7px;
+                font-size: 11px; font-weight: bold; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #3498DB; }
+        """)
+        blocking_btn.setToolTip(
+            "Anomalia de altura geopotencial em 500 hPa:\n"
+            "gh do IFS (rodada + step) − climatologia ERA5 1991–2020 (00Z/12Z,\n"
+            "média + 4 harmônicos), setor 150°W–30°E / 75°S–15°N.\n"
+            "Anomalias positivas intensas e persistentes (≳ +100 gpm) em latitudes\n"
+            "médias-altas sugerem bloqueio; o padrão ômega aparece como dipolo A–B."
+        )
+        blocking_btn.clicked.connect(self.blocking_requested.emit)
+        layout.addWidget(blocking_btn)
 
         # ─── Seção 1: Campos em Altitude ───
         alt_group = QGroupBox("Campos em Altitude")
@@ -1029,8 +1049,12 @@ class FieldLayerPanel(QWidget):
         var_key = self.sfc_var_combo.currentData()
         self.add_layer_requested.emit(var_key, 0, "barbs")
 
-    def add_layer_entry(self, layer_id: str, label: str, detail: str):
-        """Adiciona uma entrada na lista de camadas ativas."""
+    def add_layer_entry(self, layer_id: str, label: str, detail: str, checked: bool = True):
+        """Adiciona uma entrada na lista de camadas ativas.
+
+        ``checked``: estado inicial do toggle (False = camada começa oculta, ex.: o
+        overlay opcional do eixo da ZCIT).
+        """
         self.no_layers_label.setVisible(False)
 
         row = QWidget()
@@ -1040,7 +1064,7 @@ class FieldLayerPanel(QWidget):
         row.setStyleSheet("background-color: #34495E; border-radius: 4px;")
 
         cb = QCheckBox()
-        cb.setChecked(True)
+        cb.setChecked(checked)
         cb.stateChanged.connect(
             lambda state, lid=layer_id: self.toggle_layer_requested.emit(
                 lid, state == Qt.CheckState.Checked.value
