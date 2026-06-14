@@ -42,6 +42,10 @@ dependencies = [
     "cartopy>=0.23.0",
     # Processamento meteorológico
     "metpy>=1.6.0",
+    # Suavização robusta LOWESS (overlay de eixo da ZCIT — LOCZCIT-PA)
+    "statsmodels>=0.14.0",
+    # Radiossondagem vertical (Skew-T) — Universidade de Wyoming
+    "siphon>=0.9",
     # Observações de superfície (SYNOP)
     "pymetdecoder>=0.1.5",
     "pyqt6>=6.10.2",
@@ -67,8 +71,14 @@ dev = [
     "ipython>=8.26.0",
     "jupyter>=1.0.0",
 ]
+# Filtro de Coerência Espacial (LISA/Moran Local) — alternativa OPCIONAL ao IQR.
+# Pesado e não-essencial: mantido fora da instalação base. `scipy` já é core.
+spatial = [
+    "esda>=2.5",
+    "libpysal>=4.9",
+]
 all = [
-    "cartomet-br[gui,build,dev]",
+    "cartomet-br[gui,build,dev,spatial]",
 ]
 
 [project.scripts]
