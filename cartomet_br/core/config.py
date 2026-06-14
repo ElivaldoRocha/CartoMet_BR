@@ -172,9 +172,16 @@ class Config:
         """Subpasta para os produtos do índice LOCZCIT-PA (NetCDF: raster + I_ZCIT)."""
         return self._subdir("loczcit_pa")
 
+    @property
+    def climatology_dir(self) -> Path:
+        """Subpasta para a climatologia diária de Z500 (ERA5; cache re-baixável)."""
+        return self._subdir("climatologia/z500")
+
     # Subpastas que contêm dados baixados/cache (limpáveis com segurança).
     # NÃO inclui 'cartas/', que guarda o trabalho do usuário.
-    CACHE_SUBDIRS: ClassVar[tuple[str, ...]] = ("grib", "satelite", "tsm", "observacoes")
+    CACHE_SUBDIRS: ClassVar[tuple[str, ...]] = (
+        "grib", "satelite", "tsm", "observacoes", "climatologia",
+    )
 
     @classmethod
     def for_brazil(cls) -> Config:
