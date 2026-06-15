@@ -9,7 +9,6 @@ Inclui sistema de undo/redo baseado no padrão Command.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -40,8 +39,12 @@ from cartomet_br.gui.draw_tools import (
     PEN_MIN_PIXEL_DIST,
     SHAPE_MIN_DRAG_PIXELS,
     SHAPE_OUTLINE_ZORDER,
+    AnnotationCommand,
+    DrawCommand,
     DrawStyle,
+    EmojiCommand,
     PenCommand,
+    PointCommand,
     ShapeCommand,
     build_preview_ring,
     create_pen_artist,
@@ -56,36 +59,10 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SISTEMA DE UNDO/REDO (Padrão Command)
 # ═══════════════════════════════════════════════════════════════════════════════
-
-@dataclass
-class DrawCommand:
-    """Comando de desenho armazenando metadados para undo/redo."""
-    symbol_key: str
-    points_x: list[float]
-    points_y: list[float]
-    flip: bool
-    artist: object = field(default=None, repr=False)
-    intensity: int = 1  # usado por símbolos com intensidade (ex.: ZCIT)
-
-
-@dataclass
-class PointCommand:
-    """Comando de símbolo pontual (clique único, ex.: centros de pressão)."""
-    symbol_key: str
-    x: float
-    y: float
-    artist: object = field(default=None, repr=False)
-
-
-@dataclass
-class AnnotationCommand:
-    """Comando de anotação de texto."""
-    x: float
-    y: float
-    text: str
-    color: str
-    fontsize: int
-    artist: object = field(default=None, repr=False)
+#
+# Os comandos (DrawCommand/PointCommand/AnnotationCommand/EmojiCommand/PenCommand/
+# ShapeCommand) são dataclasses PURAS definidas em ``draw_tools`` e reexportadas
+# acima — assim ``project_io`` os serializa sem depender da GUI.
 
 
 class DrawingHistory:
@@ -113,6 +90,11 @@ class DrawingHistory:
     @property
     def redo_count(self) -> int:
         return len(self._redo_stack)
+
+    @property
+    def commands(self) -> list:
+        """Snapshot (cópia) dos comandos ativos, em ordem de criação (p/ salvar projeto)."""
+        return list(self._undo_stack)
 
     def push(self, cmd: DrawCommand | PointCommand | AnnotationCommand) -> None:
         """Registra um comando executado. Limpa a pilha de redo."""
@@ -165,6 +147,7 @@ class MapCanvas(FigureCanvas):
     extent_changed = pyqtSignal(list)  # [lon_min, lat_min, lon_max, lat_max] após zoom/recorte
     figure_zoom_requested = pyqtSignal(int)  # +1 ampliar / -1 reduzir a FIGURA (Ctrl+roda)
     vertical_sounding_requested = pyqtSignal(object)  # estação RAOB ancorada (dict) p/ Sonda Vertical
+    model_sounding_requested = pyqtSignal(float, float)  # (lon, lat) p/ pseudo-sondagem do modelo
 
     def __init__(self, parent: QSizePolicy | None = None, config: Config | None = None) -> None:
         self.config: Config = config or Config()
@@ -213,8 +196,11 @@ class MapCanvas(FigureCanvas):
         # Anotações de texto
         self._annotations: list = []
 
-        # Emojis meteorológicos
+        # Emojis meteorológicos. _emoji_annotations guarda os artistas vivos;
+        # _emoji_records guarda o EmojiCommand paralelo (dados puros) p/ persistir
+        # no projeto (.cmbr) — emojis não passam pelo histórico de undo/redo.
         self._emoji_annotations: list = []
+        self._emoji_records: list[EmojiCommand] = []
         self.current_emoji: str = "☀"
         self._emoji_fontsize: int = 28
 
@@ -263,6 +249,9 @@ class MapCanvas(FigureCanvas):
 
         # Sonda Vertical (marcador temporário da estação RAOB ancorada)
         self._sounding_marker = None
+        # Fonte da sonda: "observed" (Wyoming, ancora na estação) ou "model"
+        # (perfil do IFS no ponto clicado). Definida pelo seletor do painel.
+        self.sounding_source = "observed"
 
         # Zoom / navegação
         self._extent_history: list[list[float]] = []   # pilha de extents anteriores
@@ -308,6 +297,10 @@ class MapCanvas(FigureCanvas):
         self._shape_draft_y.clear()
         self._draft_preview = None
         self._annotations.clear()
+        # ax.clear() abaixo remove os emojis do eixo — sincroniza as listas para
+        # não deixar registros fantasmas (que seriam serializados no projeto).
+        self._emoji_annotations.clear()
+        self._emoji_records.clear()
         self._ruler_points.clear()
         self._ruler_artists.clear()
         self._sat_artist = None
@@ -1042,25 +1035,35 @@ class MapCanvas(FigureCanvas):
             self._on_sounding_click(event.xdata, event.ydata)
 
     def _on_sounding_click(self, lon: float, lat: float) -> None:
-        """Ancora o clique na estação de radiossonda mais próxima e emite o pedido."""
+        """Despacha o clique da Sonda Vertical conforme a fonte selecionada.
+
+        "model" → pseudo-sondagem do IFS no ponto EXATO clicado (qualquer lugar,
+        inclusive oceano). "observed" → ancora na estação RAOB mais próxima (Wyoming).
+        """
+        if self.sounding_source == "model":
+            self._mark_sounding_point(float(lon), float(lat), color="#2E86C1")
+            self.model_sounding_requested.emit(float(lon), float(lat))
+            return
+
         from cartomet_br.data.raob_stations import nearest_raob
 
         station = nearest_raob(float(lon), float(lat))
         if station is None:
             return
+        self._mark_sounding_point(station["lon"], station["lat"], color="#E74C3C")
+        self.vertical_sounding_requested.emit(station)
 
-        # Remove marcador anterior (padrão de remoção segura das anotações)
+    def _mark_sounding_point(self, lon: float, lat: float, color: str = "#E74C3C") -> None:
+        """Posiciona o marcador temporário (estrela) da sonda em (lon, lat)."""
         self.clear_sounding_marker()
-
         marker, = self.ax.plot(
-            station["lon"], station["lat"],
-            marker="*", color="#E74C3C", markersize=20,
+            lon, lat,
+            marker="*", color=color, markersize=20,
             markeredgecolor="white", markeredgewidth=1.2,
             transform=ccrs.PlateCarree(), zorder=27,
         )
         self._sounding_marker = marker
         self.draw()
-        self.vertical_sounding_requested.emit(station)
 
     def clear_sounding_marker(self) -> None:
         """Remove o marcador temporário da estação ancorada."""
@@ -1131,6 +1134,19 @@ class MapCanvas(FigureCanvas):
             self.preview_line = line
 
         self.draw()
+
+    def commit_pending_line(self) -> bool:
+        """Finaliza a linha de símbolo em rascunho (≥2 pontos), se houver.
+
+        Usada ao salvar projeto: o traçado em andamento vive em ``points_x`` e só
+        entra no histórico via ``finalize_line`` ([Enter]). Sem isto, salvar com
+        uma linha não-finalizada gravaria ``drawings: []`` silenciosamente.
+        Retorna ``True`` se algo foi commitado.
+        """
+        if len(self.points_x) >= 2 and self.preview_line is not None:
+            self.finalize_line()
+            return True
+        return False
 
     def finalize_line(self) -> None:
         if len(self.points_x) >= 2 and self.preview_line:
@@ -1414,6 +1430,16 @@ class MapCanvas(FigureCanvas):
         cmd = self.history.redo()
         if cmd is None:
             return
+        self._rebuild_artist(cmd)
+        self.draw()
+
+    def _rebuild_artist(self, cmd) -> None:
+        """Cria o artista matplotlib de um comando e o registra na lista interna.
+
+        Fonte ÚNICA de reconstrução, usada pelo *redo* E pela carga de projeto
+        (``import_drawings_state``). NÃO chama ``self.draw()`` — o chamador
+        desenha uma vez ao final. Emojis não passam por aqui (ver ``add_emoji``).
+        """
         if isinstance(cmd, DrawCommand):
             xi, yi = interpolar_pontos(cmd.points_x, cmd.points_y)
             m = MODOS[cmd.symbol_key]
@@ -1459,15 +1485,87 @@ class MapCanvas(FigureCanvas):
                 fontsize=cmd.fontsize, fontweight="bold", color=cmd.color,
                 ha="center", va="center",
                 transform=ccrs.PlateCarree(), zorder=25,
-                bbox=dict(
-                    boxstyle="round,pad=0.3",
-                    facecolor="black", alpha=0.6,
-                    edgecolor="none",
-                ),
+                bbox={
+                    "boxstyle": "round,pad=0.3",
+                    "facecolor": "black", "alpha": 0.6,
+                    "edgecolor": "none",
+                },
                 path_effects=[pe.withStroke(linewidth=2, foreground="black")],
             )
             cmd.artist = txt
             self._annotations.append(txt)
+
+    def export_drawings_state(self) -> list[dict]:
+        """Serializa TODOS os desenhos do usuário em records (.cmbr), em ordem.
+
+        Comandos do histórico (símbolos, caneta, formas, anotações) primeiro;
+        emojis (fora do histórico) por último. O handle ``artist`` vivo nunca é
+        serializado.
+        """
+        from cartomet_br.gui.project_io import command_to_record
+        records = [command_to_record(c) for c in self.history.commands]
+        records.extend(command_to_record(e) for e in self._emoji_records)
+        return records
+
+    def export_layers_state(self) -> list[dict]:
+        """Manifesto das camadas de campo ATIVAS — base p/ restaurá-las do cache.
+
+        Guarda só o necessário para REDESENHAR cada camada via loader cache-first
+        (rodada/data compartilhadas vêm do ``data_context`` do projeto; o *step* é
+        por-camada, pois campos de previsão podem diferir). Os rasters pesados não
+        entram no ``.cmbr`` — o desenho é refeito na abertura, sem rede.
+        """
+        layers: list[dict] = []
+        if self.synoptic_data is not None:
+            layers.append({
+                "kind": "synoptic",
+                "step": int(getattr(self.synoptic_data, "step", 0)),
+                "visibility": {k: bool(self.plot_options.get(k, True))
+                               for k in ("pnmm", "thickness", "centers")},
+            })
+        for layer_id, data in self._pl_data.items():
+            layers.append({
+                "kind": "field",
+                "layer_id": str(layer_id),
+                "variable": str(getattr(data, "variable", "")),
+                "level": int(getattr(data, "level", 0)),
+                "step": int(getattr(data, "step", 0)),
+                "wind_type": str(self._pl_wind_types.get(layer_id, "barbs")),
+            })
+        if self._sat_data is not None and getattr(self._sat_data, "filename", ""):
+            layers.append({
+                "kind": "satellite",
+                "filename": str(self._sat_data.filename),
+            })
+        if self._sst_data is not None:
+            layers.append({
+                "kind": "sst",
+                "time_str": str(getattr(self._sst_data, "time_str", "")),
+                "stride": 5,
+            })
+        # Camadas COMPUTADAS (memorizadas p/ reativação manual — não recomputam
+        # sozinhas ao abrir; o canvas não guarda seus parâmetros de cálculo).
+        if self._loczcit_artist is not None:
+            layers.append({"kind": "loczcit", "axis": bool(self._loczcit_axis_artists)})
+        if self._blocking_artists:
+            layers.append({"kind": "blocking"})
+        return layers
+
+    def import_drawings_state(self, records: list[dict]) -> None:
+        """Reconstrói desenhos a partir de records (.cmbr). NÃO limpa o mapa.
+
+        Desenhos comuns entram no histórico (undo/redo passam a funcionar);
+        emojis vão para a lista de emojis (via ``add_emoji``). O chamador
+        (abrir projeto) decide se limpa antes. Nunca dispara rede.
+        """
+        from cartomet_br.gui.project_io import record_to_command
+        for rec in records:
+            cmd = record_to_command(rec)
+            if isinstance(cmd, EmojiCommand):
+                self.add_emoji(cmd.x, cmd.y, cmd.emoji, cmd.fontsize)
+            else:
+                self._rebuild_artist(cmd)
+                self.history.push(cmd)
         self.draw()
 
     def clear_all(self):
@@ -1692,6 +1790,10 @@ class MapCanvas(FigureCanvas):
                 zorder=26,
             )
         self._emoji_annotations.append(artist)
+        self._emoji_records.append(
+            EmojiCommand(x=float(lon), y=float(lat), emoji=emoji,
+                         fontsize=int(fontsize), artist=artist)
+        )
         self.draw()
 
     def _remove_emoji_artist(self, artist: object) -> None:
@@ -1715,6 +1817,8 @@ class MapCanvas(FigureCanvas):
         """Desfaz o último emoji colocado."""
         if self._emoji_annotations:
             self._remove_emoji_artist(self._emoji_annotations.pop())
+            if self._emoji_records:
+                self._emoji_records.pop()
             self.draw()
 
     def clear_emojis(self) -> None:
@@ -1722,6 +1826,7 @@ class MapCanvas(FigureCanvas):
         for artist in self._emoji_annotations:
             self._remove_emoji_artist(artist)
         self._emoji_annotations.clear()
+        self._emoji_records.clear()
         self.draw()
 
     # ═══════════════════════════════════════════════════════════════════════

@@ -168,6 +168,11 @@ class Config:
         return self._subdir("cartas")
 
     @property
+    def projects_dir(self) -> Path:
+        """Subpasta para projetos de análise salvos (.cmbr) — trabalho do usuário."""
+        return self._subdir("projetos")
+
+    @property
     def loczcit_dir(self) -> Path:
         """Subpasta para os produtos do índice LOCZCIT-PA (NetCDF: raster + I_ZCIT)."""
         return self._subdir("loczcit_pa")

@@ -281,6 +281,56 @@ class TestDownloadEcmwf:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  Modo somente-cache (abrir projeto NUNCA vai à rede)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestCacheOnlyMode:
+    def test_hit_returns_path_without_network(self, tmp_path):
+        """Arquivo em cache → retorna o caminho, sem tocar a rede."""
+        from cartomet_br.data.ecmwf import cache_only_mode
+        output = tmp_path / "ecmwf_msl_20260614_12Z_f000.grib2"
+        output.write_bytes(b"fake grib data")
+
+        with patch("cartomet_br.data.ecmwf.Client") as mock_client_cls:
+            with cache_only_mode():
+                result = download_ecmwf(
+                    variables=["msl"], step=0, cycle=12,
+                    output_path=output, data_dir=tmp_path,
+                )
+            assert result == output
+            mock_client_cls.assert_not_called()  # nenhuma rede
+
+    def test_miss_raises_cache_miss_without_network(self, tmp_path):
+        """Cache miss → CacheMissError ANTES de criar o cliente (sem rede)."""
+        from cartomet_br.data.ecmwf import CacheMissError, cache_only_mode
+
+        with patch("cartomet_br.data.ecmwf.Client") as mock_client_cls:
+            with cache_only_mode():  # noqa: SIM117
+                with pytest.raises(CacheMissError):
+                    download_ecmwf(
+                        variables=["msl"], step=0, cycle=12,
+                        output_path=tmp_path / "ausente.grib2", data_dir=tmp_path,
+                    )
+            mock_client_cls.assert_not_called()
+
+    def test_context_resets_after_exit(self, tmp_path):
+        """Fora do contexto, o comportamento normal de cache (reuso) volta."""
+        from cartomet_br.data.ecmwf import CacheMissError, _cache_only_active, cache_only_mode
+
+        assert _cache_only_active() is False
+        with cache_only_mode():
+            assert _cache_only_active() is True
+        assert _cache_only_active() is False
+
+        # Um miss fora do contexto NÃO levanta CacheMissError (tentaria rede).
+        output = tmp_path / "ja_existe.grib2"
+        output.write_bytes(b"x")
+        assert download_ecmwf(variables=["t"], step=0,
+                              output_path=output, data_dir=tmp_path) == output
+        _ = CacheMissError  # referência usada apenas no contexto acima
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  Tradução de exceções (IFS Cycle 50r1 — scda/scwv descontinuados)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -364,3 +414,60 @@ class TestIRColormap:
     def test_colormap_has_256_entries(self):
         cmap = get_ir_colormap()
         assert cmap.N == 256
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  load_goes_netcdf — leitura SEM REDE (download e restauração de projeto)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestLoadGoesNetcdf:
+    """Regressão do bug do GOES sumido ao abrir projeto: as coordenadas precisam
+    sair em METROS (radianos × perspective_point_height), senão a projeção
+    geoestacionária coloca a imagem num quadro submilimétrico (invisível)."""
+
+    @staticmethod
+    def _fake_goes_nc(path, sat_h=35786023.0):
+        import xarray as xr
+
+        x_rad = np.array([-0.1, 0.0, 0.1])      # radianos crus, como no arquivo real
+        y_rad = np.array([0.05, 0.0, -0.05])
+        cmi_k = np.full((3, 3), 250.0)          # Kelvin (topo frio ~ -23 °C)
+        ds = xr.Dataset(
+            {
+                "CMI": (("y", "x"), cmi_k),
+                "goes_imager_projection": ((), 0, {
+                    "perspective_point_height": sat_h,
+                    "longitude_of_projection_origin": -75.0,
+                    "sweep_angle_axis": "x",
+                }),
+                "t": ((), np.datetime64("2026-06-14T12:00", "s").astype("float64")),
+            },
+            coords={"x": x_rad, "y": y_rad},
+        )
+        ds.to_netcdf(path, engine="netcdf4")
+        return x_rad, y_rad, sat_h
+
+    def test_x_y_converted_radians_to_meters(self, tmp_path):
+        from cartomet_br.data.ecmwf import load_goes_netcdf
+
+        path = tmp_path / "OR_ABI-L2-CMIPF-M6C13_G19_s2026.nc"
+        x_rad, y_rad, sat_h = self._fake_goes_nc(path)
+
+        data = load_goes_netcdf(path)
+
+        # O cerne do bug: coordenadas em metros, não em radianos crus.
+        np.testing.assert_allclose(data.x, x_rad * sat_h)
+        np.testing.assert_allclose(data.y, y_rad * sat_h)
+        assert abs(data.x).max() > 1e6   # ordem de milhões de metros, não ~0.1
+
+    def test_kelvin_converted_to_celsius_and_metadata(self, tmp_path):
+        from cartomet_br.data.ecmwf import load_goes_netcdf
+
+        path = tmp_path / "OR_ABI-L2-CMIPF-M6C13_G19_s2026.nc"
+        self._fake_goes_nc(path)
+
+        data = load_goes_netcdf(path)
+
+        np.testing.assert_allclose(data.data, 250.0 - 273.15)   # K → °C
+        assert data.filename == path.name                       # basename p/ o cache
+        assert data.sat_lon == -75.0 and data.sat_sweep == "x"

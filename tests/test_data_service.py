@@ -170,6 +170,39 @@ class TestFormatDownloadError:
         msg = DataService._format_download_error(Exception("SSL error"), 0)
         assert "SSL" in msg
 
+
+class TestCacheOnlyRestore:
+    """Abrir projeto restaura só do cache: um miss NUNCA dispara rede."""
+
+    def test_load_synoptic_miss_raises_without_network(self, tmp_path):
+        from unittest.mock import patch
+
+        from cartomet_br.data.ecmwf import cache_only_mode
+
+        cfg = Config(data_dir=tmp_path, output_dir=tmp_path / "output")
+        svc = DataService(cfg)  # grib_dir vazio → cache miss garantido
+
+        with patch("cartomet_br.data.ecmwf.Client") as mock_client_cls:
+            with cache_only_mode():  # noqa: SIM117
+                with pytest.raises(DownloadError):
+                    svc.load_synoptic(step=0, cycle=12, cycle_date="20260614")
+            # Garantia central do human-in-the-loop: nenhuma rede tocada.
+            mock_client_cls.assert_not_called()
+
+    def test_load_field_miss_raises_without_network(self, tmp_path):
+        from unittest.mock import patch
+
+        from cartomet_br.data.ecmwf import cache_only_mode
+
+        cfg = Config(data_dir=tmp_path, output_dir=tmp_path / "output")
+        svc = DataService(cfg)
+
+        with patch("cartomet_br.data.ecmwf.Client") as mock_client_cls:
+            with cache_only_mode():  # noqa: SIM117
+                with pytest.raises(DownloadError):
+                    svc.load_field("wind", 850, step=0, cycle=12, cycle_date="20260614")
+            mock_client_cls.assert_not_called()
+
     def test_connection_error(self):
         msg = DataService._format_download_error(Exception("Connection timeout"), 3)
         assert "conexão" in msg.lower()

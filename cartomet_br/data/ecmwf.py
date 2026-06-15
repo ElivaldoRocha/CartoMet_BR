@@ -7,9 +7,11 @@ O ECMWF Open Data disponibiliza previsões do modelo IFS:
 - Alcance: até 10 dias
 """
 
+import contextlib
 import logging
 import os
 import tempfile
+import threading
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
@@ -25,6 +27,43 @@ from cartomet_br.data.olr_timing import resolve_olr_window
 warnings.filterwarnings("ignore", message=".*skipping variable.*")
 
 logger = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  MODO SOMENTE-CACHE (abrir projeto NUNCA vai à rede — human-in-the-loop)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Todo download funila por `download_ecmwf`. Uma trava única aqui garante que,
+# dentro de `cache_only_mode()`, NENHUM campo — por mais aninhado que seja o
+# loader (derivadas, desacumulação) — dispare rede: um cache miss vira
+# `CacheMissError` em vez de baixar. Usa `threading.local` para isolar a thread
+# da GUI (que faz o replay ao abrir) das threads de download.
+
+_cache_only_state = threading.local()
+
+
+class CacheMissError(FileNotFoundError):
+    """Campo pedido não está no cache e a rede está desabilitada (modo somente-cache)."""
+
+
+def _cache_only_active() -> bool:
+    return getattr(_cache_only_state, "active", False)
+
+
+@contextlib.contextmanager
+def cache_only_mode():
+    """Dentro deste contexto, `download_ecmwf` nunca acessa a rede.
+
+    Se o arquivo já está em disco, é reusado; se não, levanta `CacheMissError`
+    (em vez de baixar). Usado ao **abrir um projeto**, preservando o
+    *human-in-the-loop*: restauramos só o que já está no cache.
+    """
+    prev = getattr(_cache_only_state, "active", False)
+    _cache_only_state.active = True
+    try:
+        yield
+    finally:
+        _cache_only_state.active = prev
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -114,11 +153,20 @@ def download_ecmwf(
     else:
         output_path = Path(output_path)
     
+    # Modo somente-cache (abrir projeto): reusa se existe, senão FALHA sem rede.
+    if _cache_only_active():
+        if output_path.exists():
+            logger.info("Somente-cache: reutilizando %s", output_path)
+            return output_path
+        raise CacheMissError(
+            f"Campo fora do cache (modo somente-cache): {output_path.name}"
+        )
+
     # Verifica se arquivo já existe
     if output_path.exists() and not force_download:
         logger.info("Arquivo já existe, reutilizando: %s", output_path)
         return output_path
-    
+
     # Cria cliente ECMWF
     try:
         client = Client(source=source)
@@ -742,6 +790,136 @@ class PLFieldData:
     valid_time: str = ""
     base_time: str = ""
     step: int = 0
+
+
+@dataclass
+class ModelProfile:
+    """Coluna vertical do modelo (IFS) num ponto — base da pseudo-sondagem (F1).
+
+    Resolução vertical GROSSEIRA (13 níveis de pressão): índices de parcela
+    (CAPE/CIN/LFC) saem aproximados — **não é observação**. Arrays alinhados por
+    nível, pressão DESCENDENTE (superfície primeiro); níveis abaixo do solo
+    (NaN na temperatura) já removidos.
+    """
+
+    lon: float
+    lat: float
+    grid_lon: float
+    grid_lat: float
+    pressures: np.ndarray   # hPa (descendente)
+    t: np.ndarray           # K
+    q: np.ndarray           # kg/kg (umidade específica)
+    u: np.ndarray           # m/s
+    v: np.ndarray           # m/s
+    gh: np.ndarray          # m (altura geopotencial)
+    valid_time: str = ""
+    base_time: str = ""
+    cycle: int | None = None
+    step: int = 0
+
+
+def _profile_from_dataset(
+    ds: xr.Dataset, lon: float, lat: float,
+    cycle: int | None, step: int,
+) -> ModelProfile:
+    """Extrai a coluna vertical (t,q,u,v,gh) de um Dataset isobárico num ponto.
+
+    PURO (recebe o Dataset já aberto) — testável sem rede. Normaliza longitude,
+    seleciona a coluna mais próxima, ordena por pressão descendente e descarta
+    níveis abaixo do solo (NaN). ``ValueError`` se sobrarem < 3 níveis válidos.
+    """
+    ds = ds.assign_coords(longitude=(ds.longitude + 180) % 360 - 180)
+    ds = ds.sortby("longitude")
+
+    valid_time_str = ""
+    base_time_str = ""
+    try:
+        if "valid_time" in ds.coords:
+            valid_time_str = np.datetime_as_string(ds.valid_time.values, unit="m")
+        if "time" in ds.coords:
+            bt = np.datetime64(ds.time.values, "s").astype("datetime64[s]").astype(datetime)
+            base_time_str = bt.strftime("%HZ %d/%m/%Y")
+    except (KeyError, IndexError, ValueError, TypeError) as e:
+        logger.warning("Metadados de tempo indisponíveis no perfil: %s", e)
+
+    col = ds.sel(latitude=float(lat), longitude=float(lon), method="nearest")
+    pressures = np.asarray(col["isobaricInhPa"].values, dtype=float)
+    t = np.asarray(col["t"].values, dtype=float)
+    q = np.asarray(col["q"].values, dtype=float)
+    u = np.asarray(col["u"].values, dtype=float)
+    v = np.asarray(col["v"].values, dtype=float)
+    gh = np.asarray(col["gh"].values, dtype=float)
+    grid_lat = float(np.asarray(col["latitude"].values))
+    grid_lon = float(np.asarray(col["longitude"].values))
+
+    # Pressão descendente (superfície primeiro) + remoção de níveis sob o solo.
+    order = np.argsort(pressures)[::-1]
+    pressures, t, q, u, v, gh = (a[order] for a in (pressures, t, q, u, v, gh))
+    keep = np.isfinite(t) & np.isfinite(pressures)
+    pressures, t, q, u, v, gh = (a[keep] for a in (pressures, t, q, u, v, gh))
+
+    if pressures.size < 3:
+        raise ValueError(
+            "Perfil do modelo com níveis válidos insuficientes neste ponto "
+            "(coluna possivelmente sobre relevo alto)."
+        )
+
+    return ModelProfile(
+        lon=float(lon), lat=float(lat), grid_lon=grid_lon, grid_lat=grid_lat,
+        pressures=pressures, t=t, q=q, u=u, v=v, gh=gh,
+        valid_time=valid_time_str, base_time=base_time_str, cycle=cycle, step=step,
+    )
+
+
+def load_model_profile(
+    lon: float,
+    lat: float,
+    step: int = 0,
+    cycle: int | None = None,
+    cycle_date: str | None = None,
+    data_dir: Path = Path("data"),
+    source: str = "ecmwf",
+    force_download: bool = False,
+) -> ModelProfile:
+    """Baixa a coluna vertical do IFS (t,q,u,v,gh nos 13 níveis) e extrai um ponto.
+
+    Um ÚNICO GRIB (5 params × 13 níveis, cache-first via ``download_ecmwf``).
+    Base da pseudo-sondagem do modelo — Skew-T em qualquer ponto, inclusive
+    **oceano** e **steps de previsão** (onde não há radiossonda). Resolução
+    vertical grosseira — ver :class:`ModelProfile`.
+    """
+    if data_dir is None:
+        raise ValueError("data_dir não pode ser None")
+    data_dir = Path(data_dir)
+
+    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+    cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
+
+    grib_file = download_ecmwf(
+        variables=["t", "q", "u", "v", "gh"],
+        levels=PL_LEVELS,
+        step=step,
+        cycle=cycle,
+        output_path=data_dir / f"ecmwf_profile_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+        data_dir=data_dir,
+        source=source,
+        force_download=force_download,
+        levtype="pl",
+        date=cycle_date,
+    )
+
+    ds = xr.open_dataset(
+        grib_file,
+        engine="cfgrib",
+        backend_kwargs={
+            "filter_by_keys": {"typeOfLevel": "isobaricInhPa"},
+            "errors": "ignore",
+        },
+    )
+    try:
+        return _profile_from_dataset(ds, lon, lat, cycle, step)
+    finally:
+        ds.close()
 
 
 def load_pl_variable(
@@ -1849,6 +2027,65 @@ def get_ir_colormap():
     return LinearSegmentedColormap.from_list("ir_avhrr", colors_norm, N=256)
 
 
+def load_goes_netcdf(
+    local_path: Path,
+    target_time: datetime | None = None,
+) -> SatelliteData:
+    """Lê um GOES-East Banda 13 (CMIPF) já em disco e monta o ``SatelliteData``.
+
+    SEM REDE — reusado pelo download (após salvar o .nc) e pela restauração de
+    projeto a partir do cache. Converte ``x``/``y`` de **radianos → metros**
+    (multiplicando por ``perspective_point_height``), que é o que a projeção
+    ``ccrs.Geostationary`` espera no ``imshow``: ler os radianos crus colocaria a
+    imagem num quadro submilimétrico no centro da projeção (invisível no mapa).
+    """
+    local_path = Path(local_path)
+    logger.info("  Lendo GOES de %s", local_path.name)
+    ds = xr.open_dataset(local_path, engine="netcdf4")
+    try:
+        cmi = ds["CMI"].values
+
+        proj_info = ds["goes_imager_projection"]
+        sat_h = float(proj_info.attrs["perspective_point_height"])
+        sat_lon = float(proj_info.attrs["longitude_of_projection_origin"])
+        sat_sweep = str(proj_info.attrs["sweep_angle_axis"])
+
+        # Coordenadas em radianos → metros (projeção geoestacionária).
+        x = ds["x"].values * sat_h
+        y = ds["y"].values * sat_h
+
+        time_str = ""
+        try:
+            t_val = ds["t"].values
+            time_dt = np.datetime64(t_val, "s").astype("datetime64[s]")
+            time_py = time_dt.astype(datetime)
+            time_str = time_py.strftime("%Y-%m-%d %H:%M UTC")
+        except (KeyError, IndexError, ValueError, TypeError) as e:
+            logger.warning("Não foi possível extrair tempo do satélite: %s", e)
+            if target_time is not None:
+                time_str = target_time.strftime("%Y-%m-%d %H:%M UTC")
+    finally:
+        ds.close()
+
+    # Converte K → °C
+    data_celsius = cmi - 273.15
+
+    logger.info("  Dimensões: %s", data_celsius.shape)
+    logger.info("  Range: %.1f a %.1f °C", np.nanmin(data_celsius), np.nanmax(data_celsius))
+    logger.info("  Hora da imagem: %s", time_str)
+
+    return SatelliteData(
+        data=data_celsius,
+        x=x,
+        y=y,
+        sat_lon=sat_lon,
+        sat_h=sat_h,
+        sat_sweep=sat_sweep,
+        time_str=time_str,
+        filename=local_path.name,
+    )
+
+
 def download_goes16_ir(
     data_dir: Path,
     target_time: datetime | None = None,
@@ -2038,52 +2275,8 @@ def download_goes16_ir(
         if progress_callback:
             progress_callback("cache", filename)
     
-    # Abre com xarray
+    # Lê o .nc em disco → SatelliteData (mesma rotina usada na restauração).
     logger.info("  Lendo dados...")
     if progress_callback:
         progress_callback("status", "Lendo dados NetCDF...")
-    ds = xr.open_dataset(local_path, engine="netcdf4")
-    
-    # Dados de temperatura de brilho
-    cmi = ds["CMI"].values
-    
-    # Parâmetros de projeção geoestacionária
-    proj_info = ds["goes_imager_projection"]
-    sat_h = float(proj_info.attrs["perspective_point_height"])
-    sat_lon = float(proj_info.attrs["longitude_of_projection_origin"])
-    sat_sweep = str(proj_info.attrs["sweep_angle_axis"])
-    
-    # Coordenadas em radianos → metros
-    x = ds["x"].values * sat_h
-    y = ds["y"].values * sat_h
-    
-    # Extrai metadados de tempo
-    time_str = ""
-    try:
-        t_val = ds["t"].values
-        time_dt = np.datetime64(t_val, "s").astype("datetime64[s]")
-        time_py = time_dt.astype(datetime)
-        time_str = time_py.strftime("%Y-%m-%d %H:%M UTC")
-    except (KeyError, IndexError, ValueError, TypeError) as e:
-        logger.warning("Não foi possível extrair tempo do satélite: %s", e)
-        time_str = target_time.strftime("%Y-%m-%d %H:%M UTC")
-    
-    ds.close()
-    
-    # Converte K → °C
-    data_celsius = cmi - 273.15
-    
-    logger.info("  Dimensões: %s", data_celsius.shape)
-    logger.info("  Range: %.1f a %.1f °C", np.nanmin(data_celsius), np.nanmax(data_celsius))
-    logger.info("  Hora da imagem: %s", time_str)
-    
-    return SatelliteData(
-        data=data_celsius,
-        x=x,
-        y=y,
-        sat_lon=sat_lon,
-        sat_h=sat_h,
-        sat_sweep=sat_sweep,
-        time_str=time_str,
-        filename=filename,
-    )
+    return load_goes_netcdf(local_path, target_time=target_time)

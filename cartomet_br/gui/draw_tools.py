@@ -80,8 +80,60 @@ class DrawStyle:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  COMANDOS DE HISTÓRICO (padrão Command, espelham DrawCommand/PointCommand)
+#  COMANDOS DE HISTÓRICO (padrão Command — modelo de dados PURO de todo desenho)
 # ═══════════════════════════════════════════════════════════════════════════════
+#
+# Todos os comandos guardam APENAS dados puros (geometria lon/lat + parâmetros),
+# sem estado oculto — prontos para serialização (salvar/abrir projeto .cmbr) e
+# reconstrução determinística. O campo ``artist`` é o handle matplotlib vivo
+# (``repr=False``, nunca serializado). Vivem aqui (módulo puro, sem PyQt) para
+# que ``project_io`` os serialize sem depender da GUI; ``map_canvas`` os reexporta.
+
+
+@dataclass
+class DrawCommand:
+    """Símbolo OMM de linha (frentes, ZCAS, ZCIT, cavado, crista, jato…)."""
+
+    symbol_key: str
+    points_x: list[float]
+    points_y: list[float]
+    flip: bool
+    artist: object = field(default=None, repr=False)
+    intensity: int = 1  # usado por símbolos com intensidade (ex.: ZCIT)
+
+
+@dataclass
+class PointCommand:
+    """Símbolo OMM pontual (clique único: A/B de pressão, furacão, vórtice…)."""
+
+    symbol_key: str
+    x: float
+    y: float
+    artist: object = field(default=None, repr=False)
+
+
+@dataclass
+class AnnotationCommand:
+    """Anotação de texto livre."""
+
+    x: float
+    y: float
+    text: str
+    color: str
+    fontsize: int
+    artist: object = field(default=None, repr=False)
+
+
+@dataclass
+class EmojiCommand:
+    """Emoji meteorológico posicionado em lon/lat."""
+
+    x: float
+    y: float
+    emoji: str
+    fontsize: int = 28
+    artist: object = field(default=None, repr=False)
+
 
 @dataclass
 class PenCommand:

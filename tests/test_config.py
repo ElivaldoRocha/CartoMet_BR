@@ -117,6 +117,15 @@ class TestConfig:
         assert data.exists()
         assert output.exists()
 
+    def test_projects_dir_auto_created(self, tmp_path):
+        """A pasta 'projetos' (trabalho do usuário) é criada ao ser acessada."""
+        config = Config(data_dir=tmp_path / "data", output_dir=tmp_path / "out")
+        pdir = config.projects_dir
+        assert pdir.exists() and pdir.is_dir()
+        assert pdir.name == "projetos"
+        # Não é cache: não deve aparecer entre as subpastas limpáveis.
+        assert "projetos" not in Config.CACHE_SUBDIRS
+
     def test_custom_dpi(self, tmp_path):
         config = Config(
             dpi=300,

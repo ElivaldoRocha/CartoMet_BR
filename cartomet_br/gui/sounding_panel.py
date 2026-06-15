@@ -23,8 +23,11 @@ import matplotlib.gridspec as gridspec
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
+    QComboBox,
     QDockWidget,
+    QHBoxLayout,
     QLabel,
     QProgressBar,
     QVBoxLayout,
@@ -36,6 +39,10 @@ logger = logging.getLogger(__name__)
 
 class SoundingPanel(QDockWidget):
     """Dock direito com o diagrama Skew-T e os estados de carregamento/erro/futuro."""
+
+    source_changed = pyqtSignal(str)  # "observed" (Wyoming) | "model" (IFS)
+
+    _SOURCES = (("Observada (Wyoming)", "observed"), ("Modelo (IFS)", "model"))
 
     def __init__(self, title: str = "Sondagem Vertical (Skew-T)", parent=None) -> None:
         super().__init__(title, parent)
@@ -57,6 +64,25 @@ class SoundingPanel(QDockWidget):
         self._header.setWordWrap(True)
         layout.addWidget(self._header)
 
+        # Seletor de FONTE: radiossonda observada (Wyoming) × perfil do modelo (IFS).
+        src_row = QWidget()
+        src_layout = QHBoxLayout(src_row)
+        src_layout.setContentsMargins(0, 0, 0, 0)
+        src_layout.setSpacing(4)
+        src_layout.addWidget(QLabel("Fonte:"))
+        self._source_combo = QComboBox()
+        for label, key in self._SOURCES:
+            self._source_combo.addItem(label, key)
+        self._source_combo.setToolTip(
+            "Observada: radiossonda real (Wyoming), ancora na estação mais próxima, só análise (+0h).\n"
+            "Modelo: perfil do IFS em QUALQUER ponto (oceano, previsão) — pseudo-sondagem (13 níveis)."
+        )
+        self._source_combo.currentIndexChanged.connect(
+            lambda _i: self.source_changed.emit(self.source())
+        )
+        src_layout.addWidget(self._source_combo, stretch=1)
+        layout.addWidget(src_row)
+
         self._progress = QProgressBar()
         self._progress.setRange(0, 0)  # indeterminado (spinner)
         self._progress.setTextVisible(False)
@@ -64,16 +90,41 @@ class SoundingPanel(QDockWidget):
         self._progress.hide()
         layout.addWidget(self._progress)
 
+        # Badge de honestidade (preenchido só na pseudo-sondagem do modelo).
+        self._source_badge = QLabel()
+        self._source_badge.setWordWrap(True)
+        self._source_badge.setStyleSheet(
+            "background:#FFF3CD; color:#7A5C00; border:1px solid #FFE08A;"
+            "border-radius:4px; padding:3px 6px; font-size:10px;"
+        )
+        self._source_badge.hide()
+        layout.addWidget(self._source_badge)
+
         self.fig = Figure(figsize=(6, 8), facecolor="white", dpi=100)
         self.canvas = FigureCanvas(self.fig)
         layout.addWidget(self.canvas, stretch=1)
 
         self.setWidget(container)
         self._show_centered_message(
-            "📍 Ative a Sonda Vertical e clique no mapa\n"
-            "para ancorar na estação de radiossonda mais próxima.",
+            "📍 Ative a Sonda Vertical e clique no mapa.\n\n"
+            "• Fonte “Observada”: ancora na radiossonda mais próxima (Wyoming).\n"
+            "• Fonte “Modelo”: perfil do IFS no ponto clicado — qualquer lugar,\n"
+            "  inclusive oceano e previsão (pseudo-sondagem).",
             color="#555555",
         )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    #  Fonte (observada × modelo)
+    # ─────────────────────────────────────────────────────────────────────────
+    def source(self) -> str:
+        """Retorna a fonte selecionada: "observed" ou "model"."""
+        return self._source_combo.currentData() or "observed"
+
+    def set_source(self, key: str) -> None:
+        """Define a fonte programaticamente (sincroniza o combo)."""
+        idx = self._source_combo.findData(key)
+        if idx >= 0:
+            self._source_combo.setCurrentIndex(idx)
 
     # ─────────────────────────────────────────────────────────────────────────
     #  Helpers de desenho
@@ -96,6 +147,7 @@ class SoundingPanel(QDockWidget):
     # ─────────────────────────────────────────────────────────────────────────
     def show_loading(self, station_label: str, time_label: str) -> None:
         """Estado de espera enquanto o SoundingWorker baixa/calcula."""
+        self._source_badge.hide()
         self._header.setText(f"⏳ {station_label} — {time_label}")
         self._progress.show()
         self._show_centered_message(
@@ -106,6 +158,7 @@ class SoundingPanel(QDockWidget):
     def show_error(self, message: str) -> None:
         """Falha de rede / sem dados — mensagem amigável, GUI nunca quebra."""
         self._progress.hide()
+        self._source_badge.hide()
         self._header.setText("⚠️ Sondagem indisponível")
         self._show_centered_message(f"⚠️ {message}", color="#B00020")
 
@@ -115,6 +168,7 @@ class SoundingPanel(QDockWidget):
         NÃO há chamada de rede neste caso — o orquestrador nem cria a thread.
         """
         self._progress.hide()
+        self._source_badge.hide()
         self._header.setText("⚠️ Observação futura indisponível")
         self.fig.clear()
         self.fig.set_facecolor("#202020")
@@ -132,7 +186,14 @@ class SoundingPanel(QDockWidget):
     def render(self, result) -> None:
         """Desenha o painel completo a partir de um SoundingResult."""
         self._progress.hide()
-        self._header.setText(f"🎈 {result.station_label} — {result.time_label}")
+        note = getattr(result, "source_note", "")
+        icon = "🛰" if note else "🎈"   # 🛰 = perfil do modelo · 🎈 = radiossonda
+        self._header.setText(f"{icon} {result.station_label} — {result.time_label}")
+        if note:
+            self._source_badge.setText(f"⚠️ {note}")
+            self._source_badge.show()
+        else:
+            self._source_badge.hide()
         try:
             self._render_skewt(result)
         except Exception as e:  # blindagem final — nunca derruba a GUI

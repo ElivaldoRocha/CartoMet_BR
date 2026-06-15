@@ -16,6 +16,7 @@ Os componentes foram extraídos para módulos separados:
   - map_canvas.py: MapCanvas (mapa Matplotlib/Cartopy)
 """
 
+import contextlib
 import gc
 import logging
 import subprocess
@@ -52,7 +53,7 @@ from cartomet_br.gui.drawing_panel import SymbologyPanel
 from cartomet_br.gui.layer_panel import SettingsPanel, FieldLayerPanel, SatellitePanel, SSTPanel
 from cartomet_br.gui.map_canvas import MapCanvas
 from cartomet_br.gui.sounding_panel import SoundingPanel
-from cartomet_br.gui.sounding_engine import SoundingWorker
+from cartomet_br.gui.sounding_engine import ModelSoundingWorker, SoundingWorker
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class MainWindow(QMainWindow):
         self.station_download_thread = None
         self.sounding_worker = None
         self._active_sounding_station = None  # estação RAOB ancorada na Sonda Vertical
+        self._active_model_point = None       # (lon, lat) da pseudo-sondagem do modelo
         self._last_valid_time = None  # datetime do modelo carregado (sync de obs)
 
         self.setWindowTitle(f"{APP_NAME} — {APP_DESCRIPTION}")
@@ -201,6 +203,18 @@ class MainWindow(QMainWindow):
         print_action.setShortcut(QKeySequence.StandardKey.Print)
         print_action.triggered.connect(self._print_canvas)
         file_menu.addAction(print_action)
+
+        file_menu.addSeparator()
+
+        save_project_action = QAction("Salvar Projeto...", self)
+        save_project_action.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        save_project_action.triggered.connect(self._save_project)
+        file_menu.addAction(save_project_action)
+
+        open_project_action = QAction("Abrir Projeto...", self)
+        open_project_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
+        open_project_action.triggered.connect(self._open_project)
+        file_menu.addAction(open_project_action)
 
         file_menu.addSeparator()
 
@@ -491,6 +505,8 @@ class MainWindow(QMainWindow):
         # Sonda Vertical: clique ancorado → abre/atualiza o painel;
         # mudança de Step → recarrega a sondagem (sincronia temporal mestra).
         self.canvas.vertical_sounding_requested.connect(self._on_sounding_station_selected)
+        self.canvas.model_sounding_requested.connect(self._on_model_sounding_point)
+        self.sounding_panel.source_changed.connect(self._on_sounding_source_changed)
         self.settings_panel.step_combo.currentIndexChanged.connect(self._on_sounding_step_changed)
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -715,7 +731,13 @@ class MainWindow(QMainWindow):
                 self.symbol_panel.reset_shapes_mode()
 
             self.canvas.set_sounding_mode(True)
-            self.status_label.setText("● Sonda Vertical — clique no mapa para sondar a estação mais próxima")
+            # Mostra o painel já na ativação: o seletor de Fonte (Observada × Modelo)
+            # precisa estar acessível ANTES do primeiro clique.
+            self.sounding_panel.show()
+            self.sounding_panel.raise_()
+            self.status_label.setText(
+                "● Sonda Vertical — escolha a Fonte (Observada/Modelo) e clique no mapa"
+            )
             self.status_label.setStyleSheet("color: #16A085;")
         else:
             self.canvas.set_sounding_mode(False)
@@ -751,12 +773,14 @@ class MainWindow(QMainWindow):
         self._launch_sounding()
 
     def _on_sounding_step_changed(self) -> None:
-        """Step mudou no mapa → recarrega a sondagem (só se a sonda está ativa)."""
+        """Step mudou no mapa → recarrega a sondagem ativa (observada ou modelo)."""
         if not self.sounding_panel.isVisible():
             return
-        if self._active_sounding_station is None:
-            return
-        self._launch_sounding()
+        if self.canvas.sounding_source == "model":
+            if self._active_model_point is not None:
+                self._launch_model_sounding()
+        elif self._active_sounding_station is not None:
+            self._launch_sounding()
 
     def _launch_sounding(self) -> None:
         """Calcula o horário-alvo, blinda o caso futuro e dispara o SoundingWorker."""
@@ -806,6 +830,59 @@ class MainWindow(QMainWindow):
         self.sounding_panel.show_error(msg)
         self.status_label.setText("● Sondagem indisponível")
         self.status_label.setStyleSheet("color: #E67E22;")
+
+    # ── Pseudo-sondagem do MODELO (IFS) — F1 ─────────────────────────────────
+    def _on_sounding_source_changed(self, source: str) -> None:
+        """Combo de Fonte do painel → fonte de clique do canvas (observed | model)."""
+        self.canvas.sounding_source = source
+
+    def _on_model_sounding_point(self, lon: float, lat: float) -> None:
+        """Clique no modo Sonda+Modelo → abre o painel e dispara a pseudo-sondagem."""
+        self._active_model_point = (float(lon), float(lat))
+        self._active_sounding_station = None  # alterna para o modo modelo
+        self.sounding_panel.show()
+        self.sounding_panel.raise_()
+        self._launch_model_sounding()
+
+    def _launch_model_sounding(self) -> None:
+        """Dispara o ModelSoundingWorker no ponto ativo usando a rodada/step atuais.
+
+        Diferente do Wyoming, usa o STEP EXATO (modo previsão) e qualquer ponto.
+        Baixa a coluna do IFS em thread (cache-first) — a GUI nunca trava.
+        """
+        from datetime import datetime, timezone
+
+        if self._active_model_point is None:
+            return
+        lon, lat = self._active_model_point
+        cycle = self.settings_panel.get_cycle()
+        cycle_date = self.settings_panel.get_cycle_date()
+        step = self.settings_panel.get_step() or 0
+
+        target = self._last_valid_time or datetime.now(timezone.utc)
+        ns = "N" if lat >= 0 else "S"
+        ew = "E" if lon >= 0 else "W"
+        label = f"Modelo IFS — {abs(lat):.1f}°{ns} {abs(lon):.1f}°{ew}"
+        time_label = target.strftime("%d/%m/%Y %H:%MZ")
+
+        if self.sounding_worker is not None and self.sounding_worker.isRunning():
+            return
+
+        self.sounding_panel.show_loading(label, time_label)
+        self.status_label.setText(f"● Extraindo perfil do modelo em {label}...")
+        self.status_label.setStyleSheet("color: #16A085;")
+
+        worker = ModelSoundingWorker(
+            lon=lon, lat=lat, target_time=target, cycle=cycle,
+            # Mesma subpasta dos demais GRIBs (config.grib_dir) — nada solto na
+            # raiz nem arquivo duplicado; download_ecmwf reusa o cache se já existe.
+            cycle_date=cycle_date, step=step, data_dir=self.config.grib_dir, parent=self,
+        )
+        worker.progress.connect(self._on_sounding_progress)
+        worker.finished_ok.connect(self._on_sounding_ok)
+        worker.finished_error.connect(self._on_sounding_error)
+        self.sounding_worker = worker
+        worker.start()
 
     def _setup_zoom_shortcuts(self) -> None:
         """Atalhos de zoom sem colisão (Ctrl+Z/Ctrl+Y reservados ao desenho)."""
@@ -2024,6 +2101,331 @@ class MainWindow(QMainWindow):
             self.status_label.setText("● Erro ao exportar")
             self.status_label.setStyleSheet("color: #E74C3C;")
 
+    # ═══════════════════════════════════════════════════════════════════════
+    #  PROJETO DE ANÁLISE (.cmbr) — salvar/abrir o traçado + estado do mapa
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _save_project(self):
+        """Salva o traçado manual + estado do mapa num arquivo .cmbr (JSON)."""
+        from cartomet_br.gui import project_io
+
+        # Não perder traçado em rascunho: uma linha de símbolo só entra no
+        # histórico com [Enter]. Finaliza a pendente ANTES de exportar.
+        self.canvas.commit_pending_line()
+        drawings = self.canvas.export_drawings_state()
+        if not drawings:
+            resp = QMessageBox.question(
+                self, "Salvar Projeto",
+                "Nenhum traçado finalizado para salvar.\n\n"
+                "Dica: feche cada linha com [Enter] antes de salvar.\n\n"
+                "Deseja salvar mesmo assim (apenas o enquadramento)?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if resp != QMessageBox.StandardButton.Yes:
+                self.status_label.setText("● Salvar projeto cancelado")
+                self.status_label.setStyleSheet("color: #E67E22;")
+                return
+
+        default = self.config.projects_dir / f"analise_{datetime.now():%Y%m%d_%H%M}{project_io.PROJECT_EXTENSION}"
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Salvar Projeto de Análise", str(default),
+            f"Projeto CartoMet BR (*{project_io.PROJECT_EXTENSION});;Todos (*)",
+        )
+        if not filepath:
+            return
+        path = Path(filepath)
+        if path.suffix == "":
+            path = path.with_suffix(project_io.PROJECT_EXTENSION)
+
+        # Manifesto das camadas ativas. O canvas conhece sinótica/campos/satélite/
+        # TSM/LOCZCIT/bloqueio; as observações vêm do painel de configurações.
+        layers = self.canvas.export_layers_state()
+        obs = self.settings_panel.get_observations()
+        if obs.get("metar") or obs.get("synop"):
+            layers.append({"kind": "observations",
+                           "metar": bool(obs.get("metar")),
+                           "synop": bool(obs.get("synop"))})
+
+        project = project_io.build_project(
+            extent=list(self.config.extent),
+            theme=self.canvas.current_theme,
+            data_context={
+                "cycle": self.settings_panel.get_cycle(),
+                "cycle_date": self.settings_panel.get_cycle_date(),
+                "step": self.settings_panel.get_step(),
+                # Técnica de desacumulação (OLR/precip) — necessária p/ refazer
+                # esses campos do cache na mesma janela ao abrir.
+                "technique": self.field_panel.get_technique(),
+            },
+            # Camadas ativas: as de cache são redesenhadas SÓ do cache na abertura
+            # (ver _restore_layers_from_cache); as computadas/externas ficam
+            # memorizadas p/ reativação manual — nunca disparam rede.
+            layers=layers,
+            drawings=drawings,
+            app_version=APP_VERSION,
+        )
+        try:
+            path.write_text(project_io.dump_project(project), encoding="utf-8")
+        except OSError as e:
+            QMessageBox.critical(self, "Erro ao Salvar Projeto",
+                                 f"Não foi possível salvar o projeto:\n\n{e}")
+            self.status_label.setText("● Erro ao salvar projeto")
+            self.status_label.setStyleSheet("color: #E74C3C;")
+            return
+        self.status_label.setText(f"● Projeto salvo: {path.name}")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _open_project(self):
+        """Abre um .cmbr e restaura o traçado + enquadramento. NÃO baixa dados."""
+        from cartomet_br.gui import project_io
+
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "Abrir Projeto de Análise", str(self.config.projects_dir),
+            f"Projeto CartoMet BR (*{project_io.PROJECT_EXTENSION});;Todos (*)",
+        )
+        if not filepath:
+            return
+        try:
+            data = project_io.load_project(Path(filepath).read_text(encoding="utf-8"))
+            records = data.get("drawings", [])
+            # Valida/converte cedo: erro claro ANTES de mexer no mapa.
+            project_io.records_to_commands(records)
+        except (OSError, project_io.ProjectError) as e:
+            QMessageBox.warning(self, "Abrir Projeto",
+                                f"Não foi possível abrir o projeto:\n\n{e}")
+            return
+
+        mp = data.get("map", {}) or {}
+        theme = mp.get("theme") or self.canvas.current_theme
+        extent = mp.get("extent")
+
+        # Limpa as linhas de camada do painel (espelha _on_theme_changed) e
+        # reconstrói o mapa base; set_theme já zera desenhos/camadas/histórico.
+        for lid in list(self.field_panel._layer_widgets.keys()):
+            self.field_panel.remove_layer_entry(lid)
+        if isinstance(extent, list) and len(extent) == 4:
+            self.config.extent = [float(v) for v in extent]
+            self.canvas.config = self.config
+        self.canvas.set_theme(theme)
+        if isinstance(extent, list) and len(extent) == 4:
+            self.canvas.apply_extent([float(v) for v in extent], push_history=False)
+
+        ctx = data.get("data_context", {}) or {}
+        # Redesenha as camadas SÓ a partir do cache (nunca baixa) ANTES dos
+        # desenhos — assim o traçado OMM fica por cima dos campos.
+        n_layers, missed, reactivate = self._restore_layers_from_cache(
+            data.get("layers", []), ctx,
+        )
+
+        self.canvas.import_drawings_state(records)
+
+        self._show_project_context(
+            ctx, Path(filepath).name, len(records), n_layers, missed, reactivate,
+        )
+        self.status_label.setText(f"● Projeto aberto: {Path(filepath).name}")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _show_project_context(self, ctx: dict, name: str, n_drawings: int = 0,
+                              n_layers: int = 0, missed: list | None = None,
+                              reactivate: list | None = None) -> None:
+        """Resumo da abertura: traçados restaurados, camadas redesenhadas do cache,
+        o que ficou fora do cache, as camadas memorizadas p/ reativação manual, e a
+        rodada/step do projeto. Nunca baixa nada."""
+        missed = missed or []
+        reactivate = reactivate or []
+        plural = lambda n: "s" if n != 1 else ""  # noqa: E731
+
+        if n_drawings > 0:
+            linhas = [f"{n_drawings} traçado{plural(n_drawings)} restaurado{plural(n_drawings)}."]
+        else:
+            linhas = ["Este projeto não contém traçados."]
+
+        if n_layers > 0:
+            linhas.append(
+                f"{n_layers} camada{plural(n_layers)} "
+                f"redesenhada{plural(n_layers)} a partir do cache (nada foi baixado)."
+            )
+        if missed:
+            linhas.append(
+                "Fora do cache (recarregue pelo painel se precisar): "
+                + ", ".join(missed) + "."
+            )
+        if reactivate:
+            linhas.append(
+                "Estavam ativas e foram memorizadas — reative pelo painel "
+                "(são camadas calculadas/externas): " + ", ".join(reactivate) + "."
+            )
+        restaurado = "\n".join(linhas)
+
+        cycle, cdate, step = ctx.get("cycle"), ctx.get("cycle_date"), ctx.get("step")
+        if cycle is None and cdate is None and step is None:
+            QMessageBox.information(self, "Projeto aberto", restaurado)
+            return
+
+        partes = [f"Rodada: {'automática' if cycle is None else f'{int(cycle):02d}Z'}"]
+        if cdate:
+            partes.append(f"Data: {cdate}")
+        if step is not None:
+            partes.append(f"Step: +{int(step)}h")
+
+        # Só repete o aviso "recarregue manualmente" quando NADA de camada voltou.
+        nota = ""
+        if n_layers == 0 and not missed and not reactivate:
+            nota = ("\n\nNenhum campo do modelo foi redesenhado (não havia camadas "
+                    "salvas ou não estavam no cache). Recarregue a rodada/step pelo "
+                    "painel para sobrepô-los ao traçado.")
+        QMessageBox.information(
+            self, "Projeto aberto",
+            f"{restaurado}\n\nProjeto feito para:\n  {' · '.join(partes)}{nota}",
+        )
+
+    def _layer_label(self, spec: dict) -> str:
+        """Rótulo humano de uma camada (p/ as listas de status da abertura)."""
+        kind = spec.get("kind")
+        if kind == "synoptic":
+            return "Carta sinótica (PNMM/espessura/centros)"
+        if kind == "satellite":
+            return "Satélite GOES"
+        if kind == "sst":
+            ts = spec.get("time_str", "")
+            return f"TSM — MUR SST {ts}".strip()
+        if kind == "loczcit":
+            return "ZCIT (LOCZCIT-PA)" + (" + eixo" if spec.get("axis") else "")
+        if kind == "blocking":
+            return "Bloqueio atmosférico (Z500)"
+        if kind == "observations":
+            kinds = [k.upper() for k in ("metar", "synop") if spec.get(k)]
+            return "Observações (" + "/".join(kinds) + ")" if kinds else "Observações"
+        var = spec.get("variable", "campo")
+        nome = VARIABLE_REGISTRY.get(var, {}).get("nome", var)
+        lvl = spec.get("level") or 0
+        return f"{nome} {lvl} hPa" if lvl else nome
+
+    def _add_field_panel_entry(self, layer_id: str, data, wind_type: str) -> None:
+        """Recria a entrada da camada no FieldLayerPanel (espelha _on_pl_download_ok)."""
+        var_info = VARIABLE_REGISTRY.get(data.variable, {})
+        nome = var_info.get("nome", data.variable)
+        label = f"{nome} {data.level} hPa" if data.level > 0 else nome
+        detail = wind_type if data.variable == "wind" else data.unit
+        self.field_panel.remove_layer_entry(layer_id)
+        self.field_panel.add_layer_entry(layer_id, label, detail)
+
+    def _restore_satellite_from_cache(self, filename: str) -> bool:
+        """Relê o GOES do .nc em cache (sem rede) e replota. True se restaurou.
+
+        Usa ``load_goes_netcdf`` — a MESMA rotina do download —, que converte
+        ``x``/``y`` de radianos→metros. (Reler pelo caminho genérico de NetCDF
+        local deixava a imagem num quadro submilimétrico, invisível no mapa.)
+        """
+        if not filename:
+            return False
+        path = self.config.satellite_dir / filename
+        if not path.exists():
+            return False
+        try:
+            from cartomet_br.data.ecmwf import load_goes_netcdf
+            sat_data = load_goes_netcdf(path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Satélite em cache ilegível (%s): %s", filename, exc)
+            return False
+        self.canvas.plot_satellite(sat_data)
+        with contextlib.suppress(Exception):
+            self.satellite_panel.set_loaded(sat_data.time_str or path.stem)
+        return True
+
+    def _restore_sst_from_cache(self, spec: dict) -> bool:
+        """Relê a TSM (MUR SST) do .nc em cache, sem rede. True se restaurou."""
+        time_str = spec.get("time_str", "")
+        stride = int(spec.get("stride", 5))
+        if not time_str:
+            return False
+        path = self.config.sst_dir / f"mur_sst_{time_str}_s{stride}.nc"
+        if not path.exists():
+            return False
+        try:
+            from cartomet_br.data.sst import _load_sst_from_file
+            data = _load_sst_from_file(path)
+            self.canvas.plot_sst(data)
+            with contextlib.suppress(Exception):
+                self.sst_panel.set_loaded(data.time_str)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Falha ao restaurar TSM %s: %s", time_str, exc)
+            return False
+
+    def _restore_layers_from_cache(
+        self, layers: list, ctx: dict,
+    ) -> tuple[int, list[str], list[str]]:
+        """Recria as camadas salvas. As de cache (sinótica/campos/satélite/TSM) são
+        redesenhadas SOMENTE do cache (nunca baixam); as computadas/externas
+        (LOCZCIT, bloqueio, observações) são apenas memorizadas p/ reativação manual.
+
+        Os campos ECMWF rodam dentro de ``cache_only_mode()``: cache miss vira *miss*,
+        jamais download (human-in-the-loop). Retorna
+        ``(n_restauradas, [fora do cache], [reativar pelo painel])``.
+        """
+        if not layers:
+            return 0, [], []
+
+        from cartomet_br.data.ecmwf import cache_only_mode
+        from cartomet_br.services.data_service import DataService
+
+        cycle = ctx.get("cycle")
+        cdate = ctx.get("cycle_date")
+        technique = ctx.get("technique") or "direct"
+        svc = DataService(self.config)
+        restored = 0
+        missed: list[str] = []
+        reactivate: list[str] = []
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            with cache_only_mode():
+                for spec in layers:
+                    kind = spec.get("kind")
+                    try:
+                        if kind == "synoptic":
+                            data = svc.load_synoptic(int(spec.get("step", 0)), cycle, cdate)
+                            self.canvas.set_synoptic_data(data)
+                            vis = spec.get("visibility", {}) or {}
+                            for k in ("pnmm", "thickness", "centers"):
+                                self.canvas.toggle_layer(k, bool(vis.get(k, True)))
+                            restored += 1
+                        elif kind == "field":
+                            wind_type = spec.get("wind_type", "barbs")
+                            layer_id, data = svc.load_field(
+                                spec.get("variable", ""), spec.get("level") or None,
+                                int(spec.get("step", 0)), cycle, cdate,
+                                wind_type=wind_type, technique=technique,
+                            )
+                            self.canvas.add_pl_layer(layer_id, data, wind_type)
+                            self._add_field_panel_entry(layer_id, data, wind_type)
+                            restored += 1
+                        elif kind == "satellite":
+                            if self._restore_satellite_from_cache(spec.get("filename", "")):
+                                restored += 1
+                            else:
+                                missed.append("Satélite GOES")
+                        elif kind == "sst":
+                            if self._restore_sst_from_cache(spec):
+                                restored += 1
+                            else:
+                                missed.append(self._layer_label(spec))
+                        elif kind in ("loczcit", "blocking", "observations"):
+                            # Calculadas/externas: memorizadas, reativação manual.
+                            reactivate.append(self._layer_label(spec))
+                        else:
+                            missed.append(self._layer_label(spec))
+                    except Exception as exc:  # noqa: BLE001 — cache-only: falha = não restaurou
+                        logger.info("Camada fora do cache (%s): %s", spec.get("kind"), exc)
+                        missed.append(self._layer_label(spec))
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        self.canvas.draw()
+        return restored, missed, reactivate
+
     def _print_canvas(self):
         """Captura pixel-perfect do mapa (Ctrl+P) — idêntica à tela."""
         filepath, _ = QFileDialog.getSaveFileName(
@@ -2539,7 +2941,7 @@ class MainWindow(QMainWindow):
                 filename=file_path.name,
             )
 
-            self.canvas.set_satellite(sat_data)
+            self.canvas.plot_satellite(sat_data)
             self.satellite_panel.toggle_check.setVisible(True)
             self.satellite_panel.toggle_check.setChecked(True)
             self.satellite_panel.status_label.setText(f"✓ Local: {file_path.name}")
