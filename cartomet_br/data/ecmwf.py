@@ -564,6 +564,10 @@ def estimate_available_cycles() -> dict:
 # Níveis de pressão disponíveis no IFS Open Data
 PL_LEVELS = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100, 50]
 
+# Horizonte/cadência padrão do meteograma (F6): +0…+72h de 3 em 3 horas. Bounded
+# de propósito — a série é baixada step a step (serializado, anti-429) na thread.
+METEOGRAM_STEPS = list(range(0, 73, 3))
+
 VARIABLE_REGISTRY = {
     "gh": {
         "nome": "Altura Geopotencial",
@@ -767,6 +771,53 @@ VARIABLE_REGISTRY = {
         "symmetric": True,
         "category": "derived",
     },
+    # ── Instabilidade (F9) — campos DERIVADOS no worker (não passam por
+    #    load_pl_variable). Aqui só metadados de RENDER: nome/unidade/cmap.
+    #    Render contínuo (níveis por percentil) — sem classes/limiares inventados.
+    "kindex": {
+        "nome": "Índice K (modelo IFS, 13 níveis — aprox.)",
+        "param": ["t", "q"],
+        "unit_raw": "°C",
+        "unit_display": "°C",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "instability",
+    },
+    "li": {
+        "nome": "Lifted Index (modelo IFS, 13 níveis — aprox.)",
+        "param": ["t", "q", "gh"],
+        "unit_raw": "°C",
+        "unit_display": "°C",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "RdBu_r",
+        "symmetric": True,
+        "category": "instability",
+    },
+    "cape": {
+        "nome": "CAPE-SB (modelo IFS, 13 níveis — aprox.)",
+        "param": ["t", "q", "gh"],
+        "unit_raw": "J/kg",
+        "unit_display": "J/kg",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "instability",
+    },
+    "cin": {
+        "nome": "CIN-SB (modelo IFS, 13 níveis — aprox.)",
+        "param": ["t", "q", "gh"],
+        "unit_raw": "J/kg",
+        "unit_display": "J/kg",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "Blues_r",
+        "symmetric": False,
+        "category": "instability",
+    },
 }
 
 
@@ -918,6 +969,562 @@ def load_model_profile(
     )
     try:
         return _profile_from_dataset(ds, lon, lat, cycle, step)
+    finally:
+        ds.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  SÉRIE TEMPORAL NUM PONTO (Meteograma — F6)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Previsão PONTUAL do IFS ao longo dos steps numa cidade clicada. T é o ar a
+# 1000 hPa (proxy de superfície — o Open Data não expõe 2 m); vento de 10 m;
+# precip por INTERVALO (desacumulada entre steps consecutivos). Downloads
+# bounded (METEOGRAM_STEPS), cache-first e serializados na thread (anti-429).
+
+
+@dataclass
+class PointTimeseries:
+    """Série temporal do modelo (IFS) num ponto — base do meteograma (F6).
+
+    Arrays alinhados por step. Previsão pontual e aproximada (não observação):
+    ``t`` é o ar a 1000 hPa (sem 2 m no Open Data), ``wind_*`` é de 10 m, e
+    ``precip`` é por intervalo (desacumulada de ``tp`` entre steps).
+    """
+
+    lon: float
+    lat: float
+    grid_lon: float
+    grid_lat: float
+    steps: np.ndarray            # horas de previsão
+    valid_times: list            # rótulos UTC por step
+    t: np.ndarray                # °C (ar a 1000 hPa)
+    wind_speed: np.ndarray       # m/s (10 m)
+    wind_dir: np.ndarray         # graus (de onde sopra)
+    precip: np.ndarray           # mm no intervalo
+    msl: np.ndarray              # hPa (PNMM)
+    tcwv: np.ndarray             # mm (água precipitável)
+    base_time: str = ""
+    cycle: int | None = None
+
+
+def _scalar(value) -> float:
+    """Primeiro elemento como float — robusto a arrays escalares/size-1 do xarray."""
+    return float(np.asarray(value).ravel()[0])
+
+
+def _time_labels(ds: xr.Dataset) -> tuple[str, str]:
+    """(valid_time, base_time) formatados a partir das coords do Dataset (ou vazios)."""
+    vt = bt = ""
+    try:
+        if "valid_time" in ds.coords:
+            vt = np.datetime_as_string(ds.valid_time.values, unit="m")
+        if "time" in ds.coords:
+            bt_dt = np.datetime64(ds.time.values, "s").astype("datetime64[s]").astype(datetime)
+            bt = bt_dt.strftime("%HZ %d/%m/%Y")
+    except (KeyError, IndexError, ValueError, TypeError):
+        pass
+    return vt, bt
+
+
+def _sample_nearest(ds: xr.Dataset, lon: float, lat: float):
+    """Coluna/ponto mais próximo, com longitude normalizada p/ −180..180."""
+    ds = ds.assign_coords(longitude=(ds.longitude + 180) % 360 - 180).sortby("longitude")
+    col = ds.sel(latitude=float(lat), longitude=float(lon), method="nearest")
+    return col, float(np.asarray(col.longitude.values)), float(np.asarray(col.latitude.values))
+
+
+def _find_var(datasets: list, *names: str):
+    """Acha (dataset, nome) da 1ª variável encontrada entre ``names`` na lista.
+
+    ``cfgrib.open_datasets`` devolve VÁRIOS datasets (um por hipercubo/typeOfLevel)
+    para um GRIB de superfície heterogêneo; cada variável pode estar num deles.
+    """
+    for ds in datasets:
+        for n in names:
+            if n in ds.data_vars:
+                return ds, n
+    return None, None
+
+
+def _sample_surface(datasets: list, lon: float, lat: float) -> dict:
+    """Amostra msl/10u/10v/tcwv/tp no ponto, varrendo a lista de datasets de sfc."""
+    specs = {
+        "msl": ("msl",),
+        "u10": ("u10", "10u"),
+        "v10": ("v10", "10v"),
+        "tcwv": ("tcwv",),
+        "tp": ("tp",),
+    }
+    out: dict = {}
+    grid_lon = grid_lat = None
+    valid_time = base_time = ""
+    for key, names in specs.items():
+        ds, vname = _find_var(datasets, *names)
+        if ds is None:
+            raise ValueError(f"Variável de superfície ausente no GRIB: {key}")
+        col, glon, glat = _sample_nearest(ds, lon, lat)
+        out[key] = _scalar(col[vname].values)
+        if grid_lon is None:
+            grid_lon, grid_lat = glon, glat
+            valid_time, base_time = _time_labels(ds)
+    out["grid_lon"], out["grid_lat"] = grid_lon, grid_lat
+    out["valid_time"], out["base_time"] = valid_time, base_time
+    return out
+
+
+def _assemble_point_timeseries(
+    lon: float, lat: float, grid_lon: float, grid_lat: float,
+    steps, valid_times, t_k, u10, v10, msl_pa, tcwv, tp_m,
+    base_time: str, cycle: int | None,
+) -> PointTimeseries:
+    """Monta o :class:`PointTimeseries` (PURO): unidades, vento e precip por intervalo."""
+    steps_arr = np.asarray(steps, dtype=float)
+    t_c = np.asarray(t_k, dtype=float) - 273.15
+    u = np.asarray(u10, dtype=float)
+    v = np.asarray(v10, dtype=float)
+    wind_speed = np.hypot(u, v)
+    # Direção meteorológica (de onde sopra): atan2(-u,-v).
+    wind_dir = np.degrees(np.arctan2(-u, -v)) % 360.0
+    msl_hpa = np.asarray(msl_pa, dtype=float) / 100.0
+    tcwv_mm = np.asarray(tcwv, dtype=float)
+
+    # Precip por intervalo: tp é acumulado desde t=0 da rodada → diferença entre
+    # steps consecutivos (monotônica ⇒ ≥ 0; clip é rede de segurança). O 1º
+    # intervalo recebe o próprio tp[0] (≈ 0 na análise).
+    tp = np.asarray(tp_m, dtype=float)
+    precip = np.empty_like(tp)
+    if tp.size:
+        precip[0] = max(float(tp[0]), 0.0)
+        if tp.size > 1:
+            precip[1:] = np.clip(np.diff(tp), 0.0, None)
+    precip_mm = precip * 1000.0
+
+    return PointTimeseries(
+        lon=float(lon), lat=float(lat), grid_lon=float(grid_lon), grid_lat=float(grid_lat),
+        steps=steps_arr, valid_times=list(valid_times), t=t_c, wind_speed=wind_speed,
+        wind_dir=wind_dir, precip=precip_mm, msl=msl_hpa, tcwv=tcwv_mm,
+        base_time=base_time, cycle=cycle,
+    )
+
+
+def load_point_timeseries(
+    lon: float,
+    lat: float,
+    steps: list[int] | None = None,
+    cycle: int | None = None,
+    cycle_date: str | None = None,
+    data_dir: Path = Path("data"),
+    source: str = "ecmwf",
+    force_download: bool = False,
+    progress_cb=None,
+) -> PointTimeseries:
+    """Série temporal do IFS num ponto (T/vento/precip/PNMM/tcwv) — meteograma (F6).
+
+    Para cada step (``steps`` ou ``METEOGRAM_STEPS``) baixa DOIS GRIBs cache-first:
+    um pacote de superfície (msl, 10u, 10v, tcwv, tp) e ``t``@1000 hPa. O laço roda
+    na thread do worker — uma requisição por vez (serializado, anti-429). Steps
+    indisponíveis são pulados com aviso (sem matriz zerada). Tudo em ``data_dir``
+    (que o chamador aponta para ``config.grib_dir``).
+    """
+    if data_dir is None:
+        raise ValueError("data_dir não pode ser None")
+    data_dir = Path(data_dir)
+    steps = list(steps) if steps is not None else list(METEOGRAM_STEPS)
+    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+    cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
+
+    import cfgrib
+
+    rec_steps, rec_vt = [], []
+    rec_t, rec_u, rec_v, rec_msl, rec_tcwv, rec_tp = [], [], [], [], [], []
+    grid_lon = grid_lat = None
+    base_time = ""
+
+    for s in steps:
+        if progress_cb:
+            progress_cb(f"Baixando +{s}h…")
+        try:
+            sfc_path = download_ecmwf(
+                variables=["msl", "10u", "10v", "tcwv", "tp"],
+                levels=None, step=s, cycle=cycle, date=cycle_date,
+                output_path=data_dir / f"ecmwf_meteo_sfc_{date_str}_{cycle_tag}_f{s:03d}.grib2",
+                data_dir=data_dir, source=source, force_download=force_download,
+                levtype="sfc",
+            )
+            datasets = cfgrib.open_datasets(str(sfc_path), backend_kwargs={"errors": "ignore"})
+            try:
+                sample = _sample_surface(datasets, lon, lat)
+            finally:
+                for d in datasets:
+                    d.close()
+
+            t1000_path = download_ecmwf(
+                variables=["t"], levels=[1000], step=s, cycle=cycle, date=cycle_date,
+                output_path=data_dir / f"ecmwf_meteo_t1000_{date_str}_{cycle_tag}_f{s:03d}.grib2",
+                data_dir=data_dir, source=source, force_download=force_download,
+                levtype="pl",
+            )
+            ds_t = xr.open_dataset(
+                t1000_path, engine="cfgrib",
+                backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"},
+                                "errors": "ignore"},
+            )
+            try:
+                col_t, _, _ = _sample_nearest(ds_t, lon, lat)
+                t_val = _scalar(col_t["t"].values)
+            finally:
+                ds_t.close()
+        except Exception as e:  # noqa: BLE001 — step ausente não derruba a série
+            logger.warning("Step +%sh indisponível para o meteograma: %s", s, e)
+            continue
+
+        rec_steps.append(s)
+        rec_vt.append(sample["valid_time"])
+        rec_t.append(t_val)
+        rec_u.append(sample["u10"])
+        rec_v.append(sample["v10"])
+        rec_msl.append(sample["msl"])
+        rec_tcwv.append(sample["tcwv"])
+        rec_tp.append(sample["tp"])
+        if grid_lon is None:
+            grid_lon, grid_lat = sample["grid_lon"], sample["grid_lat"]
+            base_time = sample["base_time"]
+
+    if not rec_steps:
+        raise ValueError(
+            "Nenhum step disponível para o meteograma (rede/cache).\n"
+            "Verifique a rodada/conexão e tente novamente."
+        )
+
+    return _assemble_point_timeseries(
+        lon, lat, grid_lon, grid_lat, rec_steps, rec_vt,
+        rec_t, rec_u, rec_v, rec_msl, rec_tcwv, rec_tp, base_time, cycle,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  CORTE VERTICAL (Cross-section A→B — F4)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Seção distância × pressão ao longo de uma reta A→B: t, w (omega), q e vento nos
+# 13 níveis. Um ÚNICO GRIB multinível, amostrado ao longo do caminho por
+# interpolação linear (xarray.interp). Resolução vertical GROSSEIRA (13 níveis).
+
+
+@dataclass
+class CrossSection:
+    """Corte vertical do modelo (IFS) ao longo de uma reta A→B — base do F4.
+
+    Campos 2D ``(n_níveis, n_pontos)`` com pressão DESCENDENTE; ``distances_km``
+    é a distância acumulada (haversine) ao longo do caminho. Vertical grosseira
+    (13 níveis) — produto do modelo, não observação.
+    """
+
+    distances_km: np.ndarray     # (n_pontos,)
+    pressures: np.ndarray        # (n_níveis,) descendente
+    t: np.ndarray                # °C
+    w: np.ndarray                # Pa/s (omega; <0 = ascendência)
+    q: np.ndarray                # g/kg
+    u: np.ndarray                # m/s
+    v: np.ndarray                # m/s
+    lons: np.ndarray             # (n_pontos,)
+    lats: np.ndarray             # (n_pontos,)
+    valid_time: str = ""
+    base_time: str = ""
+    step: int = 0
+
+
+def _haversine_cumulative(lons: np.ndarray, lats: np.ndarray) -> np.ndarray:
+    """Distância acumulada (km) ao longo do caminho lon/lat (haversine)."""
+    radius = 6371.0
+    lon_r = np.radians(np.asarray(lons, dtype=float))
+    lat_r = np.radians(np.asarray(lats, dtype=float))
+    dlon = np.diff(lon_r)
+    dlat = np.diff(lat_r)
+    a = np.sin(dlat / 2) ** 2 + np.cos(lat_r[:-1]) * np.cos(lat_r[1:]) * np.sin(dlon / 2) ** 2
+    seg = 2 * radius * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0)))
+    return np.concatenate([[0.0], np.cumsum(seg)])
+
+
+def _cross_section_from_dataset(
+    ds: xr.Dataset, lon_a: float, lat_a: float, lon_b: float, lat_b: float,
+    step: int, n_points: int = 80,
+) -> CrossSection:
+    """Amostra a seção A→B de um Dataset isobárico (PURO — testável sem rede).
+
+    Normaliza longitude, interpola linearmente ``n_points`` ao longo da reta
+    (xarray.interp), ordena por pressão descendente e converte unidades de
+    exibição (t→°C, q→g/kg). ``w`` (omega) fica em Pa/s.
+    """
+    # interp exige coordenadas monotônicas crescentes; o IFS entrega latitude
+    # decrescente → ordenamos ambas antes de amostrar o caminho.
+    ds = ds.assign_coords(longitude=(ds.longitude + 180) % 360 - 180)
+    ds = ds.sortby("longitude").sortby("latitude")
+    lons = np.linspace(float(lon_a), float(lon_b), n_points)
+    lats = np.linspace(float(lat_a), float(lat_b), n_points)
+    path = ds.interp(
+        longitude=xr.DataArray(lons, dims="path"),
+        latitude=xr.DataArray(lats, dims="path"),
+    )
+
+    pressures = np.asarray(path["isobaricInhPa"].values, dtype=float)
+    order = np.argsort(pressures)[::-1]
+    pressures = pressures[order]
+
+    def _grab(name: str) -> np.ndarray:
+        # transpose explícito (nível, caminho) — não assume a ordem de eixos do
+        # cfgrib, mesmo padrão defensivo de _instability_from_dataset.
+        arr = np.asarray(path[name].transpose("isobaricInhPa", "path").values, dtype=float)
+        return arr[order, :]
+
+    t = _grab("t") - 273.15
+    w = _grab("w")
+    q = _grab("q") * 1000.0
+    u = _grab("u")
+    v = _grab("v")
+    distances = _haversine_cumulative(lons, lats)
+    vt, bt = _time_labels(ds)
+
+    return CrossSection(
+        distances_km=distances, pressures=pressures, t=t, w=w, q=q, u=u, v=v,
+        lons=lons, lats=lats, valid_time=vt, base_time=bt, step=step,
+    )
+
+
+def load_cross_section(
+    lon_a: float,
+    lat_a: float,
+    lon_b: float,
+    lat_b: float,
+    step: int = 0,
+    cycle: int | None = None,
+    cycle_date: str | None = None,
+    data_dir: Path = Path("data"),
+    n_points: int = 80,
+    source: str = "ecmwf",
+    force_download: bool = False,
+) -> CrossSection:
+    """Corte vertical A→B do IFS (t,w,q,vento nos 13 níveis) — F4.
+
+    Um ÚNICO GRIB multinível (6 params × 13 níveis, cache-first), amostrado ao
+    longo da reta A→B. Vertical grosseira (13 níveis) — ver :class:`CrossSection`.
+    Tudo em ``data_dir`` (que o chamador aponta para ``config.grib_dir``).
+    """
+    if data_dir is None:
+        raise ValueError("data_dir não pode ser None")
+    data_dir = Path(data_dir)
+
+    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+    cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
+
+    grib_file = download_ecmwf(
+        variables=["t", "w", "q", "u", "v", "gh"],
+        levels=PL_LEVELS,
+        step=step,
+        cycle=cycle,
+        output_path=data_dir / f"ecmwf_xsec_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+        data_dir=data_dir,
+        source=source,
+        force_download=force_download,
+        levtype="pl",
+        date=cycle_date,
+    )
+
+    ds = xr.open_dataset(
+        grib_file,
+        engine="cfgrib",
+        backend_kwargs={
+            "filter_by_keys": {"typeOfLevel": "isobaricInhPa"},
+            "errors": "ignore",
+        },
+    )
+    try:
+        return _cross_section_from_dataset(ds, lon_a, lat_a, lon_b, lat_b, step, n_points)
+    finally:
+        ds.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  CAMPOS DE INSTABILIDADE (CAPE/CIN/LI/K) — camadas de grade cheia (F9)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Derivados do perfil (t,q,gh nos 13 níveis). K-index é vetorizado na grade
+# NATIVA (barato). LI/CAPE/CIN exigem ascensão de parcela por célula (caro) →
+# grade ENGROSSADA por stride e interpolada de volta. Render contínuo — SEM
+# classes/limiares inventados (não há doc de metodologia p/ estes índices).
+
+
+def _dewpoint_2d(pressure_hpa: float, q2d: np.ndarray):
+    """Td (°C, ndarray) de um nível a partir da umidade específica 2D (q em kg/kg)."""
+    import metpy.calc as mpcalc
+    from metpy.units import units
+    mixing = mpcalc.mixing_ratio_from_specific_humidity(q2d * units("kg/kg"))
+    e = mpcalc.vapor_pressure(pressure_hpa * units.hPa, mixing)
+    return mpcalc.dewpoint(e).to("degC").magnitude
+
+
+def _instability_from_dataset(
+    ds: xr.Dataset, extent: list[float], indices: tuple, stride: int,
+    step: int, progress_cb=None,
+) -> dict:
+    """Calcula os campos de instabilidade de um Dataset isobárico (PURO/testável).
+
+    K-index na grade nativa (vetorizado); LI/CAPE/CIN na grade engrossada
+    (``stride``) com MetPy por coluna, interpolados de volta à grade do extent.
+    Devolve ``{nome: PLFieldData}`` só para os ``indices`` pedidos.
+    """
+    import metpy.calc as mpcalc
+    from metpy.units import units
+
+    ds = ds.assign_coords(longitude=(ds.longitude + 180) % 360 - 180)
+    ds = ds.sortby("longitude").sortby("latitude")
+    ds = ds.sel(longitude=slice(extent[0], extent[2]), latitude=slice(extent[1], extent[3]))
+
+    pressures = np.asarray(ds["isobaricInhPa"].values, dtype=float)
+    order = np.argsort(pressures)[::-1]
+    pressures = pressures[order]
+    t3d = np.asarray(ds["t"].transpose("isobaricInhPa", "latitude", "longitude").values,
+                     dtype=float)[order]
+    q3d = np.asarray(ds["q"].transpose("isobaricInhPa", "latitude", "longitude").values,
+                     dtype=float)[order]
+    lats = np.asarray(ds["latitude"].values, dtype=float)
+    lons = np.asarray(ds["longitude"].values, dtype=float)
+    vt, bt = _time_labels(ds)
+
+    out: dict = {}
+
+    def _make(name: str, values: np.ndarray, unit: str) -> None:
+        # Campo 100% NaN (ex.: ascensão de parcela falhou em toda coluna) é
+        # OMITIDO: o render por percentil (np.nanpercentile) viraria NaN e o
+        # contourf quebraria. Se todos saírem NaN, o worker avisa (dict vazio).
+        if not np.any(np.isfinite(values)):
+            logger.warning("Campo de instabilidade '%s' totalmente indefinido — omitido.", name)
+            return
+        out[name] = PLFieldData(
+            values=values, lons=lons, lats=lats, variable=name, level=0,
+            unit=unit, valid_time=vt, base_time=bt, step=step,
+        )
+
+    # ── K-index (nativo, vetorizado) ─────────────────────────────────────────
+    if "kindex" in indices:
+        if progress_cb:
+            progress_cb("Calculando Índice K (nativo)…")
+        i850 = int(np.argmin(np.abs(pressures - 850)))
+        i700 = int(np.argmin(np.abs(pressures - 700)))
+        i500 = int(np.argmin(np.abs(pressures - 500)))
+        td850 = _dewpoint_2d(float(pressures[i850]), q3d[i850])
+        td700 = _dewpoint_2d(float(pressures[i700]), q3d[i700])
+        t850 = t3d[i850] - 273.15
+        t700 = t3d[i700] - 273.15
+        t500 = t3d[i500] - 273.15
+        kindex = (t850 - t500) + td850 - (t700 - td700)
+        _make("kindex", kindex, "°C")
+
+    # ── LI/CAPE/CIN (engrossado por stride + interp de volta) ────────────────
+    want_parcel = [n for n in ("li", "cape", "cin") if n in indices]
+    if want_parcel:
+        # Inclui o último índice p/ cobrir a borda (evita extrapolação no interp).
+        ci = np.unique(np.append(np.arange(0, lats.size, stride), lats.size - 1))
+        cj = np.unique(np.append(np.arange(0, lons.size, stride), lons.size - 1))
+        cape_c = np.full((ci.size, cj.size), np.nan)
+        cin_c = np.full((ci.size, cj.size), np.nan)
+        li_c = np.full((ci.size, cj.size), np.nan)
+        ps = pressures * units.hPa
+        total = ci.size
+        for a, ii in enumerate(ci):
+            if progress_cb and total > 1:
+                progress_cb(f"Ascensão de parcela (CAPE/LI)… {int(100 * a / total)}%")
+            for b, jj in enumerate(cj):
+                tcol = t3d[:, ii, jj]
+                qcol = q3d[:, ii, jj]
+                valid = np.isfinite(tcol) & np.isfinite(qcol)
+                if int(valid.sum()) < 3:
+                    continue
+                p_c = ps[valid]
+                temp = (tcol[valid] * units.kelvin).to("degC")
+                mixing = mpcalc.mixing_ratio_from_specific_humidity(qcol[valid] * units("kg/kg"))
+                dew = mpcalc.dewpoint(mpcalc.vapor_pressure(p_c, mixing))
+                try:
+                    if "cape" in indices or "cin" in indices:
+                        cape, cin = mpcalc.surface_based_cape_cin(p_c, temp, dew)
+                        cape_c[a, b] = float(cape.to("J/kg").magnitude)
+                        cin_c[a, b] = float(cin.to("J/kg").magnitude)
+                    if "li" in indices:
+                        parcel = mpcalc.parcel_profile(p_c, temp[0], dew[0]).to("degC")
+                        li = mpcalc.lifted_index(p_c, temp, parcel)
+                        li_c[a, b] = float(np.atleast_1d(li.magnitude)[0])
+                except Exception as e:  # noqa: BLE001 — coluna ruim não derruba o campo
+                    logger.debug("Instabilidade falhou numa coluna: %s", e)
+
+        clat = lats[ci]
+        clon = lons[cj]
+
+        def _interp(coarse: np.ndarray) -> np.ndarray:
+            da = xr.DataArray(coarse, dims=("latitude", "longitude"),
+                              coords={"latitude": clat, "longitude": clon})
+            return da.interp(latitude=lats, longitude=lons).values
+
+        if "cape" in indices:
+            _make("cape", _interp(cape_c), "J/kg")
+        if "cin" in indices:
+            _make("cin", _interp(cin_c), "J/kg")
+        if "li" in indices:
+            _make("li", _interp(li_c), "°C")
+
+    return out
+
+
+def compute_instability_fields(
+    extent: list[float],
+    step: int = 0,
+    cycle: int | None = None,
+    cycle_date: str | None = None,
+    data_dir: Path = Path("data"),
+    indices=("kindex", "li", "cape", "cin"),
+    coarsen_stride: int = 4,
+    source: str = "ecmwf",
+    force_download: bool = False,
+    progress_cb=None,
+) -> dict:
+    """Campos de instabilidade do IFS (CAPE/CIN/LI/K) sobre o extent — F9.
+
+    Um ÚNICO GRIB (t,q,gh × 13 níveis, cache-first). Roda no worker (CPU pesada
+    no CAPE/LI) com ``progress_cb``. Devolve ``{nome: PLFieldData}`` pronto para
+    ``MapCanvas.add_pl_layer``. Tudo em ``data_dir`` (config.grib_dir).
+    """
+    if data_dir is None:
+        raise ValueError("data_dir não pode ser None")
+    data_dir = Path(data_dir)
+    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+    cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
+
+    if progress_cb:
+        progress_cb("Baixando coluna do modelo (t, q, gh)…")
+    grib_file = download_ecmwf(
+        variables=["t", "q", "gh"],
+        levels=PL_LEVELS,
+        step=step,
+        cycle=cycle,
+        output_path=data_dir / f"ecmwf_instab_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+        data_dir=data_dir,
+        source=source,
+        force_download=force_download,
+        levtype="pl",
+        date=cycle_date,
+    )
+    ds = xr.open_dataset(
+        grib_file,
+        engine="cfgrib",
+        backend_kwargs={
+            "filter_by_keys": {"typeOfLevel": "isobaricInhPa"},
+            "errors": "ignore",
+        },
+    )
+    try:
+        return _instability_from_dataset(
+            ds, extent, tuple(indices), int(coarsen_stride), step, progress_cb,
+        )
     finally:
         ds.close()
 

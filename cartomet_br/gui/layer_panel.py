@@ -713,6 +713,7 @@ class FieldLayerPanel(QWidget):
     preset_requested = pyqtSignal(str)                 # (preset_name)
     loczcit_requested = pyqtSignal()                   # índice ZCIT (LOCZCIT-PA)
     blocking_requested = pyqtSignal()                  # bloqueio atmosférico (anom. Z500)
+    instability_requested = pyqtSignal(object)         # campos de instabilidade (lista de índices)
 
     ANALYSIS_PRESETS = {
         "Sinótica clássica": [
@@ -849,6 +850,31 @@ class FieldLayerPanel(QWidget):
         )
         blocking_btn.clicked.connect(self.blocking_requested.emit)
         layout.addWidget(blocking_btn)
+
+        # ─── Instabilidade (CAPE/CIN/LI/K) — campos derivados do modelo (F9) ───
+        instab_group = QGroupBox("Instabilidade (modelo IFS — aprox.)")
+        instab_layout = QGridLayout(instab_group)
+        instab_layout.setSpacing(5)
+        instab_buttons = (
+            ("K-Index", ["kindex"], "Índice K na grade nativa (vetorizado, rápido)."),
+            ("Lifted Index", ["li"], "Lifted Index — ascensão de parcela em grade engrossada."),
+            ("CAPE / CIN", ["cape", "cin"], "CAPE e CIN de superfície — grade engrossada (mais lento)."),
+        )
+        for i, (label, idxs, tip) in enumerate(instab_buttons):
+            btn = QPushButton(label)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #C0392B; padding: 6px;
+                    font-size: 10px; font-weight: bold; border-radius: 4px;
+                }
+                QPushButton:hover { background-color: #E74C3C; }
+            """)
+            btn.setToolTip(
+                tip + "\n\nModelo IFS, 13 níveis — produto APROXIMADO (não observação)."
+            )
+            btn.clicked.connect(lambda _checked, idx=idxs: self.instability_requested.emit(idx))
+            instab_layout.addWidget(btn, 0, i)
+        layout.addWidget(instab_group)
 
         # ─── Seção 1: Campos em Altitude ───
         alt_group = QGroupBox("Campos em Altitude")

@@ -148,6 +148,8 @@ class MapCanvas(FigureCanvas):
     figure_zoom_requested = pyqtSignal(int)  # +1 ampliar / -1 reduzir a FIGURA (Ctrl+roda)
     vertical_sounding_requested = pyqtSignal(object)  # estação RAOB ancorada (dict) p/ Sonda Vertical
     model_sounding_requested = pyqtSignal(float, float)  # (lon, lat) p/ pseudo-sondagem do modelo
+    meteogram_requested = pyqtSignal(float, float)  # (lon, lat) p/ meteograma (F6)
+    cross_section_requested = pyqtSignal(float, float, float, float)  # (lon_a,lat_a,lon_b,lat_b) p/ corte vertical (F4)
 
     def __init__(self, parent: QSizePolicy | None = None, config: Config | None = None) -> None:
         self.config: Config = config or Config()
@@ -208,6 +210,11 @@ class MapCanvas(FigureCanvas):
         self._ruler_points = []
         self._ruler_artists = []
 
+        # Mobília de "carta OMM" (F7) — cabeçalho institucional + legenda dos
+        # símbolos. Só existe transitoriamente, em volta do export; nunca é
+        # desenhada na edição ao vivo. Guardada aqui só p/ poder remover depois.
+        self._chart_furniture: list = []
+
         # Rastreamento de artists por camada sinótica
         self._synoptic_artists = {
             "pnmm": [],
@@ -252,6 +259,10 @@ class MapCanvas(FigureCanvas):
         # Fonte da sonda: "observed" (Wyoming, ancora na estação) ou "model"
         # (perfil do IFS no ponto clicado). Definida pelo seletor do painel.
         self.sounding_source = "observed"
+
+        # Corte Vertical (F4): ponto A pendente + artistas da sobreposição A→B.
+        self._xsec_anchor = None
+        self._xsec_overlay: list = []
 
         # Zoom / navegação
         self._extent_history: list[list[float]] = []   # pilha de extents anteriores
@@ -780,6 +791,26 @@ class MapCanvas(FigureCanvas):
             self.interaction_mode = None
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
 
+    def set_meteogram_mode(self, enabled: bool) -> None:
+        """Modo 'Meteograma' (F6) — o clique dispara a série temporal do IFS no ponto."""
+        if enabled:
+            self.interaction_mode = "meteogram"
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+        elif self.interaction_mode == "meteogram":
+            self.interaction_mode = None
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+
+    def set_cross_section_mode(self, enabled: bool) -> None:
+        """Modo 'Corte Vertical' (F4) — dois cliques (A→B) definem a reta do corte."""
+        if enabled:
+            self.interaction_mode = "cross_section"
+            self._xsec_anchor = None
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+        elif self.interaction_mode == "cross_section":
+            self.interaction_mode = None
+            self._clear_xsec_overlay()
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+
     # ═══════════════════════════════════════════════════════════════════════
     #  ZOOM / NAVEGAÇÃO
     # ═══════════════════════════════════════════════════════════════════════
@@ -1033,6 +1064,55 @@ class MapCanvas(FigureCanvas):
 
         elif self.interaction_mode == "vertical_sounding":
             self._on_sounding_click(event.xdata, event.ydata)
+
+        elif self.interaction_mode == "meteogram":
+            self._mark_sounding_point(event.xdata, event.ydata, color="#117A65")
+            self.meteogram_requested.emit(float(event.xdata), float(event.ydata))
+
+        elif self.interaction_mode == "cross_section":
+            self._on_xsec_click(event.xdata, event.ydata)
+
+    def _on_xsec_click(self, lon: float, lat: float) -> None:
+        """Captura A→B do corte vertical (F4): 1º clique = A, 2º clique = B → emite.
+
+        Após o 2º clique a reta A→B é desenhada (Line2D, método sancionado em
+        GeoAxes) e o sinal ``cross_section_requested`` dispara o worker. Iniciar
+        um novo A (ou desligar o modo) descarta a reta/ponto anterior.
+        """
+        lon, lat = float(lon), float(lat)
+        if self._xsec_anchor is None:
+            self._clear_xsec_overlay()
+            self._xsec_anchor = (lon, lat)
+            mk, = self.ax.plot(
+                lon, lat, marker="o", color="#8E44AD", markersize=8,
+                markeredgecolor="white", markeredgewidth=1.2,
+                transform=ccrs.PlateCarree(), zorder=27,
+            )
+            self._xsec_overlay.append(mk)
+            self.draw()
+            return
+
+        lon_a, lat_a = self._xsec_anchor
+        self._xsec_anchor = None
+        line, = self.ax.plot(
+            [lon_a, lon], [lat_a, lat], color="#8E44AD", linewidth=2.0,
+            marker="o", markersize=6, markeredgecolor="white", markeredgewidth=1.0,
+            transform=ccrs.PlateCarree(), zorder=27,
+        )
+        self._xsec_overlay.append(line)
+        self.draw()
+        self.cross_section_requested.emit(lon_a, lat_a, lon, lat)
+
+    def _clear_xsec_overlay(self) -> None:
+        """Remove a sobreposição A→B do corte vertical e zera o ponto pendente."""
+        for art in self._xsec_overlay:
+            try:
+                art.remove()
+            except (ValueError, AttributeError):
+                pass
+        self._xsec_overlay = []
+        self._xsec_anchor = None
+        self.draw()
 
     def _on_sounding_click(self, lon: float, lat: float) -> None:
         """Despacha o clique da Sonda Vertical conforme a fonte selecionada.
@@ -1621,13 +1701,19 @@ class MapCanvas(FigureCanvas):
         self._update_map_title()
         self.draw()
 
-    def save_figure(self, filepath: str | Path, dpi: int = 200) -> None:
+    def save_figure(self, filepath: str | Path, dpi: int = 200,
+                    extra_artists: list | None = None) -> None:
         filepath = Path(filepath)
         fmt = filepath.suffix.lstrip(".").lower() or "png"
         # PDF usa o backend dedicado do matplotlib — garante que está carregado
         if fmt == "pdf":
             import matplotlib.backends.backend_pdf  # noqa: F401
-        self.fig.savefig(str(filepath), dpi=dpi, bbox_inches="tight", facecolor="white", format=fmt)
+        # ``extra_artists`` garante que a mobília de carta (cabeçalho/legenda
+        # posicionada FORA do retângulo [0,1] da figura) entre no bbox "tight".
+        self.fig.savefig(
+            str(filepath), dpi=dpi, bbox_inches="tight", facecolor="white",
+            format=fmt, bbox_extra_artists=extra_artists or None,
+        )
 
     def capture_canvas(self, filepath: str | Path, scale: int = 2) -> None:
         """Captura pixel-perfect do canvas como exibido na tela.
@@ -1663,6 +1749,196 @@ class MapCanvas(FigureCanvas):
             fmt = "JPEG"
 
         pixmap.save(str(filepath), fmt, 95)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  CARTA OMM (F7) — cabeçalho institucional + legenda de simbologia
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def get_chart_time_meta(self) -> dict:
+        """Validade/rodada/step da camada visível de maior prioridade.
+
+        Mesma regra de prioridade do título dinâmico: a camada PL/superfície
+        visível mais recente vence; senão a base sinótica; senão vazio. Serve
+        para auto-preencher o bloco de título da carta (F7).
+        """
+        for lid in reversed(list(self._pl_data)):
+            if lid in self._pl_artists and self._pl_artists[lid]:
+                d = self._pl_data[lid]
+                return {"valid_time": d.valid_time, "base_time": d.base_time,
+                        "step": d.step}
+        if self.synoptic_data is not None:
+            d = self.synoptic_data
+            return {"valid_time": getattr(d, "valid_time", ""),
+                    "base_time": getattr(d, "base_time", ""),
+                    "step": getattr(d, "step", 0)}
+        return {"valid_time": "", "base_time": "", "step": 0}
+
+    def get_used_symbols(self) -> list[tuple[str, dict]]:
+        """Símbolos OMM efetivamente desenhados (p/ a legenda da carta).
+
+        Varre o histórico (linhas e pontuais) e devolve, sem repetição e na
+        ordem de uso, os pares (chave, entrada MODOS). Caneta/forma/anotação/
+        emoji não são simbologia OMM e ficam de fora.
+        """
+        used: list[tuple[str, dict]] = []
+        seen: set[str] = set()
+        for cmd in self.history.commands:
+            key = getattr(cmd, "symbol_key", None)
+            if key and key not in seen and key in MODOS:
+                seen.add(key)
+                used.append((key, MODOS[key]))
+        return used
+
+    def render_chart_furniture(self, meta: dict) -> list:
+        """Compõe o cabeçalho institucional + legenda na figura (modo carta).
+
+        Tudo é posicionado em coordenadas de figura FORA do retângulo [0,1] —
+        cabeçalho acima, legenda abaixo —, para NÃO mexer na geometria do mapa
+        (Cartopy tem aspecto travado; encolher o eixo dispara o recálculo do
+        extent). O ``save_figure(extra_artists=...)`` recorta incluindo esses
+        artistas. Devolve a lista criada (p/ o bbox e p/ ``clear_chart_furniture``).
+        """
+        from matplotlib.patches import Rectangle
+
+        self.clear_chart_furniture()
+        added: list = []
+        navy = "#16365C"
+
+        # ── Faixa de cabeçalho (acima da figura) ──
+        band = Rectangle((0.0, 1.005), 1.0, 0.145, transform=self.fig.transFigure,
+                         facecolor="#F2F4F7", edgecolor="none", zorder=5,
+                         clip_on=False)
+        self.fig.add_artist(band)
+        added.append(band)
+        accent = Rectangle((0.0, 1.142), 1.0, 0.008, transform=self.fig.transFigure,
+                           facecolor=navy, edgecolor="none", zorder=6, clip_on=False)
+        self.fig.add_artist(accent)
+        added.append(accent)
+
+        # Logo opcional (canto esquerdo do cabeçalho).
+        text_left = 0.02
+        logo_path = (meta.get("logo_path") or "").strip()
+        if logo_path and Path(logo_path).exists():
+            try:
+                import matplotlib.image as mpimg
+                # zorder ALTO: a faixa do cabeçalho é opaca (zorder 5) e cobriria
+                # a logo se esta ficasse abaixo. add_axes a desenha por cima.
+                logo_ax = self.fig.add_axes([0.02, 1.045, 0.18, 0.085], zorder=20)
+                logo_ax.imshow(mpimg.imread(logo_path))
+                logo_ax.axis("off")
+                added.append(logo_ax)
+                text_left = 0.215
+            except Exception as exc:  # noqa: BLE001 — logo é decorativo
+                logger.debug("Logo da carta ignorado (%s): %s", logo_path, exc)
+
+        def _t(x, y, s, **kw):
+            kw.setdefault("transform", self.fig.transFigure)
+            kw.setdefault("clip_on", False)
+            kw.setdefault("zorder", 7)
+            art = self.fig.text(x, y, s, **kw)
+            added.append(art)
+            return art
+
+        institution = meta.get("institution") or "—"
+        chart_type = meta.get("chart_type") or "Carta Sinótica"
+        analyst = meta.get("analyst") or ""
+
+        _t(text_left, 1.108, institution, fontsize=15, fontweight="bold",
+           color=navy, ha="left", va="center")
+        _t(text_left, 1.068, chart_type, fontsize=11, color="#222222",
+           ha="left", va="center")
+        if analyst:
+            _t(text_left, 1.034, f"Analista: {analyst}", fontsize=9,
+               color="#555555", ha="left", va="center")
+
+        # Bloco cronológico à direita.
+        emission = meta.get("emission") or ""
+        valid_time = meta.get("valid_time") or ""
+        base_time = meta.get("base_time") or ""
+        step = meta.get("step", 0)
+        right = 0.985
+        if emission:
+            _t(right, 1.108, f"Emitida: {emission} UTC", fontsize=9,
+               color="#222222", ha="right", va="center")
+        if valid_time:
+            _t(right, 1.075, f"Válida: {valid_time} UTC", fontsize=9,
+               color="#222222", ha="right", va="center")
+        rod = []
+        if base_time:
+            rod.append(f"Rodada: {base_time}")
+        rod.append(f"Step: +{step}h")
+        _t(right, 1.042, " | ".join(rod), fontsize=9, color="#555555",
+           ha="right", va="center")
+
+        # Espaçador inferior invisível (branco sobre fundo branco): garante que o
+        # bbox "tight" inclua os rótulos de longitude do gridliner — que o
+        # get_tightbbox do Cartopy nem sempre captura — MESMO sem legenda.
+        spacer = Rectangle((0.0, -0.035), 1.0, 0.035, transform=self.fig.transFigure,
+                           facecolor="white", edgecolor="none", zorder=0, clip_on=False)
+        self.fig.add_artist(spacer)
+        added.append(spacer)
+
+        # ── Legenda da simbologia OMM (abaixo da figura) ──
+        used = self.get_used_symbols()
+        if used:
+            ncols = 4
+            nrows = (len(used) + ncols - 1) // ncols
+            leg_h = 0.045 * (nrows + 1.6)          # título + linhas
+            leg_ax = self.fig.add_axes([0.04, -0.055 - leg_h, 0.92, leg_h])
+            leg_ax.set_xlim(0, 1)
+            leg_ax.set_ylim(0, 1)
+            leg_ax.axis("off")
+            added.append(leg_ax)
+            # Título numa linha própria, no topo do eixo (longe dos itens).
+            leg_ax.text(0.0, 1.0, "Legenda — Simbologia OMM", fontsize=9,
+                        fontweight="bold", color=navy, ha="left", va="top")
+            y_top, y_bot = 0.58, 0.12
+            for i, (key, modo) in enumerate(used):
+                col, row = i % ncols, i // ncols
+                cx = col / ncols + 0.01
+                cy = y_top if nrows <= 1 else y_top - row * (y_top - y_bot) / (nrows - 1)
+                self._draw_legend_swatch(leg_ax, modo, cx, cy)
+                leg_ax.text(cx + 0.085, cy, modo.get("nome", key), fontsize=8.5,
+                            color="#222222", ha="left", va="center")
+
+        self._chart_furniture = added
+        self.draw_idle()
+        return added
+
+    def _draw_legend_swatch(self, ax, modo: dict, cx: float, cy: float) -> None:
+        """Naco de amostra de um símbolo na legenda (robusto a falhas).
+
+        Símbolos de linha usam os efeitos OMM reais; pontuais com rótulo (A/B)
+        usam o caractere; demais pontuais usam um marcador representativo na cor
+        — os ``draw_func`` dependem de GeoAxes/ccrs e não cabem num eixo comum.
+        """
+        cor = modo.get("cor", "#333333")
+        if not modo.get("ponto", False):
+            try:
+                efeito = modo["efeito"](flip=False, intensity=2)
+                ax.plot([cx, cx + 0.07], [cy, cy], color=cor, linewidth=1.6,
+                        path_effects=efeito, solid_capstyle="round")
+            except Exception:  # noqa: BLE001 — sempre cai numa linha simples
+                ax.plot([cx, cx + 0.07], [cy, cy], color=cor, linewidth=2.4)
+        elif modo.get("label"):
+            ax.text(cx + 0.035, cy, modo["label"], fontsize=13, fontweight="bold",
+                    color=cor, ha="center", va="center")
+        else:
+            ax.plot([cx + 0.035], [cy], marker="o", markersize=9, color=cor,
+                    markeredgecolor="white", markeredgewidth=0.8)
+
+    def clear_chart_furniture(self) -> None:
+        """Remove a mobília de carta (cabeçalho/legenda) e limpa o registro."""
+        for art in self._chart_furniture:
+            try:
+                if art in self.fig.axes:
+                    self.fig.delaxes(art)
+                else:
+                    art.remove()
+            except (ValueError, AttributeError, KeyError):
+                pass
+        self._chart_furniture = []
+        self.draw_idle()
 
     # ═══════════════════════════════════════════════════════════════════════
     #  ANOTAÇÕES DE TEXTO NO MAPA

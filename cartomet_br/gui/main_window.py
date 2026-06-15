@@ -54,6 +54,11 @@ from cartomet_br.gui.layer_panel import SettingsPanel, FieldLayerPanel, Satellit
 from cartomet_br.gui.map_canvas import MapCanvas
 from cartomet_br.gui.sounding_panel import SoundingPanel
 from cartomet_br.gui.sounding_engine import ModelSoundingWorker, SoundingWorker
+from cartomet_br.gui.analysis_engine import (
+    CrossSectionWorker, InstabilityWorker, MeteogramWorker,
+)
+from cartomet_br.gui.cross_section_panel import CrossSectionPanel
+from cartomet_br.gui.meteogram_panel import MeteogramPanel
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +83,11 @@ class MainWindow(QMainWindow):
         self.sounding_worker = None
         self._active_sounding_station = None  # estação RAOB ancorada na Sonda Vertical
         self._active_model_point = None       # (lon, lat) da pseudo-sondagem do modelo
+        self._meteogram_worker = None         # worker do meteograma (F6)
+        self._active_meteogram_point = None   # (lon, lat) do meteograma ativo
+        self._xsec_worker = None              # worker do corte vertical (F4)
+        self._active_xsec = None              # (lon_a, lat_a, lon_b, lat_b) ativo
+        self._instability_worker = None       # worker dos campos de instabilidade (F9)
         self._last_valid_time = None  # datetime do modelo carregado (sync de obs)
 
         self.setWindowTitle(f"{APP_NAME} — {APP_DESCRIPTION}")
@@ -181,6 +191,16 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.sounding_panel)
         self.sounding_panel.hide()
 
+        # Meteograma (F6) — dock direito deslizante, oculto até o 1º clique.
+        self.meteogram_panel = MeteogramPanel("Meteograma (Ponto)", self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.meteogram_panel)
+        self.meteogram_panel.hide()
+
+        # Corte Vertical (F4) — dock direito deslizante, oculto até o corte A→B.
+        self.cross_section_panel = CrossSectionPanel("Corte Vertical (A→B)", self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.cross_section_panel)
+        self.cross_section_panel.hide()
+
     def _setup_menu(self):
         menubar = self.menuBar()
 
@@ -198,6 +218,10 @@ class MainWindow(QMainWindow):
         save_action.setShortcut(QKeySequence.StandardKey.Save)
         save_action.triggered.connect(self._save_figure)
         file_menu.addAction(save_action)
+
+        export_chart_action = QAction("Exportar Carta (OMM)...", self)
+        export_chart_action.triggered.connect(self._export_chart)
+        file_menu.addAction(export_chart_action)
 
         print_action = QAction("Capturar Tela do Mapa...", self)
         print_action.setShortcut(QKeySequence.StandardKey.Print)
@@ -351,6 +375,32 @@ class MainWindow(QMainWindow):
         self.sounding_mode_btn.clicked.connect(self._toggle_sounding_mode)
         toolbar.addWidget(self.sounding_mode_btn)
 
+        self.meteogram_mode_btn = QPushButton("📈 Meteograma")
+        self.meteogram_mode_btn.setCheckable(True)
+        self.meteogram_mode_btn.setToolTip(
+            "Clique num ponto do mapa para ver a série temporal do modelo IFS "
+            "(+0…+72h): T, vento, precip, PNMM e água precipitável"
+        )
+        self.meteogram_mode_btn.setStyleSheet("""
+            QPushButton { background-color: #117A65; padding: 6px 14px; font-size: 11px; }
+            QPushButton:checked { background-color: #E74C3C; }
+        """)
+        self.meteogram_mode_btn.clicked.connect(self._toggle_meteogram_mode)
+        toolbar.addWidget(self.meteogram_mode_btn)
+
+        self.xsec_mode_btn = QPushButton("🔪 Corte Vertical")
+        self.xsec_mode_btn.setCheckable(True)
+        self.xsec_mode_btn.setToolTip(
+            "Clique em DOIS pontos (A → B) para o corte vertical do modelo IFS: "
+            "ω (ascendência), temperatura, umidade e vento × pressão"
+        )
+        self.xsec_mode_btn.setStyleSheet("""
+            QPushButton { background-color: #8E44AD; padding: 6px 14px; font-size: 11px; }
+            QPushButton:checked { background-color: #E74C3C; }
+        """)
+        self.xsec_mode_btn.clicked.connect(self._toggle_xsec_mode)
+        toolbar.addWidget(self.xsec_mode_btn)
+
         toolbar.addSeparator()
 
         # ── Zoom / navegação ──
@@ -491,6 +541,7 @@ class MainWindow(QMainWindow):
         self.field_panel.preset_requested.connect(self._on_preset_requested)
         self.field_panel.loczcit_requested.connect(self._on_loczcit_requested)
         self.field_panel.blocking_requested.connect(self._on_blocking_requested)
+        self.field_panel.instability_requested.connect(self._launch_instability)
 
         self.canvas.annotation_requested.connect(self._on_annotation_requested)
 
@@ -507,6 +558,8 @@ class MainWindow(QMainWindow):
         self.canvas.vertical_sounding_requested.connect(self._on_sounding_station_selected)
         self.canvas.model_sounding_requested.connect(self._on_model_sounding_point)
         self.sounding_panel.source_changed.connect(self._on_sounding_source_changed)
+        self.canvas.meteogram_requested.connect(self._on_meteogram_point)
+        self.canvas.cross_section_requested.connect(self._on_cross_section_request)
         self.settings_panel.step_combo.currentIndexChanged.connect(self._on_sounding_step_changed)
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -674,11 +727,60 @@ class MainWindow(QMainWindow):
         self._uncheck_sounding_button()
 
     def _uncheck_sounding_button(self) -> None:
-        """Desativa a Sonda Vertical (exclusividade com os demais modos de clique)."""
-        btn = getattr(self, "sounding_mode_btn", None)
-        if btn is not None and btn.isChecked():
-            btn.setChecked(False)
-        self.canvas.set_sounding_mode(False)
+        """Desativa as análises de clique (Sonda Vertical, Meteograma, Corte).
+
+        Chamada pelos modos de desenho/zoom/pan ao ativar — garante exclusividade
+        mútua entre TODAS as ferramentas de clique.
+        """
+        analysis = (
+            ("sounding_mode_btn", self.canvas.set_sounding_mode),
+            ("meteogram_mode_btn", self.canvas.set_meteogram_mode),
+            ("xsec_mode_btn", self.canvas.set_cross_section_mode),
+        )
+        for attr, setter in analysis:
+            btn = getattr(self, attr, None)
+            if btn is not None and btn.isChecked():
+                btn.setChecked(False)
+            setter(False)
+
+    def _disable_other_click_modes(self, keep: str = "") -> None:
+        """Desliga TODOS os modos de clique exceto ``keep`` (desenho/zoom/pan/análises).
+
+        ``keep`` ∈ {"sounding", "meteogram", "cross_section"} para preservar a
+        análise que está sendo ativada.
+        """
+        # Desenho/anotação/régua/emoji/caneta/formas.
+        for btn in (self.draw_mode_btn, self.annotate_btn, self.ruler_btn):
+            if btn.isChecked():
+                btn.setChecked(False)
+        self.canvas.set_drawing_mode(False)
+        self.canvas.set_annotation_mode(False)
+        self.canvas.set_ruler_mode(False)
+        self.canvas.set_emoji_mode(False)
+        self.canvas.set_pen_mode(False)
+        self.canvas.set_shape_mode(False)
+        for reset in ("reset_emoji_mode", "reset_pen_mode", "reset_shapes_mode"):
+            if hasattr(self.symbol_panel, reset):
+                getattr(self.symbol_panel, reset)()
+        # Zoom/pan.
+        for btn in (getattr(self, "zoom_area_btn", None), getattr(self, "pan_btn", None)):
+            if btn is not None and btn.isChecked():
+                btn.setChecked(False)
+        self.canvas.set_zoom_area_mode(False)
+        self.canvas.set_pan_mode(False)
+        # Análises docadas (sonda/meteograma/corte) — menos a mantida.
+        analysis = {
+            "sounding": ("sounding_mode_btn", self.canvas.set_sounding_mode),
+            "meteogram": ("meteogram_mode_btn", self.canvas.set_meteogram_mode),
+            "cross_section": ("xsec_mode_btn", self.canvas.set_cross_section_mode),
+        }
+        for key, (attr, setter) in analysis.items():
+            if key == keep:
+                continue
+            btn = getattr(self, attr, None)
+            if btn is not None and btn.isChecked():
+                btn.setChecked(False)
+            setter(False)
 
     def _toggle_zoom_area_mode(self, checked: bool) -> None:
         if checked:
@@ -709,27 +811,7 @@ class MainWindow(QMainWindow):
     def _toggle_sounding_mode(self, checked: bool) -> None:
         """Liga/desliga a Sonda Vertical, exclusiva dos demais modos de clique."""
         if checked:
-            # Desliga as outras famílias de modo SEM reusar os helpers (que
-            # desmarcariam a própria Sonda que acabamos de ativar).
-            for btn in (self.draw_mode_btn, self.annotate_btn, self.ruler_btn,
-                        self.zoom_area_btn, self.pan_btn):
-                if btn.isChecked():
-                    btn.setChecked(False)
-            self.canvas.set_drawing_mode(False)
-            self.canvas.set_annotation_mode(False)
-            self.canvas.set_ruler_mode(False)
-            self.canvas.set_emoji_mode(False)
-            self.canvas.set_pen_mode(False)
-            self.canvas.set_shape_mode(False)
-            self.canvas.set_zoom_area_mode(False)
-            self.canvas.set_pan_mode(False)
-            if hasattr(self.symbol_panel, "reset_emoji_mode"):
-                self.symbol_panel.reset_emoji_mode()
-            if hasattr(self.symbol_panel, "reset_pen_mode"):
-                self.symbol_panel.reset_pen_mode()
-            if hasattr(self.symbol_panel, "reset_shapes_mode"):
-                self.symbol_panel.reset_shapes_mode()
-
+            self._disable_other_click_modes(keep="sounding")
             self.canvas.set_sounding_mode(True)
             # Mostra o painel já na ativação: o seletor de Fonte (Observada × Modelo)
             # precisa estar acessível ANTES do primeiro clique.
@@ -741,6 +823,36 @@ class MainWindow(QMainWindow):
             self.status_label.setStyleSheet("color: #16A085;")
         else:
             self.canvas.set_sounding_mode(False)
+            self.status_label.setText("● Pronto")
+            self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _toggle_meteogram_mode(self, checked: bool) -> None:
+        """Liga/desliga o Meteograma (F6), exclusivo dos demais modos de clique."""
+        if checked:
+            self._disable_other_click_modes(keep="meteogram")
+            self.canvas.set_meteogram_mode(True)
+            self.meteogram_panel.show()
+            self.meteogram_panel.raise_()
+            self.status_label.setText(
+                "● Meteograma — clique num ponto do mapa para a série do modelo (+0…+72h)"
+            )
+            self.status_label.setStyleSheet("color: #117A65;")
+        else:
+            self.canvas.set_meteogram_mode(False)
+            self.status_label.setText("● Pronto")
+            self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _toggle_xsec_mode(self, checked: bool) -> None:
+        """Liga/desliga o Corte Vertical (F4), exclusivo dos demais modos de clique."""
+        if checked:
+            self._disable_other_click_modes(keep="cross_section")
+            self.canvas.set_cross_section_mode(True)
+            self.status_label.setText(
+                "● Corte Vertical — clique em DOIS pontos do mapa (A → B)"
+            )
+            self.status_label.setStyleSheet("color: #8E44AD;")
+        else:
+            self.canvas.set_cross_section_mode(False)
             self.status_label.setText("● Pronto")
             self.status_label.setStyleSheet("color: #27AE60;")
 
@@ -773,7 +885,10 @@ class MainWindow(QMainWindow):
         self._launch_sounding()
 
     def _on_sounding_step_changed(self) -> None:
-        """Step mudou no mapa → recarrega a sondagem ativa (observada ou modelo)."""
+        """Step mudou → recarrega a sondagem ativa (e o corte vertical, se houver)."""
+        # Corte Vertical (F4): re-dispara ao mudar step/rodada se A→B está ativo.
+        if (self.cross_section_panel.isVisible() and self._active_xsec is not None):
+            self._launch_cross_section()
         if not self.sounding_panel.isVisible():
             return
         if self.canvas.sounding_source == "model":
@@ -883,6 +998,163 @@ class MainWindow(QMainWindow):
         worker.finished_error.connect(self._on_sounding_error)
         self.sounding_worker = worker
         worker.start()
+
+    # ── Meteograma (série temporal num ponto) — F6 ───────────────────────────
+    def _on_meteogram_point(self, lon: float, lat: float) -> None:
+        """Clique no modo Meteograma → abre o painel e dispara a série temporal."""
+        self._active_meteogram_point = (float(lon), float(lat))
+        self.meteogram_panel.show()
+        self.meteogram_panel.raise_()
+        self._launch_meteogram()
+
+    def _launch_meteogram(self) -> None:
+        """Dispara o MeteogramWorker no ponto ativo usando a rodada atual.
+
+        A série é multi-step (+0…+72h): baixa step a step em thread (serializado,
+        cache-first). Diferente da sonda, NÃO re-dispara ao mudar o step — o eixo
+        já É o tempo; o usuário re-clica para refletir outra rodada.
+        """
+        if self._active_meteogram_point is None:
+            return
+        lon, lat = self._active_meteogram_point
+        cycle = self.settings_panel.get_cycle()
+        cycle_date = self.settings_panel.get_cycle_date()
+        ns = "N" if lat >= 0 else "S"
+        ew = "E" if lon >= 0 else "W"
+        label = f"Modelo IFS — {abs(lat):.1f}°{ns} {abs(lon):.1f}°{ew}"
+
+        if self._meteogram_worker is not None and self._meteogram_worker.isRunning():
+            return
+
+        self.meteogram_panel.show_loading(label, "+0…+72h")
+        self.status_label.setText(f"● Meteograma em {label} — baixando série…")
+        self.status_label.setStyleSheet("color: #117A65;")
+
+        worker = MeteogramWorker(
+            lon=lon, lat=lat, cycle=cycle, cycle_date=cycle_date,
+            # Mesma subpasta dos demais GRIBs — nada solto/duplicado na raiz.
+            data_dir=self.config.grib_dir, parent=self,
+        )
+        worker.progress.connect(self._on_meteogram_progress)
+        worker.finished_ok.connect(self._on_meteogram_ok)
+        worker.finished_error.connect(self._on_meteogram_error)
+        self._meteogram_worker = worker
+        worker.start()
+
+    def _on_meteogram_progress(self, msg: str) -> None:
+        self.status_label.setText(f"● {msg}")
+        self.status_label.setStyleSheet("color: #117A65;")
+
+    def _on_meteogram_ok(self, ts) -> None:
+        self.meteogram_panel.render(ts)
+        self.status_label.setText("● Meteograma pronto")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_meteogram_error(self, msg: str) -> None:
+        self.meteogram_panel.show_error(msg)
+        self.status_label.setText("● Meteograma indisponível")
+        self.status_label.setStyleSheet("color: #E74C3C;")
+
+    # ── Corte Vertical (cross-section A→B) — F4 ──────────────────────────────
+    def _on_cross_section_request(self, lon_a: float, lat_a: float,
+                                  lon_b: float, lat_b: float) -> None:
+        """Segundo clique (B) → abre o painel e dispara o corte vertical A→B."""
+        self._active_xsec = (float(lon_a), float(lat_a), float(lon_b), float(lat_b))
+        self.cross_section_panel.show()
+        self.cross_section_panel.raise_()
+        self._launch_cross_section()
+
+    def _launch_cross_section(self) -> None:
+        """Dispara o CrossSectionWorker na reta ativa usando a rodada/step atuais."""
+        if self._active_xsec is None:
+            return
+        lon_a, lat_a, lon_b, lat_b = self._active_xsec
+        cycle = self.settings_panel.get_cycle()
+        cycle_date = self.settings_panel.get_cycle_date()
+        step = self.settings_panel.get_step() or 0
+
+        if self._xsec_worker is not None and self._xsec_worker.isRunning():
+            return
+
+        self.cross_section_panel.show_loading("Corte Vertical A→B", f"+{step}h")
+        self.status_label.setText("● Corte vertical — baixando e interpolando…")
+        self.status_label.setStyleSheet("color: #8E44AD;")
+
+        worker = CrossSectionWorker(
+            lon_a=lon_a, lat_a=lat_a, lon_b=lon_b, lat_b=lat_b, step=step,
+            cycle=cycle, cycle_date=cycle_date,
+            # Mesma subpasta dos demais GRIBs — nada solto/duplicado na raiz.
+            data_dir=self.config.grib_dir, parent=self,
+        )
+        worker.progress.connect(self._on_xsec_progress)
+        worker.finished_ok.connect(self._on_xsec_ok)
+        worker.finished_error.connect(self._on_xsec_error)
+        self._xsec_worker = worker
+        worker.start()
+
+    def _on_xsec_progress(self, msg: str) -> None:
+        self.status_label.setText(f"● {msg}")
+        self.status_label.setStyleSheet("color: #8E44AD;")
+
+    def _on_xsec_ok(self, xs) -> None:
+        self.cross_section_panel.render(xs)
+        self.status_label.setText("● Corte vertical pronto")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_xsec_error(self, msg: str) -> None:
+        self.cross_section_panel.show_error(msg)
+        self.status_label.setText("● Corte vertical indisponível")
+        self.status_label.setStyleSheet("color: #E74C3C;")
+
+    # ── Campos de instabilidade (CAPE/CIN/LI/K) — F9 ─────────────────────────
+    def _launch_instability(self, indices) -> None:
+        """Dispara o InstabilityWorker sobre o extent atual (rodada/step atuais).
+
+        CPU pesada (ascensão de parcela no CAPE/LI) → roda em thread com barra de
+        progresso; a GUI nunca congela. Os campos voltam como camadas PL.
+        """
+        if self._instability_worker is not None and self._instability_worker.isRunning():
+            return
+        cycle = self.settings_panel.get_cycle()
+        cycle_date = self.settings_panel.get_cycle_date()
+        step = self.settings_panel.get_step() or 0
+        extent = list(self.config.extent)
+
+        self.progress_bar.setVisible(True)
+        self.status_label.setText("● Instabilidade — baixando e calculando (pode demorar)…")
+        self.status_label.setStyleSheet("color: #C0392B;")
+
+        worker = InstabilityWorker(
+            extent=extent, step=step, cycle=cycle, cycle_date=cycle_date,
+            # Mesma subpasta dos demais GRIBs — nada solto/duplicado na raiz.
+            data_dir=self.config.grib_dir, indices=indices, stride=4, parent=self,
+        )
+        worker.progress.connect(self._on_instability_progress)
+        worker.finished_ok.connect(self._on_instability_ok)
+        worker.finished_error.connect(self._on_instability_error)
+        self._instability_worker = worker
+        worker.start()
+
+    def _on_instability_progress(self, msg: str) -> None:
+        self.status_label.setText(f"● {msg}")
+        self.status_label.setStyleSheet("color: #C0392B;")
+
+    def _on_instability_ok(self, fields) -> None:
+        self.progress_bar.setVisible(False)
+        for layer_id, data in fields.items():
+            self.field_panel.remove_layer_entry(layer_id)
+            self.canvas.add_pl_layer(layer_id, data)
+            var_info = VARIABLE_REGISTRY.get(data.variable, {})
+            label = var_info.get("nome", data.variable)
+            self.field_panel.add_layer_entry(layer_id, label, data.unit)
+        self.status_label.setText("● Instabilidade carregada")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_instability_error(self, msg: str) -> None:
+        self.progress_bar.setVisible(False)
+        self.status_label.setText("● Instabilidade indisponível")
+        self.status_label.setStyleSheet("color: #E74C3C;")
+        QMessageBox.warning(self, "Instabilidade", msg)
 
     def _setup_zoom_shortcuts(self) -> None:
         """Atalhos de zoom sem colisão (Ctrl+Z/Ctrl+Y reservados ao desenho)."""
@@ -2062,16 +2334,8 @@ class MainWindow(QMainWindow):
             return f"carta_{bt}_step+{step}h.{ext}"
         return f"carta_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{ext}"
 
-    def _save_figure(self):
-        filepath, _ = QFileDialog.getSaveFileName(
-            self, "Salvar Imagem",
-            str(self.config.charts_dir / self._default_chart_name("png")),
-            "PNG (*.png);;JPEG (*.jpg);;PDF (*.pdf)"
-        )
-        if not filepath:
-            return
-
-        # Seletor de resolução
+    def _ask_export_dpi(self) -> int | None:
+        """Seletor de resolução (DPI) compartilhado pelos fluxos de export."""
         opcoes = [
             "100 DPI — Rascunho (rápido, menor arquivo)",
             "150 DPI — Qualidade média",
@@ -2089,9 +2353,21 @@ class MainWindow(QMainWindow):
             False,  # não editável
         )
         if not ok:
+            return None
+        return dpi_map[escolha]
+
+    def _save_figure(self):
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Salvar Imagem",
+            str(self.config.charts_dir / self._default_chart_name("png")),
+            "PNG (*.png);;JPEG (*.jpg);;PDF (*.pdf)"
+        )
+        if not filepath:
             return
 
-        dpi = dpi_map[escolha]
+        dpi = self._ask_export_dpi()
+        if dpi is None:
+            return
         try:
             self.canvas.save_figure(filepath, dpi=dpi)
             self.status_label.setText(f"● Salvo ({dpi} DPI): {Path(filepath).name}")
@@ -2100,6 +2376,46 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erro ao Exportar", f"Não foi possível salvar o arquivo:\n\n{e}")
             self.status_label.setText("● Erro ao exportar")
             self.status_label.setStyleSheet("color: #E74C3C;")
+
+    def _export_chart(self):
+        """Exporta no 'modo carta OMM': cabeçalho institucional + legenda.
+
+        Diferente de ``_save_figure`` (export cru): abre o diálogo de metadados,
+        compõe a mobília (cabeçalho/legenda) só na figura exportada e a remove em
+        seguida — a edição ao vivo nunca é tocada.
+        """
+        from cartomet_br.gui.chart_export import compose_chart_metadata
+        from cartomet_br.gui.chart_header_dialog import ChartHeaderDialog
+
+        dialog = ChartHeaderDialog(self)
+        if not dialog.exec():            # Cancelado
+            return
+        header = dialog.metadata()
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Exportar Carta (OMM)",
+            str(self.config.charts_dir / self._default_chart_name("png")),
+            "PNG (*.png);;PDF (*.pdf);;JPEG (*.jpg)"
+        )
+        if not filepath:
+            return
+
+        dpi = self._ask_export_dpi()
+        if dpi is None:
+            return
+
+        meta = compose_chart_metadata(header, self.canvas.get_chart_time_meta())
+        try:
+            extra = self.canvas.render_chart_furniture(meta)
+            self.canvas.save_figure(filepath, dpi=dpi, extra_artists=extra)
+            self.status_label.setText(f"● Carta exportada ({dpi} DPI): {Path(filepath).name}")
+            self.status_label.setStyleSheet("color: #27AE60;")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro ao Exportar", f"Não foi possível exportar a carta:\n\n{e}")
+            self.status_label.setText("● Erro ao exportar carta")
+            self.status_label.setStyleSheet("color: #E74C3C;")
+        finally:
+            self.canvas.clear_chart_furniture()
 
     # ═══════════════════════════════════════════════════════════════════════
     #  PROJETO DE ANÁLISE (.cmbr) — salvar/abrir o traçado + estado do mapa
