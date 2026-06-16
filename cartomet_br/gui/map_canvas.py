@@ -8,12 +8,18 @@ Inclui sistema de undo/redo baseado no padrão Command.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from pathlib import Path
 
 import numpy as np
 import matplotlib
-matplotlib.use('QtAgg')
+
+# Backend interativo Qt para a GUI. Em ambiente headless (CI, testes, servidor
+# sem display) o Matplotlib recusa carregar um backend interativo; nesse caso
+# mantém-se o backend não-interativo atual (Agg) sem quebrar o import do módulo.
+with contextlib.suppress(ImportError):
+    matplotlib.use('QtAgg')
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.patheffects as pe
