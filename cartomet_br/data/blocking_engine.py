@@ -55,8 +55,8 @@ DEFAULT_CLIM_BASE_URL: str = (
 # decrescente, lon −150→30), e a anomalia é uma subtração direta.
 CLIM_EXTENT: list[float] = [-150.0, -75.0, 30.0, 15.0]
 
-CLIM_HOURS: tuple[int, int] = (0, 12)      # horários sinóticos da climatologia
-CLIM_VAR: str = "z500_clim"                # variável dos NetCDFs diários (gpm)
+CLIM_HOURS: tuple[int, int] = (0, 12)  # horários sinóticos da climatologia
+CLIM_VAR: str = "z500_clim"  # variável dos NetCDFs diários (gpm)
 
 # Render: níveis FIXOS simétricos (cartas comparáveis entre si); extend="both"
 # cobre |anomalia| > 320 gpm em latitudes altas.
@@ -65,12 +65,13 @@ ANOM_LEVELS: np.ndarray = np.arange(-320.0, 321.0, 40.0)
 # Download da climatologia (arquivos ~800 KB; raw.githubusercontent.com)
 HTTP_TIMEOUT_S: float = 30.0
 HTTP_RETRIES: int = 3
-HTTP_BACKOFF_S: float = 1.0                # 1 s, 2 s, 4 s
+HTTP_BACKOFF_S: float = 1.0  # 1 s, 2 s, 4 s
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  TIPOS
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class BlockingCancelled(Exception):
     """Sinaliza cancelamento cooperativo da análise de bloqueio pelo usuário."""
@@ -84,29 +85,30 @@ class BlockingDataError(Exception):
 class ClimSlot:
     """Slot climatológico resolvido a partir do valid_time do IFS."""
 
-    mmdd: str           # "0611" — sempre do próprio valid_time (29/02 incluído)
-    hour: int           # 0 | 12 (horário climatológico mais próximo)
-    is_approx: bool     # True se valid_hour ∉ {0, 12} (aproximação documentada)
+    mmdd: str  # "0611" — sempre do próprio valid_time (29/02 incluído)
+    hour: int  # 0 | 12 (horário climatológico mais próximo)
+    is_approx: bool  # True se valid_hour ∉ {0, 12} (aproximação documentada)
 
 
 @dataclass
 class BlockingResult:
     """Saída do motor — campo de anomalia pronto para o render divergente."""
 
-    anom: np.ndarray            # 2D float64 (gpm), grade da climatologia
-    lons: np.ndarray            # 1D −150 → 30 (721 pts)
-    lats: np.ndarray            # 1D 15 → −75 DECRESCENTE (361 pts)
-    valid_time: str = ""        # "YYYY-MM-DDTHH:MM" (rodada + step)
-    base_time: str = ""         # rodada-base do IFS (formato do load_pl_variable)
+    anom: np.ndarray  # 2D float64 (gpm), grade da climatologia
+    lons: np.ndarray  # 1D −150 → 30 (721 pts)
+    lats: np.ndarray  # 1D 15 → −75 DECRESCENTE (361 pts)
+    valid_time: str = ""  # "YYYY-MM-DDTHH:MM" (rodada + step)
+    base_time: str = ""  # rodada-base do IFS (formato do load_pl_variable)
     clim_mmdd: str = ""
     clim_hour: int = 0
-    meta: dict = field(default_factory=dict)   # is_approx, sha_verified, from_cache,
+    meta: dict = field(default_factory=dict)  # is_approx, sha_verified, from_cache,
     #                                            step, anom_min, anom_max
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SLOT CLIMATOLÓGICO (valid_time → MMDD + hora 00/12)
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def resolve_clim_slot(valid_time: str) -> ClimSlot:
     """Mapeia o valid_time do IFS para (MMDD, hora climatológica, aproximação).
@@ -136,6 +138,7 @@ def resolve_clim_slot(valid_time: str) -> ClimSlot:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CLIMATOLOGIA — manifest + arquivo do dia (cache-first, sha256, .part→replace)
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def _sha256(path: Path) -> str:
     """sha256 de um arquivo, lido em blocos de 1 MiB."""
@@ -247,7 +250,7 @@ def ensure_climatology_file(
             if attempt < HTTP_RETRIES:
                 _sleep(HTTP_BACKOFF_S * 2 ** (attempt - 1))
             continue
-        part.replace(path)   # Path.replace: atômico e sobrescreve no Windows
+        part.replace(path)  # Path.replace: atômico e sobrescreve no Windows
         logger.info("Climatologia %s baixada e verificada", name)
         return path, {"sha_verified": True, "from_cache": False}
 
@@ -261,9 +264,7 @@ def load_climatology(path: Path, hour: int) -> tuple[np.ndarray, np.ndarray, np.
     try:
         ds = xr.open_dataset(path)
     except (OSError, ValueError) as e:
-        raise BlockingDataError(
-            f"Não foi possível abrir a climatologia {path.name}: {e}"
-        ) from e
+        raise BlockingDataError(f"Não foi possível abrir a climatologia {path.name}: {e}") from e
     try:
         if CLIM_VAR not in ds:
             raise BlockingDataError(
@@ -280,13 +281,14 @@ def load_climatology(path: Path, hour: int) -> tuple[np.ndarray, np.ndarray, np.
         lats = np.asarray(ds["latitude"].values)
         lons = np.asarray(ds["longitude"].values)
     finally:
-        ds.close()   # fecha ANTES de retornar (lock de arquivo no Windows)
+        ds.close()  # fecha ANTES de retornar (lock de arquivo no Windows)
     return values, lats, lons
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ANOMALIA
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def compute_anomaly(
     gh: np.ndarray,
@@ -308,8 +310,7 @@ def compute_anomaly(
             "Esperado o mesmo recorte 0.25° (150°W–30°E, 75°S–15°N)."
         )
     if not (
-        np.allclose(gh_lats, clim_lats, atol=1e-6)
-        and np.allclose(gh_lons, clim_lons, atol=1e-6)
+        np.allclose(gh_lats, clim_lats, atol=1e-6) and np.allclose(gh_lons, clim_lons, atol=1e-6)
     ):
         raise BlockingDataError(
             "Coordenadas do IFS e da climatologia não alinham (orientação da "
@@ -321,6 +322,7 @@ def compute_anomaly(
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ORQUESTRADOR
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def compute_blocking(
     cycle: int | None,
@@ -351,7 +353,7 @@ def compute_blocking(
 
     if cycle is None or not cycle_date:
         raise BlockingDataError(
-            "Rodada do ECMWF indeterminada. Clique em \"Verificar Rodadas\" e "
+            'Rodada do ECMWF indeterminada. Clique em "Verificar Rodadas" e '
             "selecione uma rodada antes da análise de bloqueio."
         )
 
@@ -359,9 +361,16 @@ def compute_blocking(
     _emit(f"Bloqueio: obtendo gh 500 hPa (IFS {cycle:02d}Z, passo +{step}h)...")
     try:
         fld = load_pl_variable(
-            "gh", 500, extent=CLIM_EXTENT, step=step, cycle=cycle,
-            cycle_date=cycle_date, data_dir=Path(data_dir),
-            smoothing_sigma=0.0, source=source, force_download=force_download,
+            "gh",
+            500,
+            extent=CLIM_EXTENT,
+            step=step,
+            cycle=cycle,
+            cycle_date=cycle_date,
+            data_dir=Path(data_dir),
+            smoothing_sigma=0.0,
+            source=source,
+            force_download=force_download,
         )
     except FileNotFoundError as e:
         raise BlockingDataError(
@@ -373,26 +382,29 @@ def compute_blocking(
 
     _guard()
     valid = fld.valid_time
-    if not valid:   # fallback raro: GRIB sem metadado legível
+    if not valid:  # fallback raro: GRIB sem metadado legível
         base = datetime.strptime(f"{cycle_date}{cycle:02d}", "%Y%m%d%H")
         valid = (base + timedelta(hours=step)).strftime("%Y-%m-%dT%H:%M")
     slot = resolve_clim_slot(valid)
 
-    _emit(
-        f"Bloqueio: climatologia ERA5 de {slot.mmdd[2:]}/{slot.mmdd[:2]} "
-        f"({slot.hour:02d}Z)..."
-    )
+    _emit(f"Bloqueio: climatologia ERA5 de {slot.mmdd[2:]}/{slot.mmdd[:2]} ({slot.hour:02d}Z)...")
     clim_path, info = ensure_climatology_file(
-        slot.mmdd, Path(clim_dir),
-        progress_callback=progress_callback, cancel_check=cancel_check,
+        slot.mmdd,
+        Path(clim_dir),
+        progress_callback=progress_callback,
+        cancel_check=cancel_check,
     )
     clim, clim_lats, clim_lons = load_climatology(clim_path, slot.hour)
 
     _guard()
     _emit("Bloqueio: calculando anomalia (IFS − climatologia 1991–2020)...")
     anom = compute_anomaly(
-        np.asarray(fld.values), np.asarray(fld.lats), np.asarray(fld.lons),
-        clim, clim_lats, clim_lons,
+        np.asarray(fld.values),
+        np.asarray(fld.lats),
+        np.asarray(fld.lons),
+        clim,
+        clim_lats,
+        clim_lons,
     )
 
     return BlockingResult(

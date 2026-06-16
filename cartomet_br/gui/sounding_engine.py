@@ -60,7 +60,7 @@ class SoundingWorker(QThread):
     """
 
     progress = pyqtSignal(str)
-    finished_ok = pyqtSignal(object)   # SoundingResult
+    finished_ok = pyqtSignal(object)  # SoundingResult
     finished_error = pyqtSignal(str)
 
     def __init__(self, station: dict, target_time: datetime, parent=None) -> None:
@@ -73,8 +73,12 @@ class SoundingWorker(QThread):
     def _fmt(value, unit: str, nd: int = 0) -> str:
         try:
             import numpy as np
-            mag = float(np.atleast_1d(value.magnitude)[0]) if hasattr(value, "magnitude") \
+
+            mag = (
+                float(np.atleast_1d(value.magnitude)[0])
+                if hasattr(value, "magnitude")
                 else float(np.atleast_1d(value)[0])
+            )
             if np.isnan(mag):
                 return "—"
             return f"{mag:.{nd}f} {unit}".strip()
@@ -92,6 +96,7 @@ class SoundingWorker(QThread):
         self.progress.emit(f"Buscando sondagem de {station_label}…")
         try:
             from siphon.simplewebservice.wyoming import WyomingUpperAir
+
             df = WyomingUpperAir.request_data(self.target_time, wmo)
         except Exception as e:  # HTTPError, timeout, ValueError "no data", etc.
             logger.warning("Falha ao baixar sondagem %s @ %s: %s", wmo, time_label, e)
@@ -129,6 +134,7 @@ class SoundingWorker(QThread):
         try:
             if {"u_wind", "v_wind"}.issubset(df.columns):
                 from metpy.units import units
+
                 u_wind = df["u_wind"].values * units("m/s")
                 v_wind = df["v_wind"].values * units("m/s")
                 has_wind = True
@@ -198,7 +204,7 @@ class ModelSoundingWorker(QThread):
     """
 
     progress = pyqtSignal(str)
-    finished_ok = pyqtSignal(object)   # SoundingResult
+    finished_ok = pyqtSignal(object)  # SoundingResult
     finished_error = pyqtSignal(str)
 
     SOURCE_NOTE = (
@@ -206,9 +212,17 @@ class ModelSoundingWorker(QThread):
         "CAPE/CIN/LFC aproximados; sem detalhe de camada-limite."
     )
 
-    def __init__(self, lon: float, lat: float, target_time: datetime,
-                 cycle: int | None, cycle_date: str | None, step: int,
-                 data_dir, parent=None) -> None:
+    def __init__(
+        self,
+        lon: float,
+        lat: float,
+        target_time: datetime,
+        cycle: int | None,
+        cycle_date: str | None,
+        step: int,
+        data_dir,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.lon = float(lon)
         self.lat = float(lat)
@@ -231,9 +245,14 @@ class ModelSoundingWorker(QThread):
         self.progress.emit(f"Extraindo perfil do modelo em {station_label}…")
         try:
             from cartomet_br.data.ecmwf import load_model_profile
+
             prof = load_model_profile(
-                self.lon, self.lat, step=self.step, cycle=self.cycle,
-                cycle_date=self.cycle_date, data_dir=self.data_dir,
+                self.lon,
+                self.lat,
+                step=self.step,
+                cycle=self.cycle,
+                cycle_date=self.cycle_date,
+                data_dir=self.data_dir,
             )
         except Exception as e:  # rede, GRIB ausente, coluna sob relevo, etc.
             logger.warning("Falha ao obter perfil do modelo (%s): %s", station_label, e)
@@ -296,8 +315,7 @@ class ModelSoundingWorker(QThread):
         _try("Showalter", lambda: mpcalc.showalter_index(pressure, temperature, dewpoint), "°C", 1)
 
         # ── 4. Empacota e entrega (mesmo SoundingResult do Wyoming) ──────────
-        station = {"wmo": "IFS", "name": "Modelo IFS",
-                   "lon": prof.grid_lon, "lat": prof.grid_lat}
+        station = {"wmo": "IFS", "name": "Modelo IFS", "lon": prof.grid_lon, "lat": prof.grid_lat}
         result = SoundingResult(
             station=station,
             valid_time=self.target_time,

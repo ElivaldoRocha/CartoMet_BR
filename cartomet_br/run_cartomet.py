@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 def setup_environment():
     """Configura ambiente para executável PyInstaller."""
 
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         # Executando como executável PyInstaller
         # _MEIPASS é o diretório temporário onde PyInstaller extrai os arquivos
         BASE_DIR = Path(sys._MEIPASS)
@@ -44,14 +44,14 @@ def setup_environment():
         # CRÍTICO para requests/urllib3 funcionar (download ECMWF)
         cacert_found = False
         cacert_paths = [
-            BASE_DIR / 'certifi' / 'cacert.pem',
-            BASE_DIR / 'cacert.pem',
+            BASE_DIR / "certifi" / "cacert.pem",
+            BASE_DIR / "cacert.pem",
         ]
         for cacert in cacert_paths:
             if cacert.exists():
-                os.environ['SSL_CERT_FILE'] = str(cacert)
-                os.environ['REQUESTS_CA_BUNDLE'] = str(cacert)
-                os.environ['CURL_CA_BUNDLE'] = str(cacert)
+                os.environ["SSL_CERT_FILE"] = str(cacert)
+                os.environ["REQUESTS_CA_BUNDLE"] = str(cacert)
+                os.environ["CURL_CA_BUNDLE"] = str(cacert)
                 cacert_found = True
                 logger.info("SSL Cert: %s", cacert)
                 break
@@ -61,38 +61,40 @@ def setup_environment():
 
         # === PyProj / PROJ ===
         proj_paths = [
-            BASE_DIR / 'proj',
-            BASE_DIR / 'pyproj' / 'proj_dir' / 'share' / 'proj',
-            BASE_DIR / 'share' / 'proj',
+            BASE_DIR / "proj",
+            BASE_DIR / "pyproj" / "proj_dir" / "share" / "proj",
+            BASE_DIR / "share" / "proj",
         ]
         for proj_dir in proj_paths:
             if proj_dir.exists():
-                os.environ['PROJ_LIB'] = str(proj_dir)
-                os.environ['PROJ_DATA'] = str(proj_dir)
+                os.environ["PROJ_LIB"] = str(proj_dir)
+                os.environ["PROJ_DATA"] = str(proj_dir)
                 logger.info("PROJ_LIB: %s", proj_dir)
                 break
 
         # === Cartopy ===
         cartopy_paths = [
-            BASE_DIR / 'cartopy',
-            BASE_DIR / 'cartopy' / 'data',
+            BASE_DIR / "cartopy",
+            BASE_DIR / "cartopy" / "data",
         ]
         for cartopy_dir in cartopy_paths:
             if cartopy_dir.exists():
-                os.environ['CARTOPY_DIR'] = str(cartopy_dir.parent if cartopy_dir.name == 'data' else cartopy_dir)
-                logger.info("CARTOPY_DIR: %s", os.environ['CARTOPY_DIR'])
+                os.environ["CARTOPY_DIR"] = str(
+                    cartopy_dir.parent if cartopy_dir.name == "data" else cartopy_dir
+                )
+                logger.info("CARTOPY_DIR: %s", os.environ["CARTOPY_DIR"])
                 break
 
         # === eccodes ===
         eccodes_paths = [
-            BASE_DIR / 'eccodes',
-            BASE_DIR / 'Library' / 'bin',
+            BASE_DIR / "eccodes",
+            BASE_DIR / "Library" / "bin",
         ]
         for eccodes_dir in eccodes_paths:
             if eccodes_dir.exists():
-                os.environ['ECCODES_DIR'] = str(eccodes_dir)
+                os.environ["ECCODES_DIR"] = str(eccodes_dir)
                 # Adiciona ao PATH para encontrar DLLs
-                os.environ['PATH'] = str(eccodes_dir) + os.pathsep + os.environ.get('PATH', '')
+                os.environ["PATH"] = str(eccodes_dir) + os.pathsep + os.environ.get("PATH", "")
                 logger.info("ECCODES_DIR: %s", eccodes_dir)
                 break
 
@@ -120,17 +122,20 @@ def main():
         setup_environment()
 
         from cartomet_br.gui import run_gui
+
         run_gui()
 
     except Exception as e:
         # Em caso de erro crítico, mostra mensagem amigável
         import traceback
+
         error_msg = f"Erro ao iniciar CartoMet BR:\n\n{e}\n\n{traceback.format_exc()}"
         logger.critical(error_msg)
 
         # Tenta mostrar diálogo de erro
         try:
             from PyQt6.QtWidgets import QApplication, QMessageBox
+
             app = QApplication(sys.argv)
             QMessageBox.critical(None, "Erro Crítico", error_msg)
         except (ImportError, RuntimeError):

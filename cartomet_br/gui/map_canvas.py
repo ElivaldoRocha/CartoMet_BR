@@ -19,7 +19,7 @@ import numpy as np
 # sem display) o Matplotlib recusa carregar um backend interativo; nesse caso
 # mantém-se o backend não-interativo atual (Agg) sem quebrar o import do módulo.
 with contextlib.suppress(ImportError):
-    matplotlib.use('QtAgg')
+    matplotlib.use("QtAgg")
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import matplotlib.patheffects as pe
@@ -153,16 +153,20 @@ class MapCanvas(FigureCanvas):
     shape_draft_changed = pyqtSignal(int)  # nº de vértices do polígono em rascunho
     extent_changed = pyqtSignal(list)  # [lon_min, lat_min, lon_max, lat_max] após zoom/recorte
     figure_zoom_requested = pyqtSignal(int)  # +1 ampliar / -1 reduzir a FIGURA (Ctrl+roda)
-    vertical_sounding_requested = pyqtSignal(object)  # estação RAOB ancorada (dict) p/ Sonda Vertical
+    vertical_sounding_requested = pyqtSignal(
+        object
+    )  # estação RAOB ancorada (dict) p/ Sonda Vertical
     model_sounding_requested = pyqtSignal(float, float)  # (lon, lat) p/ pseudo-sondagem do modelo
     meteogram_requested = pyqtSignal(float, float)  # (lon, lat) p/ meteograma (F6)
-    cross_section_requested = pyqtSignal(float, float, float, float)  # (lon_a,lat_a,lon_b,lat_b) p/ corte vertical (F4)
+    cross_section_requested = pyqtSignal(
+        float, float, float, float
+    )  # (lon_a,lat_a,lon_b,lat_b) p/ corte vertical (F4)
 
     def __init__(self, parent: QSizePolicy | None = None, config: Config | None = None) -> None:
         self.config: Config = config or Config()
         self.current_theme: str = "Clássico"
 
-        self.fig = Figure(figsize=(12, 8), facecolor='white', dpi=100)
+        self.fig = Figure(figsize=(12, 8), facecolor="white", dpi=100)
         super().__init__(self.fig)
 
         self.setParent(parent)
@@ -189,18 +193,18 @@ class MapCanvas(FigureCanvas):
         # Caneta (traço livre) e Formas customizáveis
         self.pen_style = DrawStyle(edge_color="#E74C3C", fill_color=None)
         self.shape_style = DrawStyle(edge_color="#E74C3C", fill_color=None)
-        self.shape_tool: str = "rect"      # "rect"|"ellipse"|"arrow"|"line"|"polygon"
+        self.shape_tool: str = "rect"  # "rect"|"ellipse"|"arrow"|"line"|"polygon"
         self._pen_active: bool = False
         self._pen_draft_x: list[float] = []
         self._pen_draft_y: list[float] = []
         self._pen_last_px: tuple[float, float] | None = None
-        self._shape_anchor: tuple[float, float] | None = None      # lon/lat do press
-        self._shape_anchor_px: tuple[float, float] | None = None   # pixels do press
+        self._shape_anchor: tuple[float, float] | None = None  # lon/lat do press
+        self._shape_anchor_px: tuple[float, float] | None = None  # pixels do press
         self._shape_drag_current: tuple[float, float] | None = None  # lon/lat do cursor
-        self._shape_last_px: tuple[float, float] | None = None       # pixels do cursor
-        self._shape_draft_x: list[float] = []   # vértices do polígono em rascunho
+        self._shape_last_px: tuple[float, float] | None = None  # pixels do cursor
+        self._shape_draft_x: list[float] = []  # vértices do polígono em rascunho
         self._shape_draft_y: list[float] = []
-        self._draft_preview = None               # Line2D de preview (caneta/forma)
+        self._draft_preview = None  # Line2D de preview (caneta/forma)
 
         # Anotações de texto
         self._annotations: list = []
@@ -255,7 +259,7 @@ class MapCanvas(FigureCanvas):
         # Índice LOCZCIT-PA (raster categórico da ZCIT)
         self._loczcit_artist = None
         self._loczcit_colorbar = None
-        self._loczcit_axis_artists: list = []   # overlay opcional do eixo (linhas/scatter/nó)
+        self._loczcit_axis_artists: list = []  # overlay opcional do eixo (linhas/scatter/nó)
 
         # Bloqueio atmosférico (anomalia de Z500)
         self._blocking_artists: list = []
@@ -272,16 +276,16 @@ class MapCanvas(FigureCanvas):
         self._xsec_overlay: list = []
 
         # Zoom / navegação
-        self._extent_history: list[list[float]] = []   # pilha de extents anteriores
+        self._extent_history: list[list[float]] = []  # pilha de extents anteriores
         self._pan_active = False
         self._pan_start: tuple[float, float] | None = None
         self._rect_selector = None
 
         # Conecta eventos
-        self.mpl_connect('button_press_event', self._on_click)
-        self.mpl_connect('motion_notify_event', self._on_motion)
-        self.mpl_connect('button_release_event', self._on_release)
-        self.mpl_connect('scroll_event', self._on_scroll)
+        self.mpl_connect("button_press_event", self._on_click)
+        self.mpl_connect("motion_notify_event", self._on_motion)
+        self.mpl_connect("button_release_event", self._on_release)
+        self.mpl_connect("scroll_event", self._on_scroll)
 
         self._setup_base_map()
 
@@ -344,43 +348,65 @@ class MapCanvas(FigureCanvas):
         self.ax.set_facecolor(theme["ocean"])
 
         self.ax.add_feature(
-            cfeature.NaturalEarthFeature("physical", "ocean", "50m",
-                                         facecolor=theme["ocean"], edgecolor="none"),
-            zorder=0
+            cfeature.NaturalEarthFeature(
+                "physical", "ocean", "50m", facecolor=theme["ocean"], edgecolor="none"
+            ),
+            zorder=0,
         )
         self.ax.add_feature(
-            cfeature.NaturalEarthFeature("physical", "land", "50m",
-                                         facecolor=theme["land"], edgecolor="none"),
-            zorder=1
+            cfeature.NaturalEarthFeature(
+                "physical", "land", "50m", facecolor=theme["land"], edgecolor="none"
+            ),
+            zorder=1,
         )
         self.ax.add_feature(
-            cfeature.NaturalEarthFeature("physical", "lakes", "50m",
-                                         facecolor=theme["lakes"], edgecolor="none"),
-            zorder=1
+            cfeature.NaturalEarthFeature(
+                "physical", "lakes", "50m", facecolor=theme["lakes"], edgecolor="none"
+            ),
+            zorder=1,
         )
         # Contornos geográficos (costa, fronteiras, estados) ficam ACIMA dos
         # campos preenchidos em altitude (PL contourf vai até zorder 14) para
         # que o usuário continue se localizando mesmo com a temperatura/umidade
         # etc. preenchendo a carta. Permanecem abaixo de estações/desenhos (20+).
         self.ax.add_feature(
-            cfeature.NaturalEarthFeature("physical", "coastline", "50m",
-                                         facecolor="none", edgecolor=theme["coastline"]),
-            linewidth=0.6, zorder=16
+            cfeature.NaturalEarthFeature(
+                "physical", "coastline", "50m", facecolor="none", edgecolor=theme["coastline"]
+            ),
+            linewidth=0.6,
+            zorder=16,
         )
         self.ax.add_feature(
-            cfeature.NaturalEarthFeature("cultural", "admin_0_boundary_lines_land", "50m",
-                                         facecolor="none", edgecolor=theme["borders"]),
-            linewidth=0.4, linestyle="--", zorder=16
+            cfeature.NaturalEarthFeature(
+                "cultural",
+                "admin_0_boundary_lines_land",
+                "50m",
+                facecolor="none",
+                edgecolor=theme["borders"],
+            ),
+            linewidth=0.4,
+            linestyle="--",
+            zorder=16,
         )
         self.ax.add_feature(
-            cfeature.NaturalEarthFeature("cultural", "admin_1_states_provinces_lines", "50m",
-                                         facecolor="none", edgecolor=theme["states"]),
-            linewidth=0.2, zorder=15
+            cfeature.NaturalEarthFeature(
+                "cultural",
+                "admin_1_states_provinces_lines",
+                "50m",
+                facecolor="none",
+                edgecolor=theme["states"],
+            ),
+            linewidth=0.2,
+            zorder=15,
         )
 
         gl = self.ax.gridlines(
-            draw_labels=True, linewidth=0.3, color="#CCCCCC", alpha=0.8,
-            x_inline=False, y_inline=False
+            draw_labels=True,
+            linewidth=0.3,
+            color="#CCCCCC",
+            alpha=0.8,
+            x_inline=False,
+            y_inline=False,
         )
         gl.xlocator = mticker.MultipleLocator(10)
         gl.ylocator = mticker.MultipleLocator(10)
@@ -392,10 +418,16 @@ class MapCanvas(FigureCanvas):
         # Dentro da carta (canto inferior direito): fora da linha dos rótulos de
         # longitude, com quem a posição antiga (y=-0.02) colidia em todo export.
         self.ax.text(
-            0.995, 0.012, f"CartoMet BR v{APP_VERSION}",
+            0.995,
+            0.012,
+            f"CartoMet BR v{APP_VERSION}",
             transform=self.ax.transAxes,
-            fontsize=8, color="#999999", ha="right", va="bottom",
-            style="italic", zorder=30,
+            fontsize=8,
+            color="#999999",
+            ha="right",
+            va="bottom",
+            style="italic",
+            zorder=30,
         )
 
         # Maximiza a carta na "mesa branca" (startup e troca de tema)
@@ -475,10 +507,18 @@ class MapCanvas(FigureCanvas):
         thickness_no_5400 = thickness_levels[thickness_levels != 5400]
 
         cs = self.ax.contour(
-            data.lons, data.lats, data.thickness,
+            data.lons,
+            data.lats,
+            data.thickness,
             levels=thickness_no_5400,
-            colors=[COLORS["thickness_cold"] if lv < 5400 else COLORS["thickness_warm"] for lv in thickness_no_5400],
-            linestyles="dashed", linewidths=0.8, transform=ccrs.PlateCarree(), zorder=3
+            colors=[
+                COLORS["thickness_cold"] if lv < 5400 else COLORS["thickness_warm"]
+                for lv in thickness_no_5400
+            ],
+            linestyles="dashed",
+            linewidths=0.8,
+            transform=ccrs.PlateCarree(),
+            zorder=3,
         )
         self._synoptic_artists["thickness"].append(cs)
 
@@ -488,9 +528,15 @@ class MapCanvas(FigureCanvas):
             self._synoptic_artists["thickness"].append(txt)
 
         cs_5400 = self.ax.contour(
-            data.lons, data.lats, data.thickness,
-            levels=[5400], colors=COLORS["thickness_5400"],
-            linestyles="solid", linewidths=2.5, transform=ccrs.PlateCarree(), zorder=4
+            data.lons,
+            data.lats,
+            data.thickness,
+            levels=[5400],
+            colors=COLORS["thickness_5400"],
+            linestyles="solid",
+            linewidths=2.5,
+            transform=ccrs.PlateCarree(),
+            zorder=4,
         )
         self._synoptic_artists["thickness"].append(cs_5400)
 
@@ -506,9 +552,14 @@ class MapCanvas(FigureCanvas):
         )
 
         cs_pnmm = self.ax.contour(
-            data.lons, data.lats, data.pnmm,
-            levels=pnmm_levels, colors=COLORS["pnmm_contour"],
-            linewidths=1.0, transform=ccrs.PlateCarree(), zorder=6
+            data.lons,
+            data.lats,
+            data.pnmm,
+            levels=pnmm_levels,
+            colors=COLORS["pnmm_contour"],
+            linewidths=1.0,
+            transform=ccrs.PlateCarree(),
+            zorder=6,
         )
         self._synoptic_artists["pnmm"].append(cs_pnmm)
 
@@ -522,14 +573,30 @@ class MapCanvas(FigureCanvas):
         existing_texts = set(id(t) for t in self.ax.texts)
 
         plot_maxmin_points(
-            self.ax, data.lon2d, data.lat2d, data.pnmm,
-            extrema="max", nsize=80, symbol="H", color=COLORS["high_pressure"],
-            min_distance=25, threshold=1018, max_points=8
+            self.ax,
+            data.lon2d,
+            data.lat2d,
+            data.pnmm,
+            extrema="max",
+            nsize=80,
+            symbol="H",
+            color=COLORS["high_pressure"],
+            min_distance=25,
+            threshold=1018,
+            max_points=8,
         )
         plot_maxmin_points(
-            self.ax, data.lon2d, data.lat2d, data.pnmm,
-            extrema="min", nsize=60, symbol="L", color=COLORS["low_pressure"],
-            min_distance=20, threshold=1008, max_points=10
+            self.ax,
+            data.lon2d,
+            data.lat2d,
+            data.pnmm,
+            extrema="min",
+            nsize=60,
+            symbol="L",
+            color=COLORS["low_pressure"],
+            min_distance=20,
+            threshold=1008,
+            max_points=10,
         )
 
         for txt in self.ax.texts:
@@ -559,10 +626,7 @@ class MapCanvas(FigureCanvas):
         4. Linha 2: informações cronológicas padronizadas.
         """
         # ── Detecta base sinótica ativa ──
-        has_synoptic = (
-            self.synoptic_data is not None
-            and self.plot_options.get("pnmm", True)
-        )
+        has_synoptic = self.synoptic_data is not None and self.plot_options.get("pnmm", True)
 
         # ── Descobre a camada PL visível mais recente ──
         top_layer_id = None
@@ -622,7 +686,10 @@ class MapCanvas(FigureCanvas):
                 line2 = f"Data: {self._sst_data.time_str}"
                 self.ax.set_title(
                     f"{line1}\n{line2}",
-                    fontsize=11, fontweight="bold", loc="left", pad=14,
+                    fontsize=11,
+                    fontweight="bold",
+                    loc="left",
+                    pad=14,
                 )
                 return
 
@@ -631,7 +698,10 @@ class MapCanvas(FigureCanvas):
             if obs_labels:
                 self.ax.set_title(
                     "Observações de superfície — " + " + ".join(obs_labels),
-                    fontsize=11, fontweight="bold", loc="left", pad=14,
+                    fontsize=11,
+                    fontweight="bold",
+                    loc="left",
+                    pad=14,
                 )
                 return
 
@@ -663,7 +733,10 @@ class MapCanvas(FigureCanvas):
 
         self.ax.set_title(
             f"{line1}\n{line2}",
-            fontsize=11, fontweight="bold", loc="left", pad=14,
+            fontsize=11,
+            fontweight="bold",
+            loc="left",
+            pad=14,
         )
 
     def _plot_synoptic_fields(self) -> None:
@@ -765,8 +838,10 @@ class MapCanvas(FigureCanvas):
     def cancel_active_draft(self) -> None:
         """Cancela qualquer rascunho de caneta/forma (preview + estado)."""
         had_draft = (
-            self._draft_preview is not None or self._pen_active
-            or self._shape_anchor is not None or bool(self._shape_draft_x)
+            self._draft_preview is not None
+            or self._pen_active
+            or self._shape_anchor is not None
+            or bool(self._shape_draft_x)
         )
         if self._draft_preview is not None:
             try:
@@ -847,12 +922,23 @@ class MapCanvas(FigureCanvas):
         if enabled:
             if self._rect_selector is None:
                 from matplotlib.widgets import RectangleSelector
+
                 self._rect_selector = RectangleSelector(
-                    self.ax, self._on_rect_select,
-                    useblit=False, button=[1], minspanx=1, minspany=1,
-                    spancoords="data", interactive=False,
-                    props=dict(facecolor="none", edgecolor="#E74C3C",
-                               linewidth=1.5, linestyle="--", zorder=60),
+                    self.ax,
+                    self._on_rect_select,
+                    useblit=False,
+                    button=[1],
+                    minspanx=1,
+                    minspany=1,
+                    spancoords="data",
+                    interactive=False,
+                    props=dict(
+                        facecolor="none",
+                        edgecolor="#E74C3C",
+                        linewidth=1.5,
+                        linestyle="--",
+                        zorder=60,
+                    ),
                 )
             self._rect_selector.set_active(True)
         elif self._rect_selector is not None:
@@ -881,8 +967,10 @@ class MapCanvas(FigureCanvas):
         x0, x1, y0, y1 = self.ax.get_extent(crs=ccrs.PlateCarree())
         cx, cy = event.xdata, event.ydata
         new = [
-            cx - (cx - x0) * scale, cy - (cy - y0) * scale,
-            cx + (x1 - cx) * scale, cy + (y1 - cy) * scale,
+            cx - (cx - x0) * scale,
+            cy - (cy - y0) * scale,
+            cx + (x1 - cx) * scale,
+            cy + (y1 - cy) * scale,
         ]
         new = self._clamp_extent(new)
         try:
@@ -988,7 +1076,7 @@ class MapCanvas(FigureCanvas):
         para ficar simétrica — carta sempre harmônica, independente das camadas.
         """
         try:
-            self.fig.canvas.draw()   # garante posições após o apply_aspect do Cartopy
+            self.fig.canvas.draw()  # garante posições após o apply_aspect do Cartopy
             axes = list(self.fig.axes)
             if not axes:
                 return
@@ -1090,10 +1178,16 @@ class MapCanvas(FigureCanvas):
         if self._xsec_anchor is None:
             self._clear_xsec_overlay()
             self._xsec_anchor = (lon, lat)
-            mk, = self.ax.plot(
-                lon, lat, marker="o", color="#8E44AD", markersize=8,
-                markeredgecolor="white", markeredgewidth=1.2,
-                transform=ccrs.PlateCarree(), zorder=27,
+            (mk,) = self.ax.plot(
+                lon,
+                lat,
+                marker="o",
+                color="#8E44AD",
+                markersize=8,
+                markeredgecolor="white",
+                markeredgewidth=1.2,
+                transform=ccrs.PlateCarree(),
+                zorder=27,
             )
             self._xsec_overlay.append(mk)
             self.draw()
@@ -1101,10 +1195,17 @@ class MapCanvas(FigureCanvas):
 
         lon_a, lat_a = self._xsec_anchor
         self._xsec_anchor = None
-        line, = self.ax.plot(
-            [lon_a, lon], [lat_a, lat], color="#8E44AD", linewidth=2.0,
-            marker="o", markersize=6, markeredgecolor="white", markeredgewidth=1.0,
-            transform=ccrs.PlateCarree(), zorder=27,
+        (line,) = self.ax.plot(
+            [lon_a, lon],
+            [lat_a, lat],
+            color="#8E44AD",
+            linewidth=2.0,
+            marker="o",
+            markersize=6,
+            markeredgecolor="white",
+            markeredgewidth=1.0,
+            transform=ccrs.PlateCarree(),
+            zorder=27,
         )
         self._xsec_overlay.append(line)
         self.draw()
@@ -1143,11 +1244,16 @@ class MapCanvas(FigureCanvas):
     def _mark_sounding_point(self, lon: float, lat: float, color: str = "#E74C3C") -> None:
         """Posiciona o marcador temporário (estrela) da sonda em (lon, lat)."""
         self.clear_sounding_marker()
-        marker, = self.ax.plot(
-            lon, lat,
-            marker="*", color=color, markersize=20,
-            markeredgecolor="white", markeredgewidth=1.2,
-            transform=ccrs.PlateCarree(), zorder=27,
+        (marker,) = self.ax.plot(
+            lon,
+            lat,
+            marker="*",
+            color=color,
+            markersize=20,
+            markeredgecolor="white",
+            markeredgewidth=1.2,
+            transform=ccrs.PlateCarree(),
+            zorder=27,
         )
         self._sounding_marker = marker
         self.draw()
@@ -1173,16 +1279,23 @@ class MapCanvas(FigureCanvas):
             label = modo.get("label", "?")
             fontsize = modo.get("fontsize", 22)
             artist = self.ax.text(
-                x, y, label,
-                fontsize=fontsize, fontweight="bold", color=cor,
-                ha="center", va="center",
-                transform=ccrs.PlateCarree(), zorder=25,
+                x,
+                y,
+                label,
+                fontsize=fontsize,
+                fontweight="bold",
+                color=cor,
+                ha="center",
+                va="center",
+                transform=ccrs.PlateCarree(),
+                zorder=25,
                 path_effects=[pe.withStroke(linewidth=3, foreground="white")],
             )
 
         cmd = PointCommand(
             symbol_key=self.current_symbol,
-            x=x, y=y,
+            x=x,
+            y=y,
             artist=artist,
         )
         self.history.push(cmd)
@@ -1198,8 +1311,7 @@ class MapCanvas(FigureCanvas):
         if self._pen_active and event.xdata is not None and event.ydata is not None:
             self._extend_pen_stroke(event.xdata, event.ydata, event.x, event.y)
         # Formas por arraste: rubber-band ao vivo
-        if (self._shape_anchor is not None
-                and event.xdata is not None and event.ydata is not None):
+        if self._shape_anchor is not None and event.xdata is not None and event.ydata is not None:
             self._update_shape_drag(event.xdata, event.ydata, event.x, event.y)
 
     def _update_preview(self) -> None:
@@ -1213,10 +1325,14 @@ class MapCanvas(FigureCanvas):
         m = MODOS[self.current_symbol]
         if len(self.points_x) >= 2 and not m.get("ponto", False):
             xi, yi = interpolar_pontos(self.points_x, self.points_y)
-            line, = self.ax.plot(
-                xi, yi, color=m["cor"], linewidth=1.5,
+            (line,) = self.ax.plot(
+                xi,
+                yi,
+                color=m["cor"],
+                linewidth=1.5,
                 path_effects=m["efeito"](flip=self.flip, intensity=self.zcit_intensity),
-                transform=ccrs.PlateCarree(), zorder=20
+                transform=ccrs.PlateCarree(),
+                zorder=20,
             )
             self.preview_line = line
 
@@ -1267,8 +1383,11 @@ class MapCanvas(FigureCanvas):
         self._pen_last_px = (float(px), float(py))
         # O preview já É o artista final em potencial (promovido no release).
         self._draft_preview = create_pen_artist(
-            self.ax, self._pen_draft_x, self._pen_draft_y,
-            self.pen_style, transform=ccrs.PlateCarree(),
+            self.ax,
+            self._pen_draft_x,
+            self._pen_draft_y,
+            self.pen_style,
+            transform=ccrs.PlateCarree(),
         )
 
     def _extend_pen_stroke(self, lon: float, lat: float, px: float, py: float) -> None:
@@ -1279,7 +1398,7 @@ class MapCanvas(FigureCanvas):
             dx = float(px) - self._pen_last_px[0]
             dy = float(py) - self._pen_last_px[1]
             if (dx * dx + dy * dy) ** 0.5 < PEN_MIN_PIXEL_DIST:
-                return                              # decimação anti-flood (tablet)
+                return  # decimação anti-flood (tablet)
         self._pen_draft_x.append(float(lon))
         self._pen_draft_y.append(float(lat))
         self._pen_last_px = (float(px), float(py))
@@ -1295,7 +1414,7 @@ class MapCanvas(FigureCanvas):
         self._draft_preview = None
         if artist is None:
             return
-        if len(self._pen_draft_x) < 2:              # clique sem arraste → descarte
+        if len(self._pen_draft_x) < 2:  # clique sem arraste → descarte
             try:
                 artist.remove()
             except (ValueError, AttributeError):
@@ -1332,15 +1451,21 @@ class MapCanvas(FigureCanvas):
         self._shape_last_px = (float(px), float(py))
         self._shape_drag_current = None
         st = self.shape_style
-        line, = self.ax.plot(
-            [], [], color=st.edge_color, linewidth=st.linewidth,
-            linestyle=st.mpl_linestyle(), alpha=st.alpha,
-            transform=ccrs.PlateCarree(), zorder=SHAPE_OUTLINE_ZORDER,
+        (line,) = self.ax.plot(
+            [],
+            [],
+            color=st.edge_color,
+            linewidth=st.linewidth,
+            linestyle=st.mpl_linestyle(),
+            alpha=st.alpha,
+            transform=ccrs.PlateCarree(),
+            zorder=SHAPE_OUTLINE_ZORDER,
         )
         self._draft_preview = line
 
-    def _update_shape_drag(self, lon: float, lat: float,
-                           px: float | None = None, py: float | None = None) -> None:
+    def _update_shape_drag(
+        self, lon: float, lat: float, px: float | None = None, py: float | None = None
+    ) -> None:
         """Rubber-band ao vivo: reconstrói o anel âncora→cursor via set_data."""
         if self._shape_anchor is None or self._draft_preview is None:
             return
@@ -1357,8 +1482,9 @@ class MapCanvas(FigureCanvas):
         anchor = self._shape_anchor
         current = self._shape_drag_current
         anchor_px = self._shape_anchor_px
-        last_px = (float(px), float(py)) if (px is not None and py is not None) \
-            else self._shape_last_px
+        last_px = (
+            (float(px), float(py)) if (px is not None and py is not None) else self._shape_last_px
+        )
         preview = self._draft_preview
         self._shape_anchor = None
         self._shape_anchor_px = None
@@ -1374,9 +1500,8 @@ class MapCanvas(FigureCanvas):
             self.draw_idle()
             return
         if anchor_px is not None and last_px is not None:
-            drag = ((last_px[0] - anchor_px[0]) ** 2
-                    + (last_px[1] - anchor_px[1]) ** 2) ** 0.5
-            if drag < SHAPE_MIN_DRAG_PIXELS:        # clique acidental → descarte
+            drag = ((last_px[0] - anchor_px[0]) ** 2 + (last_px[1] - anchor_px[1]) ** 2) ** 0.5
+            if drag < SHAPE_MIN_DRAG_PIXELS:  # clique acidental → descarte
                 self.draw_idle()
                 return
         x0, y0 = anchor
@@ -1386,12 +1511,21 @@ class MapCanvas(FigureCanvas):
             ext = self.ax.get_extent(crs=ccrs.PlateCarree())
             head = default_arrow_head_size(ext[1] - ext[0], self.shape_style.linewidth)
         artist = create_shape_artist(
-            self.ax, self.shape_tool, [x0, x1], [y0, y1],
-            self.shape_style, head_size_deg=head, transform=ccrs.PlateCarree(),
+            self.ax,
+            self.shape_tool,
+            [x0, x1],
+            [y0, y1],
+            self.shape_style,
+            head_size_deg=head,
+            transform=ccrs.PlateCarree(),
         )
         cmd = ShapeCommand(
-            tool=self.shape_tool, points_x=[x0, x1], points_y=[y0, y1],
-            style=self.shape_style.to_dict(), head_size_deg=head, artist=artist,
+            tool=self.shape_tool,
+            points_x=[x0, x1],
+            points_y=[y0, y1],
+            style=self.shape_style.to_dict(),
+            head_size_deg=head,
+            artist=artist,
         )
         self.history.push(cmd)
         self.lines.append(artist)
@@ -1405,10 +1539,16 @@ class MapCanvas(FigureCanvas):
         self._shape_draft_y.append(float(lat))
         if self._draft_preview is None:
             st = self.shape_style
-            line, = self.ax.plot(
-                [], [], color=st.edge_color, linewidth=st.linewidth,
-                linestyle=st.mpl_linestyle(), alpha=st.alpha, marker="o",
-                markersize=3, transform=ccrs.PlateCarree(),
+            (line,) = self.ax.plot(
+                [],
+                [],
+                color=st.edge_color,
+                linewidth=st.linewidth,
+                linestyle=st.mpl_linestyle(),
+                alpha=st.alpha,
+                marker="o",
+                markersize=3,
+                transform=ccrs.PlateCarree(),
                 zorder=SHAPE_OUTLINE_ZORDER,
             )
             self._draft_preview = line
@@ -1431,7 +1571,7 @@ class MapCanvas(FigureCanvas):
     def finalize_shape(self) -> None:
         """Fecha o polígono em rascunho (≥3 vértices) e registra no histórico."""
         if len(self._shape_draft_x) < 3:
-            return                                   # no-op: rascunho mantido
+            return  # no-op: rascunho mantido
         xs = list(self._shape_draft_x)
         ys = list(self._shape_draft_y)
         if self._draft_preview is not None:
@@ -1443,12 +1583,19 @@ class MapCanvas(FigureCanvas):
         self._shape_draft_x.clear()
         self._shape_draft_y.clear()
         artist = create_shape_artist(
-            self.ax, "polygon", xs, ys, self.shape_style,
+            self.ax,
+            "polygon",
+            xs,
+            ys,
+            self.shape_style,
             transform=ccrs.PlateCarree(),
         )
         cmd = ShapeCommand(
-            tool="polygon", points_x=xs, points_y=ys,
-            style=self.shape_style.to_dict(), artist=artist,
+            tool="polygon",
+            points_x=xs,
+            points_y=ys,
+            style=self.shape_style.to_dict(),
+            artist=artist,
         )
         self.history.push(cmd)
         self.lines.append(artist)
@@ -1493,8 +1640,10 @@ class MapCanvas(FigureCanvas):
         cmd = self.history.undo()
         if cmd is None:
             return
-        if isinstance(cmd, (DrawCommand, PointCommand, PenCommand, ShapeCommand)) \
-                and cmd.artist is not None:
+        if (
+            isinstance(cmd, (DrawCommand, PointCommand, PenCommand, ShapeCommand))
+            and cmd.artist is not None
+        ):
             try:
                 cmd.artist.remove()
             except (ValueError, AttributeError):
@@ -1530,10 +1679,14 @@ class MapCanvas(FigureCanvas):
         if isinstance(cmd, DrawCommand):
             xi, yi = interpolar_pontos(cmd.points_x, cmd.points_y)
             m = MODOS[cmd.symbol_key]
-            line, = self.ax.plot(
-                xi, yi, color=m["cor"], linewidth=1.5,
+            (line,) = self.ax.plot(
+                xi,
+                yi,
+                color=m["cor"],
+                linewidth=1.5,
                 path_effects=m["efeito"](flip=cmd.flip, intensity=getattr(cmd, "intensity", 1)),
-                transform=ccrs.PlateCarree(), zorder=20,
+                transform=ccrs.PlateCarree(),
+                zorder=20,
             )
             cmd.artist = line
             self.lines.append(line)
@@ -1543,38 +1696,58 @@ class MapCanvas(FigureCanvas):
                 artist = m["draw_func"](self.ax, cmd.x, cmd.y, color=m["cor"])
             else:
                 artist = self.ax.text(
-                    cmd.x, cmd.y, m.get("label", "?"),
-                    fontsize=m.get("fontsize", 22), fontweight="bold", color=m["cor"],
-                    ha="center", va="center",
-                    transform=ccrs.PlateCarree(), zorder=25,
+                    cmd.x,
+                    cmd.y,
+                    m.get("label", "?"),
+                    fontsize=m.get("fontsize", 22),
+                    fontweight="bold",
+                    color=m["cor"],
+                    ha="center",
+                    va="center",
+                    transform=ccrs.PlateCarree(),
+                    zorder=25,
                     path_effects=[pe.withStroke(linewidth=3, foreground="white")],
                 )
             cmd.artist = artist
             self.lines.append(artist)
         elif isinstance(cmd, PenCommand):
             artist = create_pen_artist(
-                self.ax, cmd.points_x, cmd.points_y,
-                DrawStyle.from_dict(cmd.style), transform=ccrs.PlateCarree(),
+                self.ax,
+                cmd.points_x,
+                cmd.points_y,
+                DrawStyle.from_dict(cmd.style),
+                transform=ccrs.PlateCarree(),
             )
             cmd.artist = artist
             self.lines.append(artist)
         elif isinstance(cmd, ShapeCommand):
             artist = create_shape_artist(
-                self.ax, cmd.tool, cmd.points_x, cmd.points_y,
+                self.ax,
+                cmd.tool,
+                cmd.points_x,
+                cmd.points_y,
                 DrawStyle.from_dict(cmd.style),
-                head_size_deg=cmd.head_size_deg, transform=ccrs.PlateCarree(),
+                head_size_deg=cmd.head_size_deg,
+                transform=ccrs.PlateCarree(),
             )
             cmd.artist = artist
             self.lines.append(artist)
         elif isinstance(cmd, AnnotationCommand):
             txt = self.ax.text(
-                cmd.x, cmd.y, cmd.text,
-                fontsize=cmd.fontsize, fontweight="bold", color=cmd.color,
-                ha="center", va="center",
-                transform=ccrs.PlateCarree(), zorder=25,
+                cmd.x,
+                cmd.y,
+                cmd.text,
+                fontsize=cmd.fontsize,
+                fontweight="bold",
+                color=cmd.color,
+                ha="center",
+                va="center",
+                transform=ccrs.PlateCarree(),
+                zorder=25,
                 bbox={
                     "boxstyle": "round,pad=0.3",
-                    "facecolor": "black", "alpha": 0.6,
+                    "facecolor": "black",
+                    "alpha": 0.6,
                     "edgecolor": "none",
                 },
                 path_effects=[pe.withStroke(linewidth=2, foreground="black")],
@@ -1590,6 +1763,7 @@ class MapCanvas(FigureCanvas):
         serializado.
         """
         from cartomet_br.gui.project_io import command_to_record
+
         records = [command_to_record(c) for c in self.history.commands]
         records.extend(command_to_record(e) for e in self._emoji_records)
         return records
@@ -1604,32 +1778,42 @@ class MapCanvas(FigureCanvas):
         """
         layers: list[dict] = []
         if self.synoptic_data is not None:
-            layers.append({
-                "kind": "synoptic",
-                "step": int(getattr(self.synoptic_data, "step", 0)),
-                "visibility": {k: bool(self.plot_options.get(k, True))
-                               for k in ("pnmm", "thickness", "centers")},
-            })
+            layers.append(
+                {
+                    "kind": "synoptic",
+                    "step": int(getattr(self.synoptic_data, "step", 0)),
+                    "visibility": {
+                        k: bool(self.plot_options.get(k, True))
+                        for k in ("pnmm", "thickness", "centers")
+                    },
+                }
+            )
         for layer_id, data in self._pl_data.items():
-            layers.append({
-                "kind": "field",
-                "layer_id": str(layer_id),
-                "variable": str(getattr(data, "variable", "")),
-                "level": int(getattr(data, "level", 0)),
-                "step": int(getattr(data, "step", 0)),
-                "wind_type": str(self._pl_wind_types.get(layer_id, "barbs")),
-            })
+            layers.append(
+                {
+                    "kind": "field",
+                    "layer_id": str(layer_id),
+                    "variable": str(getattr(data, "variable", "")),
+                    "level": int(getattr(data, "level", 0)),
+                    "step": int(getattr(data, "step", 0)),
+                    "wind_type": str(self._pl_wind_types.get(layer_id, "barbs")),
+                }
+            )
         if self._sat_data is not None and getattr(self._sat_data, "filename", ""):
-            layers.append({
-                "kind": "satellite",
-                "filename": str(self._sat_data.filename),
-            })
+            layers.append(
+                {
+                    "kind": "satellite",
+                    "filename": str(self._sat_data.filename),
+                }
+            )
         if self._sst_data is not None:
-            layers.append({
-                "kind": "sst",
-                "time_str": str(getattr(self._sst_data, "time_str", "")),
-                "stride": 5,
-            })
+            layers.append(
+                {
+                    "kind": "sst",
+                    "time_str": str(getattr(self._sst_data, "time_str", "")),
+                    "stride": 5,
+                }
+            )
         # Camadas COMPUTADAS (memorizadas p/ reativação manual — não recomputam
         # sozinhas ao abrir; o canvas não guarda seus parâmetros de cálculo).
         if self._loczcit_artist is not None:
@@ -1646,6 +1830,7 @@ class MapCanvas(FigureCanvas):
         (abrir projeto) decide se limpa antes. Nunca dispara rede.
         """
         from cartomet_br.gui.project_io import record_to_command
+
         for rec in records:
             cmd = record_to_command(rec)
             if isinstance(cmd, EmojiCommand):
@@ -1708,8 +1893,9 @@ class MapCanvas(FigureCanvas):
         self._update_map_title()
         self.draw()
 
-    def save_figure(self, filepath: str | Path, dpi: int = 200,
-                    extra_artists: list | None = None) -> None:
+    def save_figure(
+        self, filepath: str | Path, dpi: int = 200, extra_artists: list | None = None
+    ) -> None:
         filepath = Path(filepath)
         fmt = filepath.suffix.lstrip(".").lower() or "png"
         # PDF usa o backend dedicado do matplotlib — garante que está carregado
@@ -1718,8 +1904,12 @@ class MapCanvas(FigureCanvas):
         # ``extra_artists`` garante que a mobília de carta (cabeçalho/legenda
         # posicionada FORA do retângulo [0,1] da figura) entre no bbox "tight".
         self.fig.savefig(
-            str(filepath), dpi=dpi, bbox_inches="tight", facecolor="white",
-            format=fmt, bbox_extra_artists=extra_artists or None,
+            str(filepath),
+            dpi=dpi,
+            bbox_inches="tight",
+            facecolor="white",
+            format=fmt,
+            bbox_extra_artists=extra_artists or None,
         )
 
     def capture_canvas(self, filepath: str | Path, scale: int = 2) -> None:
@@ -1771,13 +1961,14 @@ class MapCanvas(FigureCanvas):
         for lid in reversed(list(self._pl_data)):
             if lid in self._pl_artists and self._pl_artists[lid]:
                 d = self._pl_data[lid]
-                return {"valid_time": d.valid_time, "base_time": d.base_time,
-                        "step": d.step}
+                return {"valid_time": d.valid_time, "base_time": d.base_time, "step": d.step}
         if self.synoptic_data is not None:
             d = self.synoptic_data
-            return {"valid_time": getattr(d, "valid_time", ""),
-                    "base_time": getattr(d, "base_time", ""),
-                    "step": getattr(d, "step", 0)}
+            return {
+                "valid_time": getattr(d, "valid_time", ""),
+                "base_time": getattr(d, "base_time", ""),
+                "step": getattr(d, "step", 0),
+            }
         return {"valid_time": "", "base_time": "", "step": 0}
 
     def get_used_symbols(self) -> list[tuple[str, dict]]:
@@ -1812,13 +2003,28 @@ class MapCanvas(FigureCanvas):
         navy = "#16365C"
 
         # ── Faixa de cabeçalho (acima da figura) ──
-        band = Rectangle((0.0, 1.005), 1.0, 0.145, transform=self.fig.transFigure,
-                         facecolor="#F2F4F7", edgecolor="none", zorder=5,
-                         clip_on=False)
+        band = Rectangle(
+            (0.0, 1.005),
+            1.0,
+            0.145,
+            transform=self.fig.transFigure,
+            facecolor="#F2F4F7",
+            edgecolor="none",
+            zorder=5,
+            clip_on=False,
+        )
         self.fig.add_artist(band)
         added.append(band)
-        accent = Rectangle((0.0, 1.142), 1.0, 0.008, transform=self.fig.transFigure,
-                           facecolor=navy, edgecolor="none", zorder=6, clip_on=False)
+        accent = Rectangle(
+            (0.0, 1.142),
+            1.0,
+            0.008,
+            transform=self.fig.transFigure,
+            facecolor=navy,
+            edgecolor="none",
+            zorder=6,
+            clip_on=False,
+        )
         self.fig.add_artist(accent)
         added.append(accent)
 
@@ -1828,6 +2034,7 @@ class MapCanvas(FigureCanvas):
         if logo_path and Path(logo_path).exists():
             try:
                 import matplotlib.image as mpimg
+
                 # zorder ALTO: a faixa do cabeçalho é opaca (zorder 5) e cobriria
                 # a logo se esta ficasse abaixo. add_axes a desenha por cima.
                 logo_ax = self.fig.add_axes([0.02, 1.045, 0.18, 0.085], zorder=20)
@@ -1850,13 +2057,27 @@ class MapCanvas(FigureCanvas):
         chart_type = meta.get("chart_type") or "Carta Sinótica"
         analyst = meta.get("analyst") or ""
 
-        _t(text_left, 1.108, institution, fontsize=15, fontweight="bold",
-           color=navy, ha="left", va="center")
-        _t(text_left, 1.068, chart_type, fontsize=11, color="#222222",
-           ha="left", va="center")
+        _t(
+            text_left,
+            1.108,
+            institution,
+            fontsize=15,
+            fontweight="bold",
+            color=navy,
+            ha="left",
+            va="center",
+        )
+        _t(text_left, 1.068, chart_type, fontsize=11, color="#222222", ha="left", va="center")
         if analyst:
-            _t(text_left, 1.034, f"Analista: {analyst}", fontsize=9,
-               color="#555555", ha="left", va="center")
+            _t(
+                text_left,
+                1.034,
+                f"Analista: {analyst}",
+                fontsize=9,
+                color="#555555",
+                ha="left",
+                va="center",
+            )
 
         # Bloco cronológico à direita.
         emission = meta.get("emission") or ""
@@ -1865,23 +2086,44 @@ class MapCanvas(FigureCanvas):
         step = meta.get("step", 0)
         right = 0.985
         if emission:
-            _t(right, 1.108, f"Emitida: {emission} UTC", fontsize=9,
-               color="#222222", ha="right", va="center")
+            _t(
+                right,
+                1.108,
+                f"Emitida: {emission} UTC",
+                fontsize=9,
+                color="#222222",
+                ha="right",
+                va="center",
+            )
         if valid_time:
-            _t(right, 1.075, f"Válida: {valid_time} UTC", fontsize=9,
-               color="#222222", ha="right", va="center")
+            _t(
+                right,
+                1.075,
+                f"Válida: {valid_time} UTC",
+                fontsize=9,
+                color="#222222",
+                ha="right",
+                va="center",
+            )
         rod = []
         if base_time:
             rod.append(f"Rodada: {base_time}")
         rod.append(f"Step: +{step}h")
-        _t(right, 1.042, " | ".join(rod), fontsize=9, color="#555555",
-           ha="right", va="center")
+        _t(right, 1.042, " | ".join(rod), fontsize=9, color="#555555", ha="right", va="center")
 
         # Espaçador inferior invisível (branco sobre fundo branco): garante que o
         # bbox "tight" inclua os rótulos de longitude do gridliner — que o
         # get_tightbbox do Cartopy nem sempre captura — MESMO sem legenda.
-        spacer = Rectangle((0.0, -0.035), 1.0, 0.035, transform=self.fig.transFigure,
-                           facecolor="white", edgecolor="none", zorder=0, clip_on=False)
+        spacer = Rectangle(
+            (0.0, -0.035),
+            1.0,
+            0.035,
+            transform=self.fig.transFigure,
+            facecolor="white",
+            edgecolor="none",
+            zorder=0,
+            clip_on=False,
+        )
         self.fig.add_artist(spacer)
         added.append(spacer)
 
@@ -1890,23 +2132,38 @@ class MapCanvas(FigureCanvas):
         if used:
             ncols = 4
             nrows = (len(used) + ncols - 1) // ncols
-            leg_h = 0.045 * (nrows + 1.6)          # título + linhas
+            leg_h = 0.045 * (nrows + 1.6)  # título + linhas
             leg_ax = self.fig.add_axes([0.04, -0.055 - leg_h, 0.92, leg_h])
             leg_ax.set_xlim(0, 1)
             leg_ax.set_ylim(0, 1)
             leg_ax.axis("off")
             added.append(leg_ax)
             # Título numa linha própria, no topo do eixo (longe dos itens).
-            leg_ax.text(0.0, 1.0, "Legenda — Simbologia OMM", fontsize=9,
-                        fontweight="bold", color=navy, ha="left", va="top")
+            leg_ax.text(
+                0.0,
+                1.0,
+                "Legenda — Simbologia OMM",
+                fontsize=9,
+                fontweight="bold",
+                color=navy,
+                ha="left",
+                va="top",
+            )
             y_top, y_bot = 0.58, 0.12
             for i, (key, modo) in enumerate(used):
                 col, row = i % ncols, i // ncols
                 cx = col / ncols + 0.01
                 cy = y_top if nrows <= 1 else y_top - row * (y_top - y_bot) / (nrows - 1)
                 self._draw_legend_swatch(leg_ax, modo, cx, cy)
-                leg_ax.text(cx + 0.085, cy, modo.get("nome", key), fontsize=8.5,
-                            color="#222222", ha="left", va="center")
+                leg_ax.text(
+                    cx + 0.085,
+                    cy,
+                    modo.get("nome", key),
+                    fontsize=8.5,
+                    color="#222222",
+                    ha="left",
+                    va="center",
+                )
 
         self._chart_furniture = added
         self.draw_idle()
@@ -1923,16 +2180,37 @@ class MapCanvas(FigureCanvas):
         if not modo.get("ponto", False):
             try:
                 efeito = modo["efeito"](flip=False, intensity=2)
-                ax.plot([cx, cx + 0.07], [cy, cy], color=cor, linewidth=1.6,
-                        path_effects=efeito, solid_capstyle="round")
+                ax.plot(
+                    [cx, cx + 0.07],
+                    [cy, cy],
+                    color=cor,
+                    linewidth=1.6,
+                    path_effects=efeito,
+                    solid_capstyle="round",
+                )
             except Exception:  # noqa: BLE001 — sempre cai numa linha simples
                 ax.plot([cx, cx + 0.07], [cy, cy], color=cor, linewidth=2.4)
         elif modo.get("label"):
-            ax.text(cx + 0.035, cy, modo["label"], fontsize=13, fontweight="bold",
-                    color=cor, ha="center", va="center")
+            ax.text(
+                cx + 0.035,
+                cy,
+                modo["label"],
+                fontsize=13,
+                fontweight="bold",
+                color=cor,
+                ha="center",
+                va="center",
+            )
         else:
-            ax.plot([cx + 0.035], [cy], marker="o", markersize=9, color=cor,
-                    markeredgecolor="white", markeredgewidth=0.8)
+            ax.plot(
+                [cx + 0.035],
+                [cy],
+                marker="o",
+                markersize=9,
+                color=cor,
+                markeredgecolor="white",
+                markeredgewidth=0.8,
+            )
 
     def clear_chart_furniture(self) -> None:
         """Remove a mobília de carta (cabeçalho/legenda) e limpa o registro."""
@@ -1955,24 +2233,40 @@ class MapCanvas(FigureCanvas):
         """Emite sinal para a MainWindow abrir o diálogo de texto."""
         self.annotation_requested.emit(x, y)
 
-    def add_annotation(self, x: float, y: float, text: str, color: str = "#FFFFFF", fontsize: int = 11) -> None:
+    def add_annotation(
+        self, x: float, y: float, text: str, color: str = "#FFFFFF", fontsize: int = 11
+    ) -> None:
         """Adiciona uma anotação de texto no mapa."""
         txt = self.ax.text(
-            x, y, text,
-            fontsize=fontsize, fontweight="bold", color=color,
-            ha="center", va="center",
-            transform=ccrs.PlateCarree(), zorder=25,
+            x,
+            y,
+            text,
+            fontsize=fontsize,
+            fontweight="bold",
+            color=color,
+            ha="center",
+            va="center",
+            transform=ccrs.PlateCarree(),
+            zorder=25,
             bbox=dict(
                 boxstyle="round,pad=0.3",
-                facecolor="black", alpha=0.6,
+                facecolor="black",
+                alpha=0.6,
                 edgecolor="none",
             ),
             path_effects=[pe.withStroke(linewidth=2, foreground="black")],
         )
         self._annotations.append(txt)
-        self.history.push(AnnotationCommand(
-            x=x, y=y, text=text, color=color, fontsize=fontsize, artist=txt,
-        ))
+        self.history.push(
+            AnnotationCommand(
+                x=x,
+                y=y,
+                text=text,
+                color=color,
+                fontsize=fontsize,
+                artist=txt,
+            )
+        )
         self.draw()
 
     def remove_last_annotation(self) -> None:
@@ -2015,7 +2309,7 @@ class MapCanvas(FigureCanvas):
             from PyQt6.QtCore import Qt as _Qt
             from PyQt6.QtGui import QFont, QImage, QPainter, QPixmap
 
-            px = max(fontsize * 2, 32)          # oversample for crisp rendering
+            px = max(fontsize * 2, 32)  # oversample for crisp rendering
             pixmap = QPixmap(px, px)
             pixmap.fill(_Qt.GlobalColor.transparent)
 
@@ -2056,7 +2350,8 @@ class MapCanvas(FigureCanvas):
             # cartopy transform object) also lets matplotlib register the proper
             # _remove_method so that artist.remove() works correctly.
             artist: object = AnnotationBbox(
-                im, (lon, lat),
+                im,
+                (lon, lat),
                 xycoords="data",
                 frameon=False,
                 zorder=26,
@@ -2067,16 +2362,20 @@ class MapCanvas(FigureCanvas):
         else:
             # Fallback: plain text (monochrome, but better than nothing)
             artist = self.ax.text(
-                lon, lat, emoji,
+                lon,
+                lat,
+                emoji,
                 fontsize=fontsize,
-                ha="center", va="center",
+                ha="center",
+                va="center",
                 transform=ccrs.PlateCarree(),
                 zorder=26,
             )
         self._emoji_annotations.append(artist)
         self._emoji_records.append(
-            EmojiCommand(x=float(lon), y=float(lat), emoji=emoji,
-                         fontsize=int(fontsize), artist=artist)
+            EmojiCommand(
+                x=float(lon), y=float(lat), emoji=emoji, fontsize=int(fontsize), artist=artist
+            )
         )
         self.draw()
 
@@ -2123,9 +2422,10 @@ class MapCanvas(FigureCanvas):
         R = 6371.0
         dlat = np.radians(lat2 - lat1)
         dlon = np.radians(lon2 - lon1)
-        a = (np.sin(dlat / 2)**2 +
-             np.cos(np.radians(lat1)) * np.cos(np.radians(lat2)) *
-             np.sin(dlon / 2)**2)
+        a = (
+            np.sin(dlat / 2) ** 2
+            + np.cos(np.radians(lat1)) * np.cos(np.radians(lat2)) * np.sin(dlon / 2) ** 2
+        )
         return R * 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
 
     def _on_ruler_click(self, x: float, y: float) -> None:
@@ -2133,9 +2433,14 @@ class MapCanvas(FigureCanvas):
         self._ruler_points.append((x, y))
 
         if len(self._ruler_points) == 1:
-            marker, = self.ax.plot(
-                x, y, "r+", markersize=12, markeredgewidth=2,
-                transform=ccrs.PlateCarree(), zorder=25,
+            (marker,) = self.ax.plot(
+                x,
+                y,
+                "r+",
+                markersize=12,
+                markeredgewidth=2,
+                transform=ccrs.PlateCarree(),
+                zorder=25,
             )
             self._ruler_artists.append(marker)
             self.draw()
@@ -2146,15 +2451,24 @@ class MapCanvas(FigureCanvas):
 
             dist = self._haversine(p1[0], p1[1], p2[0], p2[1])
 
-            line, = self.ax.plot(
-                [p1[0], p2[0]], [p1[1], p2[1]],
-                "r-", linewidth=2, transform=ccrs.PlateCarree(), zorder=25,
+            (line,) = self.ax.plot(
+                [p1[0], p2[0]],
+                [p1[1], p2[1]],
+                "r-",
+                linewidth=2,
+                transform=ccrs.PlateCarree(),
+                zorder=25,
             )
             self._ruler_artists.append(line)
 
-            marker, = self.ax.plot(
-                p2[0], p2[1], "r+", markersize=12, markeredgewidth=2,
-                transform=ccrs.PlateCarree(), zorder=25,
+            (marker,) = self.ax.plot(
+                p2[0],
+                p2[1],
+                "r+",
+                markersize=12,
+                markeredgewidth=2,
+                transform=ccrs.PlateCarree(),
+                zorder=25,
             )
             self._ruler_artists.append(marker)
 
@@ -2167,14 +2481,22 @@ class MapCanvas(FigureCanvas):
                 dist_str = f"{dist:.1f} km"
 
             txt = self.ax.text(
-                mid_x, mid_y, dist_str,
-                fontsize=10, fontweight="bold", color="#FF4444",
-                ha="center", va="bottom",
-                transform=ccrs.PlateCarree(), zorder=25,
+                mid_x,
+                mid_y,
+                dist_str,
+                fontsize=10,
+                fontweight="bold",
+                color="#FF4444",
+                ha="center",
+                va="bottom",
+                transform=ccrs.PlateCarree(),
+                zorder=25,
                 bbox=dict(
                     boxstyle="round,pad=0.2",
-                    facecolor="white", alpha=0.85,
-                    edgecolor="#FF4444", linewidth=1,
+                    facecolor="white",
+                    alpha=0.85,
+                    edgecolor="#FF4444",
+                    linewidth=1,
                 ),
             )
             self._ruler_artists.append(txt)
@@ -2208,8 +2530,10 @@ class MapCanvas(FigureCanvas):
         )
 
         img_extent = (
-            sat_data.x.min(), sat_data.x.max(),
-            sat_data.y.min(), sat_data.y.max(),
+            sat_data.x.min(),
+            sat_data.x.max(),
+            sat_data.y.min(),
+            sat_data.y.max(),
         )
 
         ir_cmap = get_ir_colormap()
@@ -2341,14 +2665,20 @@ class MapCanvas(FigureCanvas):
 
         # 4 cores: 0 Magenta, 1 Verde, 2 Amarelo, 3 Vermelho escuro
         cmap = ListedColormap(CATEGORY_COLORS)
-        cmap.set_bad(alpha=0.0)                   # NaN = transparente
+        cmap.set_bad(alpha=0.0)  # NaN = transparente
         norm = BoundaryNorm([-0.5, 0.5, 1.5, 2.5, 3.5], ncolors=4)
         masked = np.ma.masked_invalid(result.raster)
 
         self._loczcit_artist = self.ax.pcolormesh(
-            result.lons, result.lats, masked, cmap=cmap, norm=norm,
-            shading="nearest", antialiased=False,
-            transform=ccrs.PlateCarree(), zorder=3,
+            result.lons,
+            result.lats,
+            masked,
+            cmap=cmap,
+            norm=norm,
+            shading="nearest",
+            antialiased=False,
+            transform=ccrs.PlateCarree(),
+            zorder=3,
         )
         # Endurecimento da Blindagem #7: no mpl 3.10 o kwarg cobre só o caminho
         # rápido do QuadMesh.draw (`_antialiased`); o set explícito preenche também
@@ -2356,8 +2686,13 @@ class MapCanvas(FigureCanvas):
         self._loczcit_artist.set_antialiased(False)
 
         cbar = self.fig.colorbar(
-            self._loczcit_artist, ax=self.ax, orientation="vertical",
-            fraction=0.046, pad=0.02, ticks=[0, 1, 2, 3], shrink=0.6,
+            self._loczcit_artist,
+            ax=self.ax,
+            orientation="vertical",
+            fraction=0.046,
+            pad=0.02,
+            ticks=[0, 1, 2, 3],
+            shrink=0.6,
         )
         cbar.ax.set_yticklabels(["Cinemática", "Fraca", "Moderada", "Forte"])
         cbar.ax.tick_params(labelsize=8)
@@ -2374,10 +2709,13 @@ class MapCanvas(FigureCanvas):
         vt = f"Válido: {result.valid_time} UTC" if result.valid_time else ""
         self.ax.set_title(
             f"ZCIT (LOCZCIT-PA) — Potencial Acoplado\n{vt}{base}",
-            fontsize=11, fontweight="bold", loc="left", pad=14,
+            fontsize=11,
+            fontweight="bold",
+            loc="left",
+            pad=14,
         )
-        self._recenter_axes_horizontally()   # centraliza com a colorbar da ZCIT
-        self._match_colorbar_height(cbar)    # domínio panorâmico: cbar na altura da carta
+        self._recenter_axes_horizontally()  # centraliza com a colorbar da ZCIT
+        self._match_colorbar_height(cbar)  # domínio panorâmico: cbar na altura da carta
         self.draw()
 
     def _match_colorbar_height(self, cbar) -> None:
@@ -2387,14 +2725,12 @@ class MapCanvas(FigureCanvas):
         colorbar criada pelo ``fig.colorbar`` sobra acima/abaixo do mapa.
         """
         try:
-            self.fig.canvas.draw()           # materializa o apply_aspect do Cartopy
+            self.fig.canvas.draw()  # materializa o apply_aspect do Cartopy
             pos_map = self.ax.get_position()
             pos_cb = cbar.ax.get_position()
             if pos_cb.height > pos_map.height + 1e-3:
-                cbar.ax.set_aspect("auto")   # a caixa passa a mandar na geometria
-                cbar.ax.set_position(
-                    [pos_cb.x0, pos_map.y0, pos_cb.width, pos_map.height]
-                )
+                cbar.ax.set_aspect("auto")  # a caixa passa a mandar na geometria
+                cbar.ax.set_position([pos_cb.x0, pos_map.y0, pos_cb.width, pos_map.height])
         except Exception as e:
             logger.debug("Aviso ao alinhar a colorbar à carta: %s", e)
 
@@ -2429,17 +2765,25 @@ class MapCanvas(FigureCanvas):
         diverge = np.isfinite(north) & np.isfinite(south) & (np.abs(north - south) > 1e-6)
         if diverge.any():
             self._loczcit_axis_artists += self._plot_axis_segments(
-                lons, np.where(diverge, south, np.nan), halo,
+                lons,
+                np.where(diverge, south, np.nan),
+                halo,
             )
             # Nós de bifurcação: transições simples↔dupla
             edges = np.flatnonzero(np.diff(diverge.astype(int)) != 0)
             for e in edges:
                 lon_n, lat_n = lons[e], north[e]
                 if np.isfinite(lon_n) and np.isfinite(lat_n):
-                    star, = self.ax.plot(
-                        lon_n, lat_n, marker="*", color="white",
-                        markeredgecolor="#111111", markeredgewidth=0.8,
-                        markersize=13, zorder=19, transform=ccrs.PlateCarree(),
+                    (star,) = self.ax.plot(
+                        lon_n,
+                        lat_n,
+                        marker="*",
+                        color="white",
+                        markeredgecolor="#111111",
+                        markeredgewidth=0.8,
+                        markersize=13,
+                        zorder=19,
+                        transform=ccrs.PlateCarree(),
                     )
                     self._loczcit_axis_artists.append(star)
         self.draw()
@@ -2457,11 +2801,15 @@ class MapCanvas(FigureCanvas):
         edges = np.flatnonzero(np.diff(np.concatenate(([False], finite, [False]))))
         for start, stop in zip(edges[::2], edges[1::2], strict=True):
             if stop - start < 2:
-                continue        # ponto isolado não forma linha
-            ln, = self.ax.plot(
-                lons[start:stop], lats[start:stop],
-                color="#111111", linewidth=1.8, zorder=18,
-                transform=ccrs.PlateCarree(), path_effects=halo,
+                continue  # ponto isolado não forma linha
+            (ln,) = self.ax.plot(
+                lons[start:stop],
+                lats[start:stop],
+                color="#111111",
+                linewidth=1.8,
+                zorder=18,
+                transform=ccrs.PlateCarree(),
+                path_effects=halo,
             )
             artists.append(ln)
         return artists
@@ -2514,20 +2862,35 @@ class MapCanvas(FigureCanvas):
         self.remove_blocking()
 
         fill = self.ax.contourf(
-            result.lons, result.lats, result.anom, levels=ANOM_LEVELS,
-            cmap="RdBu_r", extend="both", transform=ccrs.PlateCarree(),
-            zorder=3, alpha=0.85,
+            result.lons,
+            result.lats,
+            result.anom,
+            levels=ANOM_LEVELS,
+            cmap="RdBu_r",
+            extend="both",
+            transform=ccrs.PlateCarree(),
+            zorder=3,
+            alpha=0.85,
         )
         zero = self.ax.contour(
-            result.lons, result.lats, result.anom, levels=[0.0],
-            colors="#3B3B3B", linewidths=1.6,
-            transform=ccrs.PlateCarree(), zorder=3,
+            result.lons,
+            result.lats,
+            result.anom,
+            levels=[0.0],
+            colors="#3B3B3B",
+            linewidths=1.6,
+            transform=ccrs.PlateCarree(),
+            zorder=3,
         )
         self._blocking_artists = [fill, zero]
 
         cbar = self.fig.colorbar(
-            fill, ax=self.ax, orientation="vertical",
-            fraction=0.046, pad=0.02, shrink=0.7,
+            fill,
+            ax=self.ax,
+            orientation="vertical",
+            fraction=0.046,
+            pad=0.02,
+            shrink=0.7,
         )
         cbar.set_label("Anomalia de Z500 (gpm)", fontsize=9)
         cbar.ax.tick_params(labelsize=8)
@@ -2546,10 +2909,13 @@ class MapCanvas(FigureCanvas):
             f"Bloqueio Atmosférico — Anomalia de Z500 (IFS − ERA5 1991–2020)\n"
             f"{vt} · clim {result.clim_mmdd[2:]}/{result.clim_mmdd[:2]} "
             f"{result.clim_hour:02d}Z{aprox}",
-            fontsize=11, fontweight="bold", loc="left", pad=14,
+            fontsize=11,
+            fontweight="bold",
+            loc="left",
+            pad=14,
         )
         self._recenter_axes_horizontally()
-        self._match_colorbar_height(cbar)    # setor panorâmico: cbar na altura da carta
+        self._match_colorbar_height(cbar)  # setor panorâmico: cbar na altura da carta
         self.draw()
 
     def toggle_blocking(self, visible: bool) -> None:
@@ -2631,7 +2997,9 @@ class MapCanvas(FigureCanvas):
             np.asarray(sub["longitude"].values, dtype=float),
             np.asarray(sub["latitude"].values, dtype=float),
             transform=ccrs.PlateCarree(),
-            fontsize=8, clip_on=True, zorder=22,
+            fontsize=8,
+            clip_on=True,
+            zorder=22,
         )
 
         def _track(result):
@@ -2646,13 +3014,19 @@ class MapCanvas(FigureCanvas):
         if sub["air_temperature"].notna().any():
             _track(sp.plot_parameter("NW", sub["air_temperature"].values, color=colors["temp"]))
         if sub["dew_point_temperature"].notna().any():
-            _track(sp.plot_parameter("SW", sub["dew_point_temperature"].values, color=colors["dew"]))
+            _track(
+                sp.plot_parameter("SW", sub["dew_point_temperature"].values, color=colors["dew"])
+            )
         # PNMM (NE)
         if sub["air_pressure_at_sea_level"].notna().any():
-            _track(sp.plot_parameter(
-                "NE", sub["air_pressure_at_sea_level"].values,
-                formatter=lambda v: format(10 * v, ".0f")[-3:], color=colors["main"],
-            ))
+            _track(
+                sp.plot_parameter(
+                    "NE",
+                    sub["air_pressure_at_sea_level"].values,
+                    formatter=lambda v: format(10 * v, ".0f")[-3:],
+                    color=colors["main"],
+                )
+            )
 
         # Barbelas de vento (m/s → nós para exibição padrão)
         if sub["eastward_wind"].notna().any() and sub["northward_wind"].notna().any():
@@ -2672,12 +3046,19 @@ class MapCanvas(FigureCanvas):
         # Cobertura de nuvens (centro) e tempo presente (W)
         try:
             from metpy.plots import current_weather, sky_cover
+
             if sub["cloud_coverage"].notna().any():
-                _track(sp.plot_symbol("C", sub["cloud_coverage"].values, sky_cover,
-                                      color=colors["main"]))
+                _track(
+                    sp.plot_symbol(
+                        "C", sub["cloud_coverage"].values, sky_cover, color=colors["main"]
+                    )
+                )
             if sub["current_wx1_symbol"].notna().any():
-                _track(sp.plot_symbol("W", sub["current_wx1_symbol"].values, current_weather,
-                                      color=colors["temp"]))
+                _track(
+                    sp.plot_symbol(
+                        "W", sub["current_wx1_symbol"].values, current_weather, color=colors["temp"]
+                    )
+                )
         except Exception:
             pass
 
@@ -2741,34 +3122,85 @@ class MapCanvas(FigureCanvas):
             artists = self._plot_scalar_contourf(data, var_info)
 
         self._pl_artists[layer_id] = artists
-        self._recenter_axes_horizontally()   # mantém a carta centralizada na figura
+        self._recenter_axes_horizontally()  # mantém a carta centralizada na figura
         self.draw()
 
     # Paleta OLR clássica
     _OLR_COLORS = [
-        "#3b71a1", "#407bb3", "#4483c2", "#4e92c7", "#569fcc",
-        "#61aac9", "#66b8c4", "#6bc7bc", "#78d6a4", "#84e38c",
-        "#8bed6b", "#abf056", "#c6f24b", "#dbf547", "#eef743",
-        "#fcf942", "#ffef3b", "#ffe436", "#fcd32d", "#fcbf23",
-        "#faab19", "#f79811", "#f5820f", "#f26a0f", "#ed590e",
-        "#e84315", "#d93523", "#c92435", "#b5163e", "#a11045",
-        "#8f0d47", "#800a45", "#61063b", "#520436", "#470334",
-        "#3d022e", "#330128",
+        "#3b71a1",
+        "#407bb3",
+        "#4483c2",
+        "#4e92c7",
+        "#569fcc",
+        "#61aac9",
+        "#66b8c4",
+        "#6bc7bc",
+        "#78d6a4",
+        "#84e38c",
+        "#8bed6b",
+        "#abf056",
+        "#c6f24b",
+        "#dbf547",
+        "#eef743",
+        "#fcf942",
+        "#ffef3b",
+        "#ffe436",
+        "#fcd32d",
+        "#fcbf23",
+        "#faab19",
+        "#f79811",
+        "#f5820f",
+        "#f26a0f",
+        "#ed590e",
+        "#e84315",
+        "#d93523",
+        "#c92435",
+        "#b5163e",
+        "#a11045",
+        "#8f0d47",
+        "#800a45",
+        "#61063b",
+        "#520436",
+        "#470334",
+        "#3d022e",
+        "#330128",
     ]
 
     # Paleta de precipitação (mm) — branco → azul → roxo
     _PRECIP_COLORS = [
-        "#f7fbff", "#d8eafc", "#b6dbf2", "#8fc8e8", "#62a8d8",
-        "#3f8fcc", "#2f7ab8", "#2563a3", "#2a55a0", "#3a3f9e",
-        "#5b2e93", "#7a1f86", "#99127a",
+        "#f7fbff",
+        "#d8eafc",
+        "#b6dbf2",
+        "#8fc8e8",
+        "#62a8d8",
+        "#3f8fcc",
+        "#2f7ab8",
+        "#2563a3",
+        "#2a55a0",
+        "#3a3f9e",
+        "#5b2e93",
+        "#7a1f86",
+        "#99127a",
     ]
     _PRECIP_LEVELS = [0.2, 1, 2, 5, 10, 15, 20, 30, 40, 50, 75, 100, 150]
 
     # Paleta de TSM (°C) — frio (roxo/azul) → quente (vermelho)
     _SST_COLORS = [
-        "#3b0f70", "#3a2a8c", "#2c5aa0", "#1f7db0", "#2a9db5",
-        "#3fb8a8", "#74c794", "#b7d97a", "#ece06b", "#f7c044",
-        "#f59331", "#e85f29", "#d62f27", "#b3161f", "#7a0a16",
+        "#3b0f70",
+        "#3a2a8c",
+        "#2c5aa0",
+        "#1f7db0",
+        "#2a9db5",
+        "#3fb8a8",
+        "#74c794",
+        "#b7d97a",
+        "#ece06b",
+        "#f7c044",
+        "#f59331",
+        "#e85f29",
+        "#d62f27",
+        "#b3161f",
+        "#7a0a16",
     ]
 
     def _plot_scalar_contourf(self, data: PLFieldData, var_info: dict) -> list:
@@ -2781,19 +3213,18 @@ class MapCanvas(FigureCanvas):
 
         if cmap_name == "olr_classic":
             import matplotlib.colors as mcolors
-            cmap = mcolors.LinearSegmentedColormap.from_list(
-                "olr_classic", self._OLR_COLORS, N=256
-            )
+
+            cmap = mcolors.LinearSegmentedColormap.from_list("olr_classic", self._OLR_COLORS, N=256)
         elif cmap_name == "precip_classic":
             import matplotlib.colors as mcolors
+
             cmap = mcolors.LinearSegmentedColormap.from_list(
                 "precip_classic", self._PRECIP_COLORS, N=256
             )
         elif cmap_name == "sst_classic":
             import matplotlib.colors as mcolors
-            cmap = mcolors.LinearSegmentedColormap.from_list(
-                "sst_classic", self._SST_COLORS, N=256
-            )
+
+            cmap = mcolors.LinearSegmentedColormap.from_list("sst_classic", self._SST_COLORS, N=256)
         else:
             cmap = cmap_name
 
@@ -2814,8 +3245,14 @@ class MapCanvas(FigureCanvas):
             lv_min = vmin - margin
             lv_max = vmax + margin
 
-            if var_info.get("category") == "wind_speed" or \
-               data.variable in ("r", "q", "wind_speed", "temp_grad", "tcwv", "sst_grad"):
+            if var_info.get("category") == "wind_speed" or data.variable in (
+                "r",
+                "q",
+                "wind_speed",
+                "temp_grad",
+                "tcwv",
+                "sst_grad",
+            ):
                 lv_min = max(0, lv_min)
 
             # Evita levels constantes (min == max → matplotlib crash)
@@ -2826,16 +3263,27 @@ class MapCanvas(FigureCanvas):
             levels = np.linspace(lv_min, lv_max, 21)
 
         cs_fill = self.ax.contourf(
-            data.lons, data.lats, values,
-            levels=levels, cmap=cmap, extend="both",
-            transform=ccrs.PlateCarree(), zorder=self._pl_zorder_counter, alpha=0.85,
+            data.lons,
+            data.lats,
+            values,
+            levels=levels,
+            cmap=cmap,
+            extend="both",
+            transform=ccrs.PlateCarree(),
+            zorder=self._pl_zorder_counter,
+            alpha=0.85,
         )
         artists.append(cs_fill)
 
         cs_lines = self.ax.contour(
-            data.lons, data.lats, values,
-            levels=levels[::2], colors="black", linewidths=0.3,
-            transform=ccrs.PlateCarree(), zorder=self._pl_zorder_counter,
+            data.lons,
+            data.lats,
+            values,
+            levels=levels[::2],
+            colors="black",
+            linewidths=0.3,
+            transform=ccrs.PlateCarree(),
+            zorder=self._pl_zorder_counter,
         )
         artists.append(cs_lines)
 
@@ -2852,7 +3300,9 @@ class MapCanvas(FigureCanvas):
         try:
             cax = self.ax.inset_axes([1.02, 0.15, 0.02, 0.7])
             cb = self.fig.colorbar(
-                cs_fill, cax=cax, orientation="vertical",
+                cs_fill,
+                cax=cax,
+                orientation="vertical",
                 label=f"{data.unit}",
             )
             cb.ax.tick_params(labelsize=7)
@@ -2877,9 +3327,14 @@ class MapCanvas(FigureCanvas):
             return artists
 
         cs = self.ax.contour(
-            data.lons, data.lats, values,
-            levels=levels, colors="black", linewidths=0.8,
-            transform=ccrs.PlateCarree(), zorder=self._pl_zorder_counter,
+            data.lons,
+            data.lats,
+            values,
+            levels=levels,
+            colors="black",
+            linewidths=0.8,
+            transform=ccrs.PlateCarree(),
+            zorder=self._pl_zorder_counter,
         )
         artists.append(cs)
 
@@ -2912,12 +3367,18 @@ class MapCanvas(FigureCanvas):
             flip_flag[lat2d < 0] = 1
 
             barb = self.ax.barbs(
-                lon2d[::skip, ::skip], lat2d[::skip, ::skip],
-                u_kt[::skip, ::skip], v_kt[::skip, ::skip],
-                length=5.0, sizes=dict(emptybarb=0.0, spacing=0.2, height=0.5),
-                linewidth=0.8, pivot="middle", barbcolor="gray",
+                lon2d[::skip, ::skip],
+                lat2d[::skip, ::skip],
+                u_kt[::skip, ::skip],
+                v_kt[::skip, ::skip],
+                length=5.0,
+                sizes=dict(emptybarb=0.0, spacing=0.2, height=0.5),
+                linewidth=0.8,
+                pivot="middle",
+                barbcolor="gray",
                 flip_barb=flip_flag[::skip, ::skip],
-                transform=ccrs.PlateCarree(), zorder=self._pl_zorder_counter,
+                transform=ccrs.PlateCarree(),
+                zorder=self._pl_zorder_counter,
             )
             artists.append(barb)
 
@@ -2926,10 +3387,15 @@ class MapCanvas(FigureCanvas):
             lon2d, lat2d = np.meshgrid(lons, lats)
 
             qv = self.ax.quiver(
-                lon2d[::skip, ::skip], lat2d[::skip, ::skip],
-                u[::skip, ::skip], v[::skip, ::skip],
-                color="gray", scale=300, width=0.002,
-                transform=ccrs.PlateCarree(), zorder=self._pl_zorder_counter,
+                lon2d[::skip, ::skip],
+                lat2d[::skip, ::skip],
+                u[::skip, ::skip],
+                v[::skip, ::skip],
+                color="gray",
+                scale=300,
+                width=0.002,
+                transform=ccrs.PlateCarree(),
+                zorder=self._pl_zorder_counter,
             )
             artists.append(qv)
 
@@ -2953,9 +3419,15 @@ class MapCanvas(FigureCanvas):
             collections_before = set(id(c) for c in self.ax.collections)
 
             sp = self.ax.streamplot(
-                lons_1d, lats_1d, u_stream, v_stream,
-                density=[2, 2], linewidth=0.7, color="gray",
-                transform=ccrs.PlateCarree(), zorder=self._pl_zorder_counter,
+                lons_1d,
+                lats_1d,
+                u_stream,
+                v_stream,
+                density=[2, 2],
+                linewidth=0.7,
+                color="gray",
+                transform=ccrs.PlateCarree(),
+                zorder=self._pl_zorder_counter,
             )
 
             if sp.lines:

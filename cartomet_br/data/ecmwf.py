@@ -69,6 +69,7 @@ def cache_only_mode():
 #  DOWNLOAD DE DADOS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 def download_ecmwf(
     variables: list[str],
     levels: list[int] | None = None,
@@ -83,9 +84,9 @@ def download_ecmwf(
 ) -> Path:
     """
     Baixa dados do ECMWF Open Data (IFS).
-    
+
     Se o arquivo já existir, reutiliza (evita rate limit 429).
-    
+
     Parâmetros
     ----------
     variables : list[str]
@@ -109,7 +110,7 @@ def download_ecmwf(
         Fonte dos dados: "ecmwf", "aws", "azure", "google"
     force_download : bool
         Se True, força novo download mesmo que arquivo exista
-        
+
     Retorna
     -------
     Path
@@ -157,9 +158,7 @@ def download_ecmwf(
         if output_path.exists():
             logger.info("Somente-cache: reutilizando %s", output_path)
             return output_path
-        raise CacheMissError(
-            f"Campo fora do cache (modo somente-cache): {output_path.name}"
-        )
+        raise CacheMissError(f"Campo fora do cache (modo somente-cache): {output_path.name}")
 
     # Verifica se arquivo já existe
     if output_path.exists() and not force_download:
@@ -223,9 +222,7 @@ def download_ecmwf(
 
         # Verifica se o download foi bem-sucedido
         if not output_path.exists():
-            raise FileNotFoundError(
-                f"Download não criou o arquivo esperado: {output_path}"
-            )
+            raise FileNotFoundError(f"Download não criou o arquivo esperado: {output_path}")
 
         if output_path.stat().st_size == 0:
             output_path.unlink()  # Remove arquivo vazio
@@ -243,15 +240,14 @@ def download_ecmwf(
                 f"mais tarde (a 18Z só fica pronta por volta de 01:30 UTC).\n\n"
                 f"O que fazer agora:\n"
                 f"  • Use as rodadas 00Z ou 12Z, que já estão disponíveis.\n"
-                f"  • Clique em \"Verificar Rodadas\" para ver as passadas prontas.\n\n"
+                f'  • Clique em "Verificar Rodadas" para ver as passadas prontas.\n\n'
                 f"Se as rodadas 06Z/18Z continuarem falhando mesmo já publicadas, "
                 f"pode ser necessário atualizar o CartoMet BR para uma versão mais "
                 f"recente (mudança técnica do ECMWF — IFS Cycle 50r1)."
             ) from e
         elif "404" in error_msg:
             raise FileNotFoundError(
-                f"Arquivo não encontrado no servidor ECMWF.\n"
-                f"Verifique se o step +{step}h é válido."
+                f"Arquivo não encontrado no servidor ECMWF.\nVerifique se o step +{step}h é válido."
             ) from e
         elif "429" in error_msg or "Too Many Requests" in error_msg:
             raise ConnectionError(
@@ -261,9 +257,7 @@ def download_ecmwf(
                 "Dica: os dados também estão disponíveis via AWS, Azure e Google Cloud."
             ) from e
         elif "SSL" in error_msg or "certificate" in error_msg.lower():
-            raise ConnectionError(
-                "Erro de conexão SSL. Verifique sua internet."
-            ) from e
+            raise ConnectionError("Erro de conexão SSL. Verifique sua internet.") from e
         else:
             raise RuntimeError(f"Erro no download ECMWF: {error_msg}") from e
 
@@ -275,13 +269,14 @@ def download_ecmwf(
 #  PROCESSAMENTO DE DADOS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class SynopticData:
     """Container para dados sinóticos processados."""
 
     # Campos 2D
-    pnmm: np.ndarray           # Pressão ao nível do mar (hPa)
-    thickness: np.ndarray      # Espessura 1000-500 hPa (m)
+    pnmm: np.ndarray  # Pressão ao nível do mar (hPa)
+    thickness: np.ndarray  # Espessura 1000-500 hPa (m)
 
     # Coordenadas
     lons: np.ndarray
@@ -292,8 +287,8 @@ class SynopticData:
     # Metadados
     valid_time: str
     extent: list[float]
-    base_time: str = ""        # Hora da rodada base (ex: "06Z 17/03/2026")
-    step: int = 0              # Step de previsão em horas
+    base_time: str = ""  # Hora da rodada base (ex: "06Z 17/03/2026")
+    step: int = 0  # Step de previsão em horas
 
 
 def load_synoptic_data(
@@ -308,10 +303,10 @@ def load_synoptic_data(
 ) -> SynopticData:
     """
     Carrega e processa dados sinóticos do ECMWF.
-    
+
     Baixa PNMM e altura geopotencial (500/1000 hPa), calcula espessura,
     aplica suavização gaussiana e retorna um objeto SynopticData.
-    
+
     Parâmetros
     ----------
     extent : list[float]
@@ -328,7 +323,7 @@ def load_synoptic_data(
         Fonte ECMWF
     force_download : bool
         Forçar novo download
-        
+
     Retorna
     -------
     SynopticData
@@ -383,7 +378,7 @@ def load_synoptic_data(
         backend_kwargs={
             "filter_by_keys": {"typeOfLevel": "meanSea"},
             "errors": "ignore",
-        }
+        },
     )
 
     ds_gh = xr.open_dataset(
@@ -392,7 +387,7 @@ def load_synoptic_data(
         backend_kwargs={
             "filter_by_keys": {"typeOfLevel": "isobaricInhPa"},
             "errors": "ignore",
-        }
+        },
     )
 
     # Ajusta longitude de 0-360 para -180 a 180
@@ -405,12 +400,11 @@ def load_synoptic_data(
     # Seleciona região
     msl = ds_msl["msl"].sel(
         longitude=slice(extent[0], extent[2]),
-        latitude=slice(extent[3], extent[1])  # lat decrescente no ECMWF
+        latitude=slice(extent[3], extent[1]),  # lat decrescente no ECMWF
     )
 
     gh = ds_gh["gh"].sel(
-        longitude=slice(extent[0], extent[2]),
-        latitude=slice(extent[3], extent[1])
+        longitude=slice(extent[0], extent[2]), latitude=slice(extent[3], extent[1])
     )
 
     # Processa campos
@@ -480,15 +474,15 @@ def load_synoptic_data(
 # 18Z     | 01:30 UTC (+1) | até +144h (6 dias)
 
 CYCLE_SCHEDULE = [
-    {"cycle": 0,  "label": "00Z", "avail_hour": 7.5,  "max_step": 240},
-    {"cycle": 6,  "label": "06Z", "avail_hour": 13.5, "max_step": 144},
+    {"cycle": 0, "label": "00Z", "avail_hour": 7.5, "max_step": 240},
+    {"cycle": 6, "label": "06Z", "avail_hour": 13.5, "max_step": 144},
     {"cycle": 12, "label": "12Z", "avail_hour": 19.5, "max_step": 240},
-    {"cycle": 18, "label": "18Z", "avail_hour": 1.5,  "max_step": 144},  # dia seguinte
+    {"cycle": 18, "label": "18Z", "avail_hour": 1.5, "max_step": 144},  # dia seguinte
 ]
 
 
-PUBLISH_DELAY = 7.5    # horas após a rodada até a publicação no Open Data
-N_RECENT_CYCLES = 12   # rodadas listadas = arquivo rotativo do ECMWF (~3 dias)
+PUBLISH_DELAY = 7.5  # horas após a rodada até a publicação no Open Data
+N_RECENT_CYCLES = 12  # rodadas listadas = arquivo rotativo do ECMWF (~3 dias)
 
 
 def estimate_available_cycles() -> dict:
@@ -522,13 +516,15 @@ def estimate_available_cycles() -> dict:
     while len(available) < N_RECENT_CYCLES and guard > 0:
         if now >= cand + timedelta(hours=PUBLISH_DELAY):
             info = by_cycle[cand.hour]
-            available.append({
-                "cycle": cand.hour,
-                "label": info["label"],
-                "max_step": info["max_step"],
-                "base_datetime": cand,
-                "date_str": cand.strftime("%d/%m/%Y"),
-            })
+            available.append(
+                {
+                    "cycle": cand.hour,
+                    "label": info["label"],
+                    "max_step": info["max_step"],
+                    "base_datetime": cand,
+                    "date_str": cand.strftime("%d/%m/%Y"),
+                }
+            )
         cand -= timedelta(hours=6)
         guard -= 1
 
@@ -678,7 +674,7 @@ VARIABLE_REGISTRY = {
         "symmetric": False,
         "category": "radiation",
         "min_step": 3,
-        "tem_tecnica": True,   # suporta seletor Direta/Estabilizada (desacumulação)
+        "tem_tecnica": True,  # suporta seletor Direta/Estabilizada (desacumulação)
     },
     "precip": {
         "nome": "Precipitação (3h)",
@@ -856,12 +852,12 @@ class ModelProfile:
     lat: float
     grid_lon: float
     grid_lat: float
-    pressures: np.ndarray   # hPa (descendente)
-    t: np.ndarray           # K
-    q: np.ndarray           # kg/kg (umidade específica)
-    u: np.ndarray           # m/s
-    v: np.ndarray           # m/s
-    gh: np.ndarray          # m (altura geopotencial)
+    pressures: np.ndarray  # hPa (descendente)
+    t: np.ndarray  # K
+    q: np.ndarray  # kg/kg (umidade específica)
+    u: np.ndarray  # m/s
+    v: np.ndarray  # m/s
+    gh: np.ndarray  # m (altura geopotencial)
     valid_time: str = ""
     base_time: str = ""
     cycle: int | None = None
@@ -869,8 +865,11 @@ class ModelProfile:
 
 
 def _profile_from_dataset(
-    ds: xr.Dataset, lon: float, lat: float,
-    cycle: int | None, step: int,
+    ds: xr.Dataset,
+    lon: float,
+    lat: float,
+    cycle: int | None,
+    step: int,
 ) -> ModelProfile:
     """Extrai a coluna vertical (t,q,u,v,gh) de um Dataset isobárico num ponto.
 
@@ -915,9 +914,20 @@ def _profile_from_dataset(
         )
 
     return ModelProfile(
-        lon=float(lon), lat=float(lat), grid_lon=grid_lon, grid_lat=grid_lat,
-        pressures=pressures, t=t, q=q, u=u, v=v, gh=gh,
-        valid_time=valid_time_str, base_time=base_time_str, cycle=cycle, step=step,
+        lon=float(lon),
+        lat=float(lat),
+        grid_lon=grid_lon,
+        grid_lat=grid_lat,
+        pressures=pressures,
+        t=t,
+        q=q,
+        u=u,
+        v=v,
+        gh=gh,
+        valid_time=valid_time_str,
+        base_time=base_time_str,
+        cycle=cycle,
+        step=step,
     )
 
 
@@ -995,14 +1005,14 @@ class PointTimeseries:
     lat: float
     grid_lon: float
     grid_lat: float
-    steps: np.ndarray            # horas de previsão
-    valid_times: list            # rótulos UTC por step
-    t: np.ndarray                # °C (ar a 1000 hPa)
-    wind_speed: np.ndarray       # m/s (10 m)
-    wind_dir: np.ndarray         # graus (de onde sopra)
-    precip: np.ndarray           # mm no intervalo
-    msl: np.ndarray              # hPa (PNMM)
-    tcwv: np.ndarray             # mm (água precipitável)
+    steps: np.ndarray  # horas de previsão
+    valid_times: list  # rótulos UTC por step
+    t: np.ndarray  # °C (ar a 1000 hPa)
+    wind_speed: np.ndarray  # m/s (10 m)
+    wind_dir: np.ndarray  # graus (de onde sopra)
+    precip: np.ndarray  # mm no intervalo
+    msl: np.ndarray  # hPa (PNMM)
+    tcwv: np.ndarray  # mm (água precipitável)
     base_time: str = ""
     cycle: int | None = None
 
@@ -1073,9 +1083,20 @@ def _sample_surface(datasets: list, lon: float, lat: float) -> dict:
 
 
 def _assemble_point_timeseries(
-    lon: float, lat: float, grid_lon: float, grid_lat: float,
-    steps, valid_times, t_k, u10, v10, msl_pa, tcwv, tp_m,
-    base_time: str, cycle: int | None,
+    lon: float,
+    lat: float,
+    grid_lon: float,
+    grid_lat: float,
+    steps,
+    valid_times,
+    t_k,
+    u10,
+    v10,
+    msl_pa,
+    tcwv,
+    tp_m,
+    base_time: str,
+    cycle: int | None,
 ) -> PointTimeseries:
     """Monta o :class:`PointTimeseries` (PURO): unidades, vento e precip por intervalo."""
     steps_arr = np.asarray(steps, dtype=float)
@@ -1100,10 +1121,20 @@ def _assemble_point_timeseries(
     precip_mm = precip * 1000.0
 
     return PointTimeseries(
-        lon=float(lon), lat=float(lat), grid_lon=float(grid_lon), grid_lat=float(grid_lat),
-        steps=steps_arr, valid_times=list(valid_times), t=t_c, wind_speed=wind_speed,
-        wind_dir=wind_dir, precip=precip_mm, msl=msl_hpa, tcwv=tcwv_mm,
-        base_time=base_time, cycle=cycle,
+        lon=float(lon),
+        lat=float(lat),
+        grid_lon=float(grid_lon),
+        grid_lat=float(grid_lat),
+        steps=steps_arr,
+        valid_times=list(valid_times),
+        t=t_c,
+        wind_speed=wind_speed,
+        wind_dir=wind_dir,
+        precip=precip_mm,
+        msl=msl_hpa,
+        tcwv=tcwv_mm,
+        base_time=base_time,
+        cycle=cycle,
     )
 
 
@@ -1146,9 +1177,14 @@ def load_point_timeseries(
         try:
             sfc_path = download_ecmwf(
                 variables=["msl", "10u", "10v", "tcwv", "tp"],
-                levels=None, step=s, cycle=cycle, date=cycle_date,
+                levels=None,
+                step=s,
+                cycle=cycle,
+                date=cycle_date,
                 output_path=data_dir / f"ecmwf_meteo_sfc_{date_str}_{cycle_tag}_f{s:03d}.grib2",
-                data_dir=data_dir, source=source, force_download=force_download,
+                data_dir=data_dir,
+                source=source,
+                force_download=force_download,
                 levtype="sfc",
             )
             datasets = cfgrib.open_datasets(str(sfc_path), backend_kwargs={"errors": "ignore"})
@@ -1159,15 +1195,24 @@ def load_point_timeseries(
                     d.close()
 
             t1000_path = download_ecmwf(
-                variables=["t"], levels=[1000], step=s, cycle=cycle, date=cycle_date,
+                variables=["t"],
+                levels=[1000],
+                step=s,
+                cycle=cycle,
+                date=cycle_date,
                 output_path=data_dir / f"ecmwf_meteo_t1000_{date_str}_{cycle_tag}_f{s:03d}.grib2",
-                data_dir=data_dir, source=source, force_download=force_download,
+                data_dir=data_dir,
+                source=source,
+                force_download=force_download,
                 levtype="pl",
             )
             ds_t = xr.open_dataset(
-                t1000_path, engine="cfgrib",
-                backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"},
-                                "errors": "ignore"},
+                t1000_path,
+                engine="cfgrib",
+                backend_kwargs={
+                    "filter_by_keys": {"typeOfLevel": "isobaricInhPa"},
+                    "errors": "ignore",
+                },
             )
             try:
                 col_t, _, _ = _sample_nearest(ds_t, lon, lat)
@@ -1197,8 +1242,20 @@ def load_point_timeseries(
         )
 
     return _assemble_point_timeseries(
-        lon, lat, grid_lon, grid_lat, rec_steps, rec_vt,
-        rec_t, rec_u, rec_v, rec_msl, rec_tcwv, rec_tp, base_time, cycle,
+        lon,
+        lat,
+        grid_lon,
+        grid_lat,
+        rec_steps,
+        rec_vt,
+        rec_t,
+        rec_u,
+        rec_v,
+        rec_msl,
+        rec_tcwv,
+        rec_tp,
+        base_time,
+        cycle,
     )
 
 
@@ -1220,15 +1277,15 @@ class CrossSection:
     (13 níveis) — produto do modelo, não observação.
     """
 
-    distances_km: np.ndarray     # (n_pontos,)
-    pressures: np.ndarray        # (n_níveis,) descendente
-    t: np.ndarray                # °C
-    w: np.ndarray                # Pa/s (omega; <0 = ascendência)
-    q: np.ndarray                # g/kg
-    u: np.ndarray                # m/s
-    v: np.ndarray                # m/s
-    lons: np.ndarray             # (n_pontos,)
-    lats: np.ndarray             # (n_pontos,)
+    distances_km: np.ndarray  # (n_pontos,)
+    pressures: np.ndarray  # (n_níveis,) descendente
+    t: np.ndarray  # °C
+    w: np.ndarray  # Pa/s (omega; <0 = ascendência)
+    q: np.ndarray  # g/kg
+    u: np.ndarray  # m/s
+    v: np.ndarray  # m/s
+    lons: np.ndarray  # (n_pontos,)
+    lats: np.ndarray  # (n_pontos,)
     valid_time: str = ""
     base_time: str = ""
     step: int = 0
@@ -1247,8 +1304,13 @@ def _haversine_cumulative(lons: np.ndarray, lats: np.ndarray) -> np.ndarray:
 
 
 def _cross_section_from_dataset(
-    ds: xr.Dataset, lon_a: float, lat_a: float, lon_b: float, lat_b: float,
-    step: int, n_points: int = 80,
+    ds: xr.Dataset,
+    lon_a: float,
+    lat_a: float,
+    lon_b: float,
+    lat_b: float,
+    step: int,
+    n_points: int = 80,
 ) -> CrossSection:
     """Amostra a seção A→B de um Dataset isobárico (PURO — testável sem rede).
 
@@ -1286,8 +1348,18 @@ def _cross_section_from_dataset(
     vt, bt = _time_labels(ds)
 
     return CrossSection(
-        distances_km=distances, pressures=pressures, t=t, w=w, q=q, u=u, v=v,
-        lons=lons, lats=lats, valid_time=vt, base_time=bt, step=step,
+        distances_km=distances,
+        pressures=pressures,
+        t=t,
+        w=w,
+        q=q,
+        u=u,
+        v=v,
+        lons=lons,
+        lats=lats,
+        valid_time=vt,
+        base_time=bt,
+        step=step,
     )
 
 
@@ -1358,14 +1430,19 @@ def _dewpoint_2d(pressure_hpa: float, q2d: np.ndarray):
     """Td (°C, ndarray) de um nível a partir da umidade específica 2D (q em kg/kg)."""
     import metpy.calc as mpcalc
     from metpy.units import units
+
     mixing = mpcalc.mixing_ratio_from_specific_humidity(q2d * units("kg/kg"))
     e = mpcalc.vapor_pressure(pressure_hpa * units.hPa, mixing)
     return mpcalc.dewpoint(e).to("degC").magnitude
 
 
 def _instability_from_dataset(
-    ds: xr.Dataset, extent: list[float], indices: tuple, stride: int,
-    step: int, progress_cb=None,
+    ds: xr.Dataset,
+    extent: list[float],
+    indices: tuple,
+    stride: int,
+    step: int,
+    progress_cb=None,
 ) -> dict:
     """Calcula os campos de instabilidade de um Dataset isobárico (PURO/testável).
 
@@ -1383,10 +1460,12 @@ def _instability_from_dataset(
     pressures = np.asarray(ds["isobaricInhPa"].values, dtype=float)
     order = np.argsort(pressures)[::-1]
     pressures = pressures[order]
-    t3d = np.asarray(ds["t"].transpose("isobaricInhPa", "latitude", "longitude").values,
-                     dtype=float)[order]
-    q3d = np.asarray(ds["q"].transpose("isobaricInhPa", "latitude", "longitude").values,
-                     dtype=float)[order]
+    t3d = np.asarray(
+        ds["t"].transpose("isobaricInhPa", "latitude", "longitude").values, dtype=float
+    )[order]
+    q3d = np.asarray(
+        ds["q"].transpose("isobaricInhPa", "latitude", "longitude").values, dtype=float
+    )[order]
     lats = np.asarray(ds["latitude"].values, dtype=float)
     lons = np.asarray(ds["longitude"].values, dtype=float)
     vt, bt = _time_labels(ds)
@@ -1401,8 +1480,15 @@ def _instability_from_dataset(
             logger.warning("Campo de instabilidade '%s' totalmente indefinido — omitido.", name)
             return
         out[name] = PLFieldData(
-            values=values, lons=lons, lats=lats, variable=name, level=0,
-            unit=unit, valid_time=vt, base_time=bt, step=step,
+            values=values,
+            lons=lons,
+            lats=lats,
+            variable=name,
+            level=0,
+            unit=unit,
+            valid_time=vt,
+            base_time=bt,
+            step=step,
         )
 
     # ── K-index (nativo, vetorizado) ─────────────────────────────────────────
@@ -1460,8 +1546,9 @@ def _instability_from_dataset(
         clon = lons[cj]
 
         def _interp(coarse: np.ndarray) -> np.ndarray:
-            da = xr.DataArray(coarse, dims=("latitude", "longitude"),
-                              coords={"latitude": clat, "longitude": clon})
+            da = xr.DataArray(
+                coarse, dims=("latitude", "longitude"), coords={"latitude": clat, "longitude": clon}
+            )
             return da.interp(latitude=lats, longitude=lons).values
 
         if "cape" in indices:
@@ -1522,7 +1609,12 @@ def compute_instability_fields(
     )
     try:
         return _instability_from_dataset(
-            ds, extent, tuple(indices), int(coarsen_stride), step, progress_cb,
+            ds,
+            extent,
+            tuple(indices),
+            int(coarsen_stride),
+            step,
+            progress_cb,
         )
     finally:
         ds.close()
@@ -1542,7 +1634,7 @@ def load_pl_variable(
 ) -> PLFieldData:
     """
     Baixa e processa uma variável em nível de pressão.
-    
+
     Parâmetros
     ----------
     variable_key : str
@@ -1563,7 +1655,7 @@ def load_pl_variable(
         Fonte ECMWF
     force_download : bool
         Forçar novo download
-        
+
     Retorna
     -------
     PLFieldData
@@ -1583,7 +1675,7 @@ def load_pl_variable(
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
     param_str = "_".join(params)
 
-    logger.info("Carregando %s em %s hPa", var_info['nome'], level)
+    logger.info("Carregando %s em %s hPa", var_info["nome"], level)
 
     # Variáveis derivadas fazem seus próprios downloads
     if var_info["category"] == "derived":
@@ -1607,7 +1699,8 @@ def load_pl_variable(
         levels=[level],
         step=step,
         cycle=cycle,
-        output_path=data_dir / f"ecmwf_{param_str}_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
+        output_path=data_dir
+        / f"ecmwf_{param_str}_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
         data_dir=data_dir,
         source=source,
         force_download=force_download,
@@ -1620,7 +1713,7 @@ def load_pl_variable(
         backend_kwargs={
             "filter_by_keys": {"typeOfLevel": "isobaricInhPa"},
             "errors": "ignore",
-        }
+        },
     )
 
     # Ajusta longitude de 0-360 para -180 a 180
@@ -1632,7 +1725,7 @@ def load_pl_variable(
         "longitude": slice(extent[0], extent[2]),
         "latitude": slice(extent[3], extent[1]),
     }
-    if "isobaricInhPa" in ds.dims:   # só seleciona se for DIMENSÃO (nível único = escalar)
+    if "isobaricInhPa" in ds.dims:  # só seleciona se for DIMENSÃO (nível único = escalar)
         sel_kwargs["isobaricInhPa"] = level
 
     # Extrai metadados de tempo
@@ -1759,7 +1852,7 @@ def _compute_derived_variable(
 ) -> PLFieldData:
     """
     Calcula variáveis derivadas (advecção de T, gradiente de T).
-    
+
     Baixa t e u,v separadamente (reutiliza cache) e combina.
     """
     var_info = VARIABLE_REGISTRY[variable_key]
@@ -1778,8 +1871,9 @@ def _compute_derived_variable(
     )
 
     ds_t = xr.open_dataset(
-        t_file, engine="cfgrib",
-        backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"}, "errors": "ignore"}
+        t_file,
+        engine="cfgrib",
+        backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"}, "errors": "ignore"},
     )
     ds_t = ds_t.assign_coords(longitude=(ds_t.longitude + 180) % 360 - 180)
     ds_t = ds_t.sortby("longitude")
@@ -1825,8 +1919,8 @@ def _compute_derived_variable(
 
     # ─── Gradiente de temperatura ───
     # dT/dy, dT/dx usando diferenças finitas centrais
-    dTdy = np.gradient(t_data, dy, axis=0)       # ∂T/∂y
-    dTdx = np.gradient(t_data, axis=1) / dx_2d   # ∂T/∂x
+    dTdy = np.gradient(t_data, dy, axis=0)  # ∂T/∂y
+    dTdx = np.gradient(t_data, axis=1) / dx_2d  # ∂T/∂x
 
     if variable_key == "temp_grad":
         # |∇T| em °C/100km
@@ -1858,8 +1952,9 @@ def _compute_derived_variable(
         )
 
         ds_uv = xr.open_dataset(
-            uv_file, engine="cfgrib",
-            backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"}, "errors": "ignore"}
+            uv_file,
+            engine="cfgrib",
+            backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"}, "errors": "ignore"},
         )
         ds_uv = ds_uv.assign_coords(longitude=(ds_uv.longitude + 180) % 360 - 180)
         ds_uv = ds_uv.sortby("longitude")
@@ -1919,8 +2014,9 @@ def _compute_derived_variable(
         )
 
         ds_uv = xr.open_dataset(
-            uv_file, engine="cfgrib",
-            backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"}, "errors": "ignore"}
+            uv_file,
+            engine="cfgrib",
+            backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"}, "errors": "ignore"},
         )
         ds_uv = ds_uv.assign_coords(longitude=(ds_uv.longitude + 180) % 360 - 180)
         ds_uv = ds_uv.sortby("longitude")
@@ -1952,9 +2048,7 @@ def _compute_derived_variable(
 
         # Fórmula de Petterssen
         F = -(1.0 / (2.0 * grad_mag)) * (
-            dTdx**2 * dudx +
-            dTdy**2 * dvdy +
-            dTdx * dTdy * (dvdx + dudy)
+            dTdx**2 * dudx + dTdy**2 * dvdy + dTdx * dTdy * (dvdx + dudy)
         )
 
         # Converte K/m/s → °C/100km/3h
@@ -1993,8 +2087,9 @@ def _compute_derived_variable(
         )
 
         ds_q = xr.open_dataset(
-            q_file, engine="cfgrib",
-            backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"}, "errors": "ignore"}
+            q_file,
+            engine="cfgrib",
+            backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"}, "errors": "ignore"},
         )
         ds_q = ds_q.assign_coords(longitude=(ds_q.longitude + 180) % 360 - 180)
         ds_q = ds_q.sortby("longitude")
@@ -2035,8 +2130,9 @@ def _compute_derived_variable(
         )
 
         ds_uv = xr.open_dataset(
-            uv_file, engine="cfgrib",
-            backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"}, "errors": "ignore"}
+            uv_file,
+            engine="cfgrib",
+            backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"}, "errors": "ignore"},
         )
         ds_uv = ds_uv.assign_coords(longitude=(ds_uv.longitude + 180) % 360 - 180)
         ds_uv = ds_uv.sortby("longitude")
@@ -2117,9 +2213,16 @@ def _compute_derived_variable(
 # Ref.: Copernicus CKB (de-accumulation, spin-up mitigation); IFS Cycle 50r1
 # preenche o step=0 de variáveis acumuladas com zeros.
 
+
 def _read_accum_field(
-    param: str, cycle: int | None, date_str: str, step: int,
-    extent: list[float], data_dir: Path, source: str, force_download: bool,
+    param: str,
+    cycle: int | None,
+    date_str: str,
+    step: int,
+    extent: list[float],
+    data_dir: Path,
+    source: str,
+    force_download: bool,
 ) -> tuple:
     """Baixa e lê uma variável acumulada (ttr/tp) num run+step, recortada ao extent."""
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
@@ -2128,7 +2231,7 @@ def _read_accum_field(
         levels=None,
         step=step,
         cycle=cycle,
-        date=date_str,                 # P0: ancora a rodada calculada (Técnica B);
+        date=date_str,  # P0: ancora a rodada calculada (Técnica B);
         # sem isto o cliente baixa a "latest" e o cache fica rotulado errado.
         output_path=Path(data_dir) / f"ecmwf_{param}_{date_str}_{cycle_tag}_f{step:03d}.grib2",
         data_dir=data_dir,
@@ -2159,7 +2262,10 @@ def _read_accum_field(
 
 
 def _resolve_accum_window(
-    technique: str, cycle: int | None, cycle_date: str | None, step: int,
+    technique: str,
+    cycle: int | None,
+    cycle_date: str | None,
+    step: int,
 ) -> tuple:
     """Resolve (run_cycle, run_date, step_hi, step_lo, rótulo) para a desacumulação."""
     date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
@@ -2170,9 +2276,11 @@ def _resolve_accum_window(
         # alvo=step+12, janela 3h(≤144)/6h, snapping anti-404 (P1) e fallback de
         # data (C2). Aqui só formatamos o rótulo da camada.
         plan = resolve_olr_window(cycle if cycle is not None else 0, date_str, step)
-        label = (f"Estabilizada · rodada {plan.base_cycle:02d}Z "
-                 f"{plan.base_date[6:8]}/{plan.base_date[4:6]} "
-                 f"(steps {plan.step_lo}–{plan.step_hi})")
+        label = (
+            f"Estabilizada · rodada {plan.base_cycle:02d}Z "
+            f"{plan.base_date[6:8]}/{plan.base_date[4:6]} "
+            f"(steps {plan.step_lo}–{plan.step_hi})"
+        )
         return plan.base_cycle, plan.base_date, plan.step_hi, plan.step_lo, label
 
     # Direta: janela [step-w, step] da rodada selecionada (w=3h até 144h, senão 6h)
@@ -2183,9 +2291,16 @@ def _resolve_accum_window(
 
 
 def _deaccumulate(
-    param: str, technique: str, cycle: int | None, cycle_date: str | None,
-    step: int, extent: list[float], data_dir: Path, source: str,
-    smoothing_sigma: float, force_download: bool,
+    param: str,
+    technique: str,
+    cycle: int | None,
+    cycle_date: str | None,
+    step: int,
+    extent: list[float],
+    data_dir: Path,
+    source: str,
+    smoothing_sigma: float,
+    force_download: bool,
 ) -> tuple:
     """Desacumula uma variável de fluxo: retorna (Δ, lons, lats, valid, base, rótulo, Δt_seg)."""
     run_cycle, run_date, step_hi, step_lo, label = _resolve_accum_window(
@@ -2245,8 +2360,16 @@ def load_olr(
 
     logger.info("Carregando OLR desacumulada (técnica=%s, step=%s)", technique, step)
     delta, lons, lats, vt, bt, label, dt_sec = _deaccumulate(
-        "ttr", technique, cycle, cycle_date, step, extent,
-        data_dir, source, smoothing_sigma, force_download,
+        "ttr",
+        technique,
+        cycle,
+        cycle_date,
+        step,
+        extent,
+        data_dir,
+        source,
+        smoothing_sigma,
+        force_download,
     )
     olr = -delta / dt_sec
     logger.info("  OLR %.0f–%.0f W/m² (%s)", np.nanmin(olr), np.nanmax(olr), label)
@@ -2304,8 +2427,16 @@ def load_precip(
 
     logger.info("Carregando precipitação desacumulada (técnica=%s, step=%s)", technique, step)
     delta, lons, lats, vt, bt, label, _dt = _deaccumulate(
-        "tp", technique, cycle, cycle_date, step, extent,
-        data_dir, source, smoothing_sigma, force_download,
+        "tp",
+        technique,
+        cycle,
+        cycle_date,
+        step,
+        extent,
+        data_dir,
+        source,
+        smoothing_sigma,
+        force_download,
     )
     precip_mm = np.clip(delta * 1000.0, 0.0, None)  # m → mm, sem negativos espúrios
     logger.info("  Precip máx %.1f mm/3h (%s)", np.nanmax(precip_mm), label)
@@ -2333,28 +2464,46 @@ def load_precip(
 # água↔atmosfera, com o ciclo diurno aprimorado. Mascara-se o continente com a
 # máscara terra-mar `lsm`. (Verificado empiricamente: `sst` ausente do índice.)
 
+
 def _read_skt_ocean(
-    extent: list[float], step: int, cycle: int | None, cycle_date: str | None,
-    data_dir: Path, source: str, smoothing_sigma: float, force_download: bool,
+    extent: list[float],
+    step: int,
+    cycle: int | None,
+    cycle_date: str | None,
+    data_dir: Path,
+    source: str,
+    smoothing_sigma: float,
+    force_download: bool,
 ) -> tuple:
     """Lê skt (°C) mascarada ao oceano via lsm. Retorna (skt_c, lons, lats, vt, bt)."""
     date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
 
     skt_file = download_ecmwf(
-        variables=["skt"], levels=None, step=step, cycle=cycle,
+        variables=["skt"],
+        levels=None,
+        step=step,
+        cycle=cycle,
         output_path=Path(data_dir) / f"ecmwf_skt_{date_str}_{cycle_tag}_f{step:03d}.grib2",
-        data_dir=data_dir, source=source, force_download=force_download,
+        data_dir=data_dir,
+        source=source,
+        force_download=force_download,
     )
     lsm_file = download_ecmwf(
-        variables=["lsm"], levels=None, step=step, cycle=cycle,
+        variables=["lsm"],
+        levels=None,
+        step=step,
+        cycle=cycle,
         output_path=Path(data_dir) / f"ecmwf_lsm_{date_str}_{cycle_tag}_f{step:03d}.grib2",
-        data_dir=data_dir, source=source, force_download=force_download,
+        data_dir=data_dir,
+        source=source,
+        force_download=force_download,
     )
 
     def _open(fn, shortname):
         ds = xr.open_dataset(
-            fn, engine="cfgrib",
+            fn,
+            engine="cfgrib",
             backend_kwargs={"filter_by_keys": {"shortName": shortname}, "errors": "ignore"},
         )
         ds = ds.assign_coords(longitude=(ds.longitude + 180) % 360 - 180).sortby("longitude")
@@ -2366,7 +2515,7 @@ def _read_skt_ocean(
     ds_skt, skt = _open(skt_file, "skt")
     _ds_lsm, lsm = _open(lsm_file, "lsm")
 
-    skt_c = skt.values - 273.15      # K → °C
+    skt_c = skt.values - 273.15  # K → °C
     lons = skt.longitude.values
     lats = skt.latitude.values
 
@@ -2416,8 +2565,15 @@ def load_model_sst(
     logger.info("  TSM modelo: %.1f – %.1f °C", np.nanmin(skt_c), np.nanmax(skt_c))
 
     return PLFieldData(
-        values=skt_c, lons=lons, lats=lats, variable="sst_model", level=0,
-        unit="°C", valid_time=vt, base_time=bt, step=step,
+        values=skt_c,
+        lons=lons,
+        lats=lats,
+        variable="sst_model",
+        level=0,
+        unit="°C",
+        valid_time=vt,
+        base_time=bt,
+        step=step,
     )
 
 
@@ -2449,8 +2605,15 @@ def load_sst_gradient(
     logger.info("  |∇TSM| máx: %.2f °C/100km", np.nanmax(grad_mag))
 
     return PLFieldData(
-        values=grad_mag, lons=lons, lats=lats, variable="sst_grad", level=0,
-        unit="°C/100km", valid_time=vt, base_time=bt, step=step,
+        values=grad_mag,
+        lons=lons,
+        lats=lats,
+        variable="sst_grad",
+        level=0,
+        unit="°C/100km",
+        valid_time=vt,
+        base_time=bt,
+        step=step,
     )
 
 
@@ -2465,18 +2628,22 @@ def _gradient_magnitude_metpy(arr: np.ndarray, lons: np.ndarray, lats: np.ndarra
         grad = mpcalc.gradient(arr * units.kelvin, deltas=(dy, dx))
         gy = np.asarray(grad[0].magnitude)
         gx = np.asarray(grad[1].magnitude)
-        mag = np.sqrt(gx ** 2 + gy ** 2)        # °C/m
-        return mag * 1e5                         # °C/m → °C/100km
+        mag = np.sqrt(gx**2 + gy**2)  # °C/m
+        return mag * 1e5  # °C/m → °C/100km
     except Exception as exc:  # pragma: no cover — fallback robusto
         logger.warning("MetPy falhou no gradiente (%s); usando diferenças finitas.", exc)
         lat_rad = np.deg2rad(lats)
         R = 6.371e6
         dy = np.deg2rad(np.diff(lats).mean()) * R
-        dx2d = (np.deg2rad(np.diff(lons).mean()) * R
-                * np.cos(lat_rad)[:, np.newaxis] * np.ones((1, len(lons))))
+        dx2d = (
+            np.deg2rad(np.diff(lons).mean())
+            * R
+            * np.cos(lat_rad)[:, np.newaxis]
+            * np.ones((1, len(lons)))
+        )
         dfdy = np.gradient(arr, dy, axis=0)
         dfdx = np.gradient(arr, axis=1) / dx2d
-        return np.sqrt(dfdx ** 2 + dfdy ** 2) * 1e5
+        return np.sqrt(dfdx**2 + dfdy**2) * 1e5
 
 
 def load_tcwv(
@@ -2491,7 +2658,7 @@ def load_tcwv(
 ) -> PLFieldData:
     """
     Baixa e processa Água Precipitável (Total Column Water Vapour).
-    
+
     tcwv é fornecida em kg/m², que é numericamente igual a mm.
     """
     if data_dir is None:
@@ -2514,11 +2681,7 @@ def load_tcwv(
         force_download=force_download,
     )
 
-    ds = xr.open_dataset(
-        grib_file,
-        engine="cfgrib",
-        backend_kwargs={"errors": "ignore"}
-    )
+    ds = xr.open_dataset(grib_file, engine="cfgrib", backend_kwargs={"errors": "ignore"})
 
     ds = ds.assign_coords(longitude=(ds.longitude + 180) % 360 - 180)
     ds = ds.sortby("longitude")
@@ -2568,60 +2731,281 @@ def load_tcwv(
 #  GOES-16 — IMAGEM DE SATÉLITE (BANDA 13 IR)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class SatelliteData:
     """Container para dados de imagem de satélite."""
-    data: np.ndarray       # Temperatura de brilho em °C
-    x: np.ndarray          # Coordenadas x em metros (projeção geoestacionária)
-    y: np.ndarray          # Coordenadas y em metros (projeção geoestacionária)
-    sat_lon: float         # Longitude do satélite
-    sat_h: float           # Altura do satélite (m)
-    sat_sweep: str         # Eixo de varredura
-    time_str: str          # Data/hora da imagem
-    filename: str          # Nome do arquivo original
+
+    data: np.ndarray  # Temperatura de brilho em °C
+    x: np.ndarray  # Coordenadas x em metros (projeção geoestacionária)
+    y: np.ndarray  # Coordenadas y em metros (projeção geoestacionária)
+    sat_lon: float  # Longitude do satélite
+    sat_h: float  # Altura do satélite (m)
+    sat_sweep: str  # Eixo de varredura
+    time_str: str  # Data/hora da imagem
+    filename: str  # Nome do arquivo original
 
 
 # Paleta IR4AVHRR6 clássica — 256 cores (branco→roxo→cinza→vermelho→amarelo→verde→azul→ciano→cinza→preto)
 # Mapeada para temperaturas de brilho: -103°C (índice 0) a +84°C (índice 255)
 _IR_AVHRR_COLORS = [
-    (255,255,255),(255,255,255),(255,255,255),(255,255,255),(255,255,255),(255,255,255),
-    (255,255,255),(255,255,255),(255,255,255),(255,255,255),(255,255,255),(255,255,255),
-    (255,255,255),(255,255,255),(255,255,255),(255,255,255),(255,255,255),(255,255,255),
-    (255,255,255),(127,0,127),(140,13,135),(153,25,142),(165,38,150),(178,51,157),
-    (191,64,165),(204,76,173),(217,89,180),(229,102,188),(242,114,195),(255,127,203),
-    (230,230,230),(205,205,205),(179,179,179),(154,154,154),(128,128,128),(103,103,103),
-    (77,77,77),(52,52,52),(26,26,26),(0,0,0),(26,0,0),(51,0,0),(77,0,0),(102,0,0),
-    (128,0,0),(153,0,0),(179,0,0),(204,0,0),(230,0,0),(255,0,0),(255,26,0),(255,51,0),
-    (255,77,0),(255,102,0),(255,128,0),(255,153,0),(255,179,0),(255,204,0),(255,230,0),
-    (255,255,0),(230,255,0),(204,255,0),(179,255,0),(153,255,0),(128,255,0),(102,255,0),
-    (77,255,0),(51,255,0),(26,255,0),(0,255,0),(0,234,10),(0,213,19),(0,191,29),
-    (0,170,38),(0,149,48),(0,128,58),(0,106,67),(0,85,77),(0,64,86),(0,43,96),
-    (0,21,105),(0,0,115),(0,0,115),(0,13,122),(0,26,129),(0,38,136),(0,51,143),
-    (0,64,150),(0,77,157),(0,89,164),(0,102,171),(0,115,178),(0,128,185),(0,140,192),
-    (0,153,199),(0,166,206),(0,179,213),(0,191,220),(0,204,227),(0,217,234),(0,230,241),
-    (0,242,248),(0,255,255),(255,255,255),(255,255,255),(255,255,255),(255,255,255),
-    (255,255,255),(255,255,255),(255,255,255),(254,254,254),(252,252,252),(249,249,249),
-    (247,247,247),(244,244,244),(242,242,242),(239,239,239),(237,237,237),(234,234,234),
-    (232,232,232),(229,229,229),(226,226,226),(224,224,224),(221,221,221),(219,219,219),
-    (216,216,216),(214,214,214),(211,211,211),(209,209,209),(206,206,206),(203,203,203),
-    (201,201,201),(198,198,198),(196,196,196),(193,193,193),(191,191,191),(188,188,188),
-    (186,186,186),(183,183,183),(181,181,181),(178,178,178),(175,175,175),(173,173,173),
-    (170,170,170),(168,168,168),(165,165,165),(163,163,163),(160,160,160),(158,158,158),
-    (155,155,155),(152,152,152),(150,150,150),(147,147,147),(145,145,145),(142,142,142),
-    (140,140,140),(137,137,137),(135,135,135),(132,132,132),(130,130,130),(127,127,127),
-    (124,124,124),(122,122,122),(119,119,119),(117,117,117),(114,114,114),(112,112,112),
-    (109,109,109),(107,107,107),(104,104,104),(101,101,101),(99,99,99),(96,96,96),
-    (94,94,94),(91,91,91),(89,89,89),(86,86,86),(84,84,84),(81,81,81),(79,79,79),
-    (76,76,76),(73,73,73),(71,71,71),(68,68,68),(66,66,66),(63,63,63),(61,61,61),
-    (58,58,58),(56,56,56),(53,53,53),(50,50,50),(48,48,48),(45,45,45),(43,43,43),
-    (40,40,40),(38,38,38),(35,35,35),(33,33,33),(30,30,30),(28,28,28),(25,25,25),
-    (22,22,22),(20,20,20),(17,17,17),(15,15,15),(12,12,12),(10,10,10),(7,7,7),
-    (5,5,5),(2,2,2),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),
-    (0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),
-    (0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),
-    (0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),
-    (0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),(0,0,0),
-    (0,0,0),(0,0,0),(0,0,0),(0,0,0),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (127, 0, 127),
+    (140, 13, 135),
+    (153, 25, 142),
+    (165, 38, 150),
+    (178, 51, 157),
+    (191, 64, 165),
+    (204, 76, 173),
+    (217, 89, 180),
+    (229, 102, 188),
+    (242, 114, 195),
+    (255, 127, 203),
+    (230, 230, 230),
+    (205, 205, 205),
+    (179, 179, 179),
+    (154, 154, 154),
+    (128, 128, 128),
+    (103, 103, 103),
+    (77, 77, 77),
+    (52, 52, 52),
+    (26, 26, 26),
+    (0, 0, 0),
+    (26, 0, 0),
+    (51, 0, 0),
+    (77, 0, 0),
+    (102, 0, 0),
+    (128, 0, 0),
+    (153, 0, 0),
+    (179, 0, 0),
+    (204, 0, 0),
+    (230, 0, 0),
+    (255, 0, 0),
+    (255, 26, 0),
+    (255, 51, 0),
+    (255, 77, 0),
+    (255, 102, 0),
+    (255, 128, 0),
+    (255, 153, 0),
+    (255, 179, 0),
+    (255, 204, 0),
+    (255, 230, 0),
+    (255, 255, 0),
+    (230, 255, 0),
+    (204, 255, 0),
+    (179, 255, 0),
+    (153, 255, 0),
+    (128, 255, 0),
+    (102, 255, 0),
+    (77, 255, 0),
+    (51, 255, 0),
+    (26, 255, 0),
+    (0, 255, 0),
+    (0, 234, 10),
+    (0, 213, 19),
+    (0, 191, 29),
+    (0, 170, 38),
+    (0, 149, 48),
+    (0, 128, 58),
+    (0, 106, 67),
+    (0, 85, 77),
+    (0, 64, 86),
+    (0, 43, 96),
+    (0, 21, 105),
+    (0, 0, 115),
+    (0, 0, 115),
+    (0, 13, 122),
+    (0, 26, 129),
+    (0, 38, 136),
+    (0, 51, 143),
+    (0, 64, 150),
+    (0, 77, 157),
+    (0, 89, 164),
+    (0, 102, 171),
+    (0, 115, 178),
+    (0, 128, 185),
+    (0, 140, 192),
+    (0, 153, 199),
+    (0, 166, 206),
+    (0, 179, 213),
+    (0, 191, 220),
+    (0, 204, 227),
+    (0, 217, 234),
+    (0, 230, 241),
+    (0, 242, 248),
+    (0, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (255, 255, 255),
+    (254, 254, 254),
+    (252, 252, 252),
+    (249, 249, 249),
+    (247, 247, 247),
+    (244, 244, 244),
+    (242, 242, 242),
+    (239, 239, 239),
+    (237, 237, 237),
+    (234, 234, 234),
+    (232, 232, 232),
+    (229, 229, 229),
+    (226, 226, 226),
+    (224, 224, 224),
+    (221, 221, 221),
+    (219, 219, 219),
+    (216, 216, 216),
+    (214, 214, 214),
+    (211, 211, 211),
+    (209, 209, 209),
+    (206, 206, 206),
+    (203, 203, 203),
+    (201, 201, 201),
+    (198, 198, 198),
+    (196, 196, 196),
+    (193, 193, 193),
+    (191, 191, 191),
+    (188, 188, 188),
+    (186, 186, 186),
+    (183, 183, 183),
+    (181, 181, 181),
+    (178, 178, 178),
+    (175, 175, 175),
+    (173, 173, 173),
+    (170, 170, 170),
+    (168, 168, 168),
+    (165, 165, 165),
+    (163, 163, 163),
+    (160, 160, 160),
+    (158, 158, 158),
+    (155, 155, 155),
+    (152, 152, 152),
+    (150, 150, 150),
+    (147, 147, 147),
+    (145, 145, 145),
+    (142, 142, 142),
+    (140, 140, 140),
+    (137, 137, 137),
+    (135, 135, 135),
+    (132, 132, 132),
+    (130, 130, 130),
+    (127, 127, 127),
+    (124, 124, 124),
+    (122, 122, 122),
+    (119, 119, 119),
+    (117, 117, 117),
+    (114, 114, 114),
+    (112, 112, 112),
+    (109, 109, 109),
+    (107, 107, 107),
+    (104, 104, 104),
+    (101, 101, 101),
+    (99, 99, 99),
+    (96, 96, 96),
+    (94, 94, 94),
+    (91, 91, 91),
+    (89, 89, 89),
+    (86, 86, 86),
+    (84, 84, 84),
+    (81, 81, 81),
+    (79, 79, 79),
+    (76, 76, 76),
+    (73, 73, 73),
+    (71, 71, 71),
+    (68, 68, 68),
+    (66, 66, 66),
+    (63, 63, 63),
+    (61, 61, 61),
+    (58, 58, 58),
+    (56, 56, 56),
+    (53, 53, 53),
+    (50, 50, 50),
+    (48, 48, 48),
+    (45, 45, 45),
+    (43, 43, 43),
+    (40, 40, 40),
+    (38, 38, 38),
+    (35, 35, 35),
+    (33, 33, 33),
+    (30, 30, 30),
+    (28, 28, 28),
+    (25, 25, 25),
+    (22, 22, 22),
+    (20, 20, 20),
+    (17, 17, 17),
+    (15, 15, 15),
+    (12, 12, 12),
+    (10, 10, 10),
+    (7, 7, 7),
+    (5, 5, 5),
+    (2, 2, 2),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
 ]
 
 
@@ -2699,17 +3083,17 @@ def download_goes16_ir(
 ) -> SatelliteData:
     """
     Baixa imagem GOES-East Banda 13 (IR 10.3μm) do AWS S3.
-    
+
     Tenta GOES-19 (operacional desde 2025) e GOES-16 como fallback.
     Dados disponíveis gratuitamente no S3 da NOAA, sem autenticação.
-    
+
     Parameters
     ----------
     data_dir : Path
         Diretório para salvar os arquivos
     target_time : datetime, optional
         Data/hora alvo (UTC). Se None, usa a hora atual.
-    
+
     Returns
     -------
     SatelliteData
@@ -2727,7 +3111,7 @@ def download_goes16_ir(
         target_time = datetime.now(UTC)
 
     logger.info("Baixando GOES-East Banda 13 (IR)")
-    logger.info("  Horário alvo: %s", target_time.strftime('%Y-%m-%d %H:%M UTC'))
+    logger.info("  Horário alvo: %s", target_time.strftime("%Y-%m-%d %H:%M UTC"))
 
     # Tenta GOES-19 (atual) e GOES-16 (legado) como fallback
     satellites = [
@@ -2830,8 +3214,9 @@ def download_goes16_ir(
             file_mm = int(s_field[9:11])
 
             # Reconstrói datetime do arquivo
-            file_dt = datetime(file_year, 1, 1, file_hh, file_mm, 0,
-                               tzinfo=UTC) + timedelta(days=file_doy - 1)
+            file_dt = datetime(file_year, 1, 1, file_hh, file_mm, 0, tzinfo=UTC) + timedelta(
+                days=file_doy - 1
+            )
 
             diff = abs((file_dt - target_time).total_seconds())
             if diff < best_diff_sec:

@@ -41,9 +41,9 @@ from datetime import UTC, datetime, timedelta
 logger = logging.getLogger(__name__)
 
 # Constantes da Técnica B (Blindagem #3). NÃO alterar sem rever a metodologia.
-OLR_MATURITY_HOURS: int = 12   # offset da rodada-base (mitiga spin-up)
-OLR_WINDOW_SHORT_H: int = 3    # janela de desacumulação até 144 h
-OLR_WINDOW_LONG_H: int = 6     # janela além de 144 h (resolução 6/6h do IFS)
+OLR_MATURITY_HOURS: int = 12  # offset da rodada-base (mitiga spin-up)
+OLR_WINDOW_SHORT_H: int = 3  # janela de desacumulação até 144 h
+OLR_WINDOW_LONG_H: int = 6  # janela além de 144 h (resolução 6/6h do IFS)
 
 # Limite da grade de 3 h do IFS Open Data; além dele, só múltiplos de 6 h.
 _IFS_GRID_3H_LIMIT: int = 144
@@ -53,11 +53,11 @@ _IFS_GRID_3H_LIMIT: int = 144
 class OLRPlan:
     """Plano de desacumulação DINÂMICA da OLR: rodada-base + par de steps + Δt."""
 
-    base_cycle: int             # 0, 6, 12 ou 18 (UTC)
-    base_date: str              # "YYYYMMDD" da rodada-base
-    step_hi: int                # step do acumulado final (alcança o valid_time)
-    step_lo: int                # step do acumulado inicial (janela antes)
-    window_seconds: float       # Δt REAL entre os steps (10800 s ou 21600 s)
+    base_cycle: int  # 0, 6, 12 ou 18 (UTC)
+    base_date: str  # "YYYYMMDD" da rodada-base
+    step_hi: int  # step do acumulado final (alcança o valid_time)
+    step_lo: int  # step do acumulado inicial (janela antes)
+    window_seconds: float  # Δt REAL entre os steps (10800 s ou 21600 s)
 
 
 def _snap_to_ifs_grid(step: int) -> int:
@@ -68,8 +68,8 @@ def _snap_to_ifs_grid(step: int) -> int:
     múltiplo de 6 mais próximo que exista (nunca cria um step inexistente).
     """
     if step <= _IFS_GRID_3H_LIMIT:
-        return step                      # grade de 3 h: já válido (soma de 3/12)
-    return (step // 6) * 6               # grade de 6 h: ancora no múltiplo inferior
+        return step  # grade de 3 h: já válido (soma de 3/12)
+    return (step // 6) * 6  # grade de 6 h: ancora no múltiplo inferior
 
 
 def resolve_olr_window(cycle: int, cycle_date: str, step: int = 0) -> OLRPlan:
@@ -92,16 +92,17 @@ def resolve_olr_window(cycle: int, cycle_date: str, step: int = 0) -> OLRPlan:
         run = datetime.now(UTC).replace(hour=int(cycle), minute=0, second=0, microsecond=0)
         logger.warning(
             "resolve_olr_window: cycle_date '%s' malformado; usando hoje (%s).",
-            cycle_date, run.strftime("%Y%m%d"),
+            cycle_date,
+            run.strftime("%Y%m%d"),
         )
 
-    base = run - timedelta(hours=OLR_MATURITY_HOURS)       # rodada 12 h antes (real e madura)
-    target_raw = int(step) + OLR_MATURITY_HOURS            # alcança o valid_time
+    base = run - timedelta(hours=OLR_MATURITY_HOURS)  # rodada 12 h antes (real e madura)
+    target_raw = int(step) + OLR_MATURITY_HOURS  # alcança o valid_time
     window_h = OLR_WINDOW_SHORT_H if target_raw <= _IFS_GRID_3H_LIMIT else OLR_WINDOW_LONG_H
 
-    step_hi = _snap_to_ifs_grid(target_raw)               # anti-404 (P1)
+    step_hi = _snap_to_ifs_grid(target_raw)  # anti-404 (P1)
     step_lo = _snap_to_ifs_grid(target_raw - window_h)
-    if step_hi == step_lo:                                 # janela não-degenerada após snapping
+    if step_hi == step_lo:  # janela não-degenerada após snapping
         step_lo = max(step_hi - window_h, 0)
 
     return OLRPlan(
@@ -109,5 +110,5 @@ def resolve_olr_window(cycle: int, cycle_date: str, step: int = 0) -> OLRPlan:
         base_date=base.strftime("%Y%m%d"),
         step_hi=step_hi,
         step_lo=step_lo,
-        window_seconds=max(step_hi - step_lo, 1) * 3600.0,   # Δt REAL dos steps snapados
+        window_seconds=max(step_hi - step_lo, 1) * 3600.0,  # Δt REAL dos steps snapados
     )

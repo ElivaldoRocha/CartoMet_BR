@@ -28,10 +28,11 @@ from cartomet_br.symbols.base import (
 #  ZONAS DE CONVERGÊNCIA (ZCAS / ZCIT)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class _TrilhoBase(_FrenteBase):
     """
     Base para ZCAS e ZCIT — Dois trilhos paralelos com travessões (dormentes).
-    
+
     Representa zonas de convergência de umidade.
     """
 
@@ -79,7 +80,7 @@ class _TrilhoBase(_FrenteBase):
 class ZCASEffect(_TrilhoBase):
     """
     Zona de Convergência do Atlântico Sul — Verde.
-    
+
     Banda de nebulosidade e chuvas que se estende do sul da Amazônia
     até o Atlântico Sul.
     """
@@ -106,8 +107,8 @@ class ZCITEffect(_FrenteBase):
 
     def __init__(self, intensity: int = 1, color: str = "darkorange", **kw):
         kw.setdefault("linewidth", 2.0)
-        kw.setdefault("symbol_size", 11)   # meia-largura entre os trilhos
-        kw.setdefault("spacing", 36)       # distância entre grupos de traços
+        kw.setdefault("symbol_size", 11)  # meia-largura entre os trilhos
+        kw.setdefault("spacing", 36)  # distância entre grupos de traços
         self.intensity = max(1, min(3, int(intensity)))
         super().__init__(color=color, **kw)
 
@@ -135,8 +136,8 @@ class ZCITEffect(_FrenteBase):
         renderer.draw_path(gc0, Path(verts - offset), identity)
 
         # Grupos de traços oblíquos entre os trilhos (1/2/3 = intensidade)
-        slant = hw * 0.6           # inclinação (~59° em relação aos trilhos)
-        stroke_gap = 5.0 * dpi_k   # separação entre traços de um mesmo grupo
+        slant = hw * 0.6  # inclinação (~59° em relação aos trilhos)
+        stroke_gap = 5.0 * dpi_k  # separação entre traços de um mesmo grupo
         n = self.intensity
         for pos in np.arange(sp, total, sp):
             pt, i = self._interp_at(verts, cum_dist, pos)
@@ -149,7 +150,9 @@ class ZCITEffect(_FrenteBase):
                 a = c - hw * nvec - slant * t
                 b = c + hw * nvec + slant * t
                 renderer.draw_path(
-                    gc0, Path([a, b], [Path.MOVETO, Path.LINETO]), identity,
+                    gc0,
+                    Path([a, b], [Path.MOVETO, Path.LINETO]),
+                    identity,
                 )
         gc0.restore()
 
@@ -158,10 +161,11 @@ class ZCITEffect(_FrenteBase):
 #  CAVADO
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class CavadoEffect(_FrenteBase):
     """
     Cavado barométrico — Traço-PONTO-traço (dashdot).
-    
+
     Representa uma região alongada de baixa pressão relativa.
     """
 
@@ -189,10 +193,11 @@ class CavadoEffect(_FrenteBase):
 #  CRISTA (RIDGE AXIS)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class Crista(_FrenteBase):
     """
     Eixo de crista — Zigzag largo.
-    
+
     Representa uma região alongada de alta pressão relativa.
     """
 
@@ -237,10 +242,11 @@ class Crista(_FrenteBase):
 #  LINHA DE INSTABILIDADE
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class LinhaInstabilidade(_FrenteBase):
     """
     Linha de Instabilidade — Traço-ponto com pontos grandes (●).
-    
+
     Representa uma linha de tempestades convectivas.
     """
 
@@ -290,10 +296,11 @@ class LinhaInstabilidade(_FrenteBase):
 #  LINHA SECA (DRYLINE)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class LinhaSeca(_FrenteBase):
     """
     Linha Seca (Dryline) — Semicírculos abertos alternando dos dois lados.
-    
+
     Representa o limite entre massas de ar seco e úmido.
     """
 
@@ -310,14 +317,23 @@ class LinhaSeca(_FrenteBase):
         codes_open = codes[:-1]
         raw_open = raw[:-1]
         draw_open(
-            renderer, gc, raw_open, codes_open, pt, angle,
-            self.color, identity, self._rotate, lw=2.2
+            renderer,
+            gc,
+            raw_open,
+            codes_open,
+            pt,
+            angle,
+            self.color,
+            identity,
+            self._rotate,
+            lw=2.2,
         )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CORRENTE DE JATO (JET STREAM)
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class CorrenteDeJato(_FrenteBase):
     """
@@ -356,8 +372,15 @@ class CorrenteDeJato(_FrenteBase):
             pt, i = self._interp_at(verts, cum_dist, pos)
             angle = np.arctan2(ty[i], tx[i])
             draw_filled(
-                renderer, gc0, raw, codes, pt, angle,
-                self.color, identity, self._rotate,
+                renderer,
+                gc0,
+                raw,
+                codes,
+                pt,
+                angle,
+                self.color,
+                identity,
+                self._rotate,
             )
 
         gc0.restore()

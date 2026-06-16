@@ -78,9 +78,11 @@ def _protect(text: str, pattern: str, store: list, prefix: str, flags: int = 0) 
     dígitos (sem ``_``, que o Markdown transformaria em ênfase) para sobreviverem
     intactos à conversão.
     """
+
     def _repl(m: re.Match) -> str:
         store.append(m.group(0))
         return f"@@CMTOK{prefix}{len(store) - 1}@@"
+
     return re.sub(pattern, _repl, text, flags=flags)
 
 
@@ -101,13 +103,11 @@ def render_methodology_html(md_path: Path, out_path: Path | None = None) -> Path
     # 1) Protege blocos mermaid (viram <div class="mermaid">), depois math.
     #    Prefixos distintos (MM / MX) evitam colisão de token entre os dois stores.
     text = _protect(text, r"```mermaid\s*\n(.*?)```", mermaid, "MM", flags=re.DOTALL)
-    text = _protect(text, r"\$\$.+?\$\$", math, "MX", flags=re.DOTALL)   # display
-    text = _protect(text, r"\$[^$\n]+?\$", math, "MX")                   # inline
+    text = _protect(text, r"\$\$.+?\$\$", math, "MX", flags=re.DOTALL)  # display
+    text = _protect(text, r"\$[^$\n]+?\$", math, "MX")  # inline
 
     # 2) Markdown → HTML
-    body = _md.markdown(
-        text, extensions=["tables", "fenced_code", "sane_lists", "attr_list"]
-    )
+    body = _md.markdown(text, extensions=["tables", "fenced_code", "sane_lists", "attr_list"])
 
     # 3) Restaura mermaid como <div> e math como texto cru (MathJax processa)
     for i, block in enumerate(mermaid):

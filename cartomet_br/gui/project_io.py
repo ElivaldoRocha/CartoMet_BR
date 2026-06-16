@@ -43,6 +43,7 @@ class ProjectError(Exception):
 # Cada record carrega uma chave ``type`` e os campos PUROS do comando (sem o
 # handle ``artist``). A geometria é sempre lon/lat; a reconstrução é determinística.
 
+
 def _floats(seq: Any) -> list[float]:
     return [float(v) for v in seq]
 
@@ -51,27 +52,53 @@ def command_to_record(cmd: object) -> dict[str, Any]:
     """Converte um comando de desenho num record JSON (descarta o ``artist`` vivo)."""
     if isinstance(cmd, DrawCommand):
         return {
-            "type": "symbol_line", "symbol_key": cmd.symbol_key,
-            "points_x": _floats(cmd.points_x), "points_y": _floats(cmd.points_y),
-            "flip": bool(cmd.flip), "intensity": int(cmd.intensity),
+            "type": "symbol_line",
+            "symbol_key": cmd.symbol_key,
+            "points_x": _floats(cmd.points_x),
+            "points_y": _floats(cmd.points_y),
+            "flip": bool(cmd.flip),
+            "intensity": int(cmd.intensity),
         }
     if isinstance(cmd, PointCommand):
-        return {"type": "symbol_point", "symbol_key": cmd.symbol_key,
-                "x": float(cmd.x), "y": float(cmd.y)}
+        return {
+            "type": "symbol_point",
+            "symbol_key": cmd.symbol_key,
+            "x": float(cmd.x),
+            "y": float(cmd.y),
+        }
     if isinstance(cmd, AnnotationCommand):
-        return {"type": "annotation", "x": float(cmd.x), "y": float(cmd.y),
-                "text": str(cmd.text), "color": str(cmd.color),
-                "fontsize": int(cmd.fontsize)}
+        return {
+            "type": "annotation",
+            "x": float(cmd.x),
+            "y": float(cmd.y),
+            "text": str(cmd.text),
+            "color": str(cmd.color),
+            "fontsize": int(cmd.fontsize),
+        }
     if isinstance(cmd, EmojiCommand):
-        return {"type": "emoji", "x": float(cmd.x), "y": float(cmd.y),
-                "emoji": str(cmd.emoji), "fontsize": int(cmd.fontsize)}
+        return {
+            "type": "emoji",
+            "x": float(cmd.x),
+            "y": float(cmd.y),
+            "emoji": str(cmd.emoji),
+            "fontsize": int(cmd.fontsize),
+        }
     if isinstance(cmd, PenCommand):
-        return {"type": "pen", "points_x": _floats(cmd.points_x),
-                "points_y": _floats(cmd.points_y), "style": dict(cmd.style)}
+        return {
+            "type": "pen",
+            "points_x": _floats(cmd.points_x),
+            "points_y": _floats(cmd.points_y),
+            "style": dict(cmd.style),
+        }
     if isinstance(cmd, ShapeCommand):
-        return {"type": "shape", "tool": str(cmd.tool),
-                "points_x": _floats(cmd.points_x), "points_y": _floats(cmd.points_y),
-                "style": dict(cmd.style), "head_size_deg": float(cmd.head_size_deg)}
+        return {
+            "type": "shape",
+            "tool": str(cmd.tool),
+            "points_x": _floats(cmd.points_x),
+            "points_y": _floats(cmd.points_y),
+            "style": dict(cmd.style),
+            "head_size_deg": float(cmd.head_size_deg),
+        }
     raise ProjectError(f"Tipo de comando não serializável: {type(cmd).__name__}")
 
 
@@ -84,27 +111,42 @@ def record_to_command(rec: dict) -> object:
         if kind == "symbol_line":
             return DrawCommand(
                 symbol_key=str(rec["symbol_key"]),
-                points_x=_floats(rec["points_x"]), points_y=_floats(rec["points_y"]),
-                flip=bool(rec.get("flip", False)), intensity=int(rec.get("intensity", 1)),
+                points_x=_floats(rec["points_x"]),
+                points_y=_floats(rec["points_y"]),
+                flip=bool(rec.get("flip", False)),
+                intensity=int(rec.get("intensity", 1)),
             )
         if kind == "symbol_point":
-            return PointCommand(symbol_key=str(rec["symbol_key"]),
-                                x=float(rec["x"]), y=float(rec["y"]))
+            return PointCommand(
+                symbol_key=str(rec["symbol_key"]), x=float(rec["x"]), y=float(rec["y"])
+            )
         if kind == "annotation":
             return AnnotationCommand(
-                x=float(rec["x"]), y=float(rec["y"]), text=str(rec.get("text", "")),
-                color=str(rec.get("color", "#000000")), fontsize=int(rec.get("fontsize", 11)),
+                x=float(rec["x"]),
+                y=float(rec["y"]),
+                text=str(rec.get("text", "")),
+                color=str(rec.get("color", "#000000")),
+                fontsize=int(rec.get("fontsize", 11)),
             )
         if kind == "emoji":
-            return EmojiCommand(x=float(rec["x"]), y=float(rec["y"]),
-                                emoji=str(rec.get("emoji", "")), fontsize=int(rec.get("fontsize", 28)))
+            return EmojiCommand(
+                x=float(rec["x"]),
+                y=float(rec["y"]),
+                emoji=str(rec.get("emoji", "")),
+                fontsize=int(rec.get("fontsize", 28)),
+            )
         if kind == "pen":
-            return PenCommand(points_x=_floats(rec["points_x"]),
-                              points_y=_floats(rec["points_y"]), style=dict(rec.get("style", {})))
+            return PenCommand(
+                points_x=_floats(rec["points_x"]),
+                points_y=_floats(rec["points_y"]),
+                style=dict(rec.get("style", {})),
+            )
         if kind == "shape":
             return ShapeCommand(
-                tool=str(rec["tool"]), points_x=_floats(rec["points_x"]),
-                points_y=_floats(rec["points_y"]), style=dict(rec.get("style", {})),
+                tool=str(rec["tool"]),
+                points_x=_floats(rec["points_x"]),
+                points_y=_floats(rec["points_y"]),
+                style=dict(rec.get("style", {})),
                 head_size_deg=float(rec.get("head_size_deg", 0.0)),
             )
     except (KeyError, TypeError, ValueError) as exc:
@@ -127,6 +169,7 @@ def records_to_commands(records: Any) -> list:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Envelope do projeto (JSON versionado)
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def build_project(
     *,

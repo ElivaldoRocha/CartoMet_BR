@@ -46,6 +46,7 @@ from cartomet_br.symbols import MODOS
 #  BOTÃO DE SIMBOLOGIA
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class SymbolButton(QPushButton):
     """Botão colorido para seleção de simbologia."""
 
@@ -90,11 +91,11 @@ class SymbolButton(QPushButton):
 # (emoji, tooltip)  —  6 colunas × 6 linhas = 36 símbolos
 WEATHER_EMOJIS: list[tuple[str, str]] = [
     # ── Céu e nuvens ──────────────────────────────────────────────────────
-    ("☀",  "Sol"),
+    ("☀", "Sol"),
     ("🌤", "Sol com nuvem"),
     ("⛅", "Parcialmente nublado"),
     ("🌥", "Bastante nublado"),
-    ("☁",  "Nublado"),
+    ("☁", "Nublado"),
     ("🌫", "Névoa / Nevoeiro"),
     # ── Precipitação ──────────────────────────────────────────────────────
     ("🌦", "Chuva e sol"),
@@ -111,7 +112,7 @@ WEATHER_EMOJIS: list[tuple[str, str]] = [
     ("🔥", "Fogo / Queimada"),
     ("🌋", "Vulcão / Cinzas"),
     # ── Frio e inverno ────────────────────────────────────────────────────
-    ("❄",  "Geada / Frio"),
+    ("❄", "Geada / Frio"),
     ("⛄", "Neve / Inverno"),
     ("🏔", "Neve em altitude"),
     ("🥶", "Frio extremo"),
@@ -170,22 +171,22 @@ class SymbologyPanel(QWidget):
 
     symbol_changed = pyqtSignal(str)
     flip_changed = pyqtSignal(bool)
-    intensity_changed = pyqtSignal(int)     # intensidade ZCIT (1/2/3)
+    intensity_changed = pyqtSignal(int)  # intensidade ZCIT (1/2/3)
     finalize_requested = pyqtSignal()
     clear_requested = pyqtSignal()
     undo_requested = pyqtSignal()
     redo_requested = pyqtSignal()
-    emoji_mode_toggled = pyqtSignal(bool)   # ativou / desativou modo emoji
-    emoji_selected = pyqtSignal(str)        # emoji escolhido
-    emoji_size_changed = pyqtSignal(int)    # tamanho em pontos (20/28/40)
-    emoji_undo_requested = pyqtSignal()     # desfazer o último emoji colocado
-    pen_mode_toggled = pyqtSignal(bool)     # ativou / desativou a caneta (traço livre)
-    pen_style_changed = pyqtSignal(dict)    # estilo da caneta (cor/espessura/opacidade)
-    pen_undo_requested = pyqtSignal()       # desfazer o último traço da caneta
-    shape_mode_toggled = pyqtSignal(bool)   # ativou / desativou o modo formas
-    shape_tool_changed = pyqtSignal(str)    # rect|ellipse|arrow|line|polygon
+    emoji_mode_toggled = pyqtSignal(bool)  # ativou / desativou modo emoji
+    emoji_selected = pyqtSignal(str)  # emoji escolhido
+    emoji_size_changed = pyqtSignal(int)  # tamanho em pontos (20/28/40)
+    emoji_undo_requested = pyqtSignal()  # desfazer o último emoji colocado
+    pen_mode_toggled = pyqtSignal(bool)  # ativou / desativou a caneta (traço livre)
+    pen_style_changed = pyqtSignal(dict)  # estilo da caneta (cor/espessura/opacidade)
+    pen_undo_requested = pyqtSignal()  # desfazer o último traço da caneta
+    shape_mode_toggled = pyqtSignal(bool)  # ativou / desativou o modo formas
+    shape_tool_changed = pyqtSignal(str)  # rect|ellipse|arrow|line|polygon
     shape_style_changed = pyqtSignal(dict)  # estilo das formas (borda/fill/etc.)
-    shape_undo_requested = pyqtSignal()     # desfazer a última forma colocada
+    shape_undo_requested = pyqtSignal()  # desfazer a última forma colocada
 
     current_key: str
     buttons: dict[str, SymbolButton]
@@ -235,7 +236,9 @@ class SymbologyPanel(QWidget):
 
         self.status_label = QLabel("Frente Fria")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #1a6faf; padding: 4px;")
+        self.status_label.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #1a6faf; padding: 4px;"
+        )
         status_layout.addWidget(self.status_label)
 
         self.points_label = QLabel("Pontos: 0")
@@ -401,7 +404,12 @@ class SymbologyPanel(QWidget):
         if logo_path and logo_path.exists():
             logo_label = QLabel()
             pixmap = QPixmap(str(logo_path))
-            scaled = pixmap.scaled(130, 130, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            scaled = pixmap.scaled(
+                130,
+                130,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
             logo_label.setPixmap(scaled)
             logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(logo_label)
@@ -430,7 +438,9 @@ class SymbologyPanel(QWidget):
 
     def _setup_shortcuts(self) -> None:
         for key in MODOS.keys():
-            QShortcut(QKeySequence(key), self).activated.connect(lambda k=key: self._select_symbol(k))
+            QShortcut(QKeySequence(key), self).activated.connect(
+                lambda k=key: self._select_symbol(k)
+            )
         QShortcut(QKeySequence("F"), self).activated.connect(self._toggle_flip)
         QShortcut(QKeySequence("Return"), self).activated.connect(self.finalize_requested.emit)
         QShortcut(QKeySequence("Z"), self).activated.connect(self.undo_requested.emit)
@@ -458,7 +468,9 @@ class SymbologyPanel(QWidget):
         if modo.get("ponto", False):
             nome += "  (clique)"
         self.status_label.setText(nome)
-        self.status_label.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {modo['cor']}; padding: 4px;")
+        self.status_label.setStyleSheet(
+            f"font-size: 14px; font-weight: bold; color: {modo['cor']}; padding: 4px;"
+        )
 
         # Desabilita flip para símbolos pontuais
         is_point = modo.get("ponto", False)
@@ -520,8 +532,16 @@ class SymbologyPanel(QWidget):
     #  CANETA (traço livre) e FORMAS customizáveis
     # ═══════════════════════════════════════════════════════════════════════
 
-    _PRESET_COLORS = ["#E74C3C", "#2980B9", "#27AE60", "#8E44AD",
-                      "#F39C12", "#16A085", "#000000", "#FFFFFF"]
+    _PRESET_COLORS = [
+        "#E74C3C",
+        "#2980B9",
+        "#27AE60",
+        "#8E44AD",
+        "#F39C12",
+        "#16A085",
+        "#000000",
+        "#FFFFFF",
+    ]
 
     _GROUP_QSS = """
         QGroupBox {{ font-size: 11px; font-weight: bold; color: {cor};
@@ -602,8 +622,11 @@ class SymbologyPanel(QWidget):
     def _build_pen_group(self, layout: QVBoxLayout) -> None:
         """Grupo recolhível '✏ Caneta' — traço livre p/ mesa digitalizadora/mouse."""
         self._pen_style_state = {
-            "edge_color": "#E74C3C", "fill_color": None,
-            "linewidth": 2.0, "linestyle": "solid", "alpha": 1.0,
+            "edge_color": "#E74C3C",
+            "fill_color": None,
+            "linewidth": 2.0,
+            "linestyle": "solid",
+            "alpha": 1.0,
         }
         g = QGroupBox("✏ Caneta (traço livre)")
         g.setCheckable(True)
@@ -616,9 +639,11 @@ class SymbologyPanel(QWidget):
 
         cor_row = QHBoxLayout()
         cor_row.addWidget(QLabel("Cor:"))
-        cor_row.addLayout(self._make_color_row(
-            self._pen_style_state["edge_color"],
-            lambda c: self._set_pen_style("edge_color", c)))
+        cor_row.addLayout(
+            self._make_color_row(
+                self._pen_style_state["edge_color"], lambda c: self._set_pen_style("edge_color", c)
+            )
+        )
         v.addLayout(cor_row)
 
         w_row = QHBoxLayout()
@@ -633,12 +658,13 @@ class SymbologyPanel(QWidget):
         w_row.addStretch()
         v.addLayout(w_row)
 
-        v.addLayout(self._make_opacity_row(
-            100, lambda a: self._set_pen_style("alpha", a)))
+        v.addLayout(self._make_opacity_row(100, lambda a: self._set_pen_style("alpha", a)))
 
-        v.addWidget(self._make_undo_button(
-            "↩ Desfazer traço", "Remove o último traço da caneta",
-            self.pen_undo_requested))
+        v.addWidget(
+            self._make_undo_button(
+                "↩ Desfazer traço", "Remove o último traço da caneta", self.pen_undo_requested
+            )
+        )
 
         layout.addWidget(g)
         self._pen_group = g
@@ -646,11 +672,14 @@ class SymbologyPanel(QWidget):
     def _build_shapes_group(self, layout: QVBoxLayout) -> None:
         """Grupo recolhível '⬜ Formas' — rect/elipse/seta/linha/polígono."""
         self._shape_style_state = {
-            "edge_color": "#E74C3C", "fill_color": None,
-            "linewidth": 2.0, "linestyle": "solid", "alpha": 1.0,
+            "edge_color": "#E74C3C",
+            "fill_color": None,
+            "linewidth": 2.0,
+            "linestyle": "solid",
+            "alpha": 1.0,
         }
         self._current_shape_tool = "rect"
-        self._shape_fill_color = "#F39C12"      # cor do fill quando habilitado
+        self._shape_fill_color = "#F39C12"  # cor do fill quando habilitado
 
         g = QGroupBox("⬜ Formas")
         g.setCheckable(True)
@@ -666,11 +695,13 @@ class SymbologyPanel(QWidget):
         tools_row.setSpacing(3)
         self._shape_tool_btns = QButtonGroup(self)
         self._shape_tool_btns.setExclusive(True)
-        tools = [("rect", "Retângulo (arraste)"),
-                 ("ellipse", "Elipse / Círculo (arraste)"),
-                 ("arrow", "Seta (arraste do início à ponta)"),
-                 ("line", "Linha reta (arraste)"),
-                 ("polygon", "Polígono livre (clique nos vértices + Enter)")]
+        tools = [
+            ("rect", "Retângulo (arraste)"),
+            ("ellipse", "Elipse / Círculo (arraste)"),
+            ("arrow", "Seta (arraste do início à ponta)"),
+            ("line", "Linha reta (arraste)"),
+            ("polygon", "Polígono livre (clique nos vértices + Enter)"),
+        ]
         for key, tip in tools:
             b = QPushButton()
             b.setCheckable(True)
@@ -697,9 +728,12 @@ class SymbologyPanel(QWidget):
         # Cor da borda
         borda_row = QHBoxLayout()
         borda_row.addWidget(QLabel("Borda:"))
-        borda_row.addLayout(self._make_color_row(
-            self._shape_style_state["edge_color"],
-            lambda c: self._set_shape_style("edge_color", c)))
+        borda_row.addLayout(
+            self._make_color_row(
+                self._shape_style_state["edge_color"],
+                lambda c: self._set_shape_style("edge_color", c),
+            )
+        )
         v.addLayout(borda_row)
 
         # Preenchimento opcional
@@ -734,21 +768,25 @@ class SymbologyPanel(QWidget):
         combo.addItem("Tracejada", "dashed")
         combo.addItem("Pontilhada", "dotted")
         combo.currentIndexChanged.connect(
-            lambda i: self._set_shape_style("linestyle", combo.itemData(i)))
+            lambda i: self._set_shape_style("linestyle", combo.itemData(i))
+        )
         ws_row.addWidget(combo)
         ws_row.addStretch()
         v.addLayout(ws_row)
 
-        v.addLayout(self._make_opacity_row(
-            100, lambda a: self._set_shape_style("alpha", a)))
+        v.addLayout(self._make_opacity_row(100, lambda a: self._set_shape_style("alpha", a)))
 
         hint = QLabel("ⓘ Polígono: clique nos vértices e pressione Enter")
         hint.setStyleSheet("font-size: 8px; color: #7F8C8D;")
         v.addWidget(hint)
 
-        v.addWidget(self._make_undo_button(
-            "↩ Desfazer forma", "Remove a última forma colocada na carta",
-            self.shape_undo_requested))
+        v.addWidget(
+            self._make_undo_button(
+                "↩ Desfazer forma",
+                "Remove a última forma colocada na carta",
+                self.shape_undo_requested,
+            )
+        )
 
         layout.addWidget(g)
         self._shapes_group = g
@@ -781,20 +819,28 @@ class SymbologyPanel(QWidget):
             # Haste diagonal + ponta triangular preenchida
             p.drawLine(4, h - 4, w - 9, 8)
             p.setBrush(QBrush(QColor("#ECF0F1")))
-            p.drawPolygon(QPolygonF([
-                QPointF(w - 4, 4),
-                QPointF(w - 8.5, 10.5),
-                QPointF(w - 12, 5.5),
-            ]))
+            p.drawPolygon(
+                QPolygonF(
+                    [
+                        QPointF(w - 4, 4),
+                        QPointF(w - 8.5, 10.5),
+                        QPointF(w - 12, 5.5),
+                    ]
+                )
+            )
         elif tool == "polygon":
             # Pentágono irregular — sugere o contorno livre por vértices
-            p.drawPolygon(QPolygonF([
-                QPointF(w / 2.0, 3),
-                QPointF(w - 4, 9),
-                QPointF(w - 7, h - 3),
-                QPointF(7, h - 3),
-                QPointF(4, 8),
-            ]))
+            p.drawPolygon(
+                QPolygonF(
+                    [
+                        QPointF(w / 2.0, 3),
+                        QPointF(w - 4, 9),
+                        QPointF(w - 7, h - 3),
+                        QPointF(7, h - 3),
+                        QPointF(4, 8),
+                    ]
+                )
+            )
         p.end()
         return QIcon(pix)
 
@@ -834,8 +880,7 @@ class SymbologyPanel(QWidget):
         self._set_shape_style("fill_color", self._shape_fill_color if enabled else None)
 
     def _pick_fill_color(self) -> None:
-        col = QColorDialog.getColor(QColor(self._shape_fill_color), self,
-                                    "Cor do preenchimento")
+        col = QColorDialog.getColor(QColor(self._shape_fill_color), self, "Cor do preenchimento")
         if col.isValid():
             self._shape_fill_color = col.name()
             self._update_fill_btn_color()

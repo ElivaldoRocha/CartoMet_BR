@@ -90,15 +90,25 @@ class AnalysisDock(QDockWidget):
             self.show_placeholder()
 
     # ── helpers de desenho ──────────────────────────────────────────────────
-    def _show_centered_message(self, text: str, color: str = "#333333",
-                               facecolor: str = "white") -> None:
+    def _show_centered_message(
+        self, text: str, color: str = "#333333", facecolor: str = "white"
+    ) -> None:
         """Limpa a figura e escreve uma mensagem centralizada."""
         self.fig.clear()
         self.fig.set_facecolor(facecolor)
         ax = self.fig.add_subplot(111)
         ax.axis("off")
-        ax.text(0.5, 0.5, text, ha="center", va="center", wrap=True,
-                fontsize=12, color=color, transform=ax.transAxes)
+        ax.text(
+            0.5,
+            0.5,
+            text,
+            ha="center",
+            va="center",
+            wrap=True,
+            fontsize=12,
+            color=color,
+            transform=ax.transAxes,
+        )
         self.canvas.draw_idle()
 
     def set_badge(self, note: str) -> None:

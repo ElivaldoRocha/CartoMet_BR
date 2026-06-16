@@ -96,6 +96,7 @@ logger = logging.getLogger(__name__)
 #  JANELA PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class MainWindow(QMainWindow):
     """Janela principal do CartoMet BR."""
 
@@ -111,12 +112,12 @@ class MainWindow(QMainWindow):
         self.station_download_thread = None
         self.sounding_worker = None
         self._active_sounding_station = None  # estação RAOB ancorada na Sonda Vertical
-        self._active_model_point = None       # (lon, lat) da pseudo-sondagem do modelo
-        self._meteogram_worker = None         # worker do meteograma (F6)
-        self._active_meteogram_point = None   # (lon, lat) do meteograma ativo
-        self._xsec_worker = None              # worker do corte vertical (F4)
-        self._active_xsec = None              # (lon_a, lat_a, lon_b, lat_b) ativo
-        self._instability_worker = None       # worker dos campos de instabilidade (F9)
+        self._active_model_point = None  # (lon, lat) da pseudo-sondagem do modelo
+        self._meteogram_worker = None  # worker do meteograma (F6)
+        self._active_meteogram_point = None  # (lon, lat) do meteograma ativo
+        self._xsec_worker = None  # worker do corte vertical (F4)
+        self._active_xsec = None  # (lon_a, lat_a, lon_b, lat_b) ativo
+        self._instability_worker = None  # worker dos campos de instabilidade (F9)
         self._last_valid_time = None  # datetime do modelo carregado (sync de obs)
 
         self.setWindowTitle(f"{APP_NAME} — {APP_DESCRIPTION}")
@@ -148,7 +149,7 @@ class MainWindow(QMainWindow):
         self.canvas = MapCanvas(config=self.config)
         self.canvas_scroll = QScrollArea()
         self.canvas_scroll.setWidget(self.canvas)
-        self.canvas_scroll.setWidgetResizable(True)   # 100% = preenche o viewport
+        self.canvas_scroll.setWidgetResizable(True)  # 100% = preenche o viewport
         self.canvas_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.canvas_scroll.setStyleSheet("QScrollArea { border: none; background: white; }")
         main_layout.addWidget(self.canvas_scroll, stretch=1)
@@ -354,7 +355,14 @@ class MainWindow(QMainWindow):
         if logo_path and logo_path.exists():
             logo_label = QLabel()
             pixmap = QPixmap(str(logo_path))
-            logo_label.setPixmap(pixmap.scaled(28, 28, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            logo_label.setPixmap(
+                pixmap.scaled(
+                    28,
+                    28,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
             logo_label.setStyleSheet("padding: 2px 8px 2px 4px;")
             toolbar.addWidget(logo_label)
 
@@ -455,7 +463,9 @@ class MainWindow(QMainWindow):
 
         prev_extent_btn = QPushButton("↩ Anterior")
         prev_extent_btn.setToolTip("Volta ao extent anterior")
-        prev_extent_btn.setStyleSheet("background-color: #34495E; padding: 6px 12px; font-size: 11px;")
+        prev_extent_btn.setStyleSheet(
+            "background-color: #34495E; padding: 6px 12px; font-size: 11px;"
+        )
         prev_extent_btn.clicked.connect(self._on_previous_extent)
         toolbar.addWidget(prev_extent_btn)
 
@@ -468,7 +478,9 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
 
         # ─── Zoom da FIGURA ("mesa branca") — distinto do zoom geográfico ───
-        _zoom_btn_css = "background-color: #34495E; padding: 6px 10px; font-size: 12px; font-weight: bold;"
+        _zoom_btn_css = (
+            "background-color: #34495E; padding: 6px 10px; font-size: 12px; font-weight: bold;"
+        )
         fz_out = QPushButton("🔎−")
         fz_out.setToolTip("Reduzir a figura (Ctrl + roda do mouse)")
         fz_out.setStyleSheet(_zoom_btn_css)
@@ -477,12 +489,16 @@ class MainWindow(QMainWindow):
 
         self._zoom_label = QPushButton("100%")
         self._zoom_label.setToolTip("Zoom da figura — clique para Ajustar (100%)")
-        self._zoom_label.setStyleSheet("background-color: #2C3E50; padding: 6px 8px; font-size: 11px; min-width: 46px;")
+        self._zoom_label.setStyleSheet(
+            "background-color: #2C3E50; padding: 6px 8px; font-size: 11px; min-width: 46px;"
+        )
         self._zoom_label.clicked.connect(self._figure_zoom_fit)
         toolbar.addWidget(self._zoom_label)
 
         fz_in = QPushButton("🔎+")
-        fz_in.setToolTip("Ampliar a figura (Ctrl + roda do mouse). Arraste com o botão do meio para mover.")
+        fz_in.setToolTip(
+            "Ampliar a figura (Ctrl + roda do mouse). Arraste com o botão do meio para mover."
+        )
         fz_in.setStyleSheet(_zoom_btn_css)
         fz_in.clicked.connect(self._figure_zoom_in)
         toolbar.addWidget(fz_in)
@@ -505,7 +521,9 @@ class MainWindow(QMainWindow):
             "Remove TODAS as camadas (sinótica, campos, satélite, TSM, "
             "observações e desenhos) e volta ao mapa base"
         )
-        clear_map_btn.setStyleSheet("background-color: #C0392B; padding: 6px 14px; font-size: 11px;")
+        clear_map_btn.setStyleSheet(
+            "background-color: #C0392B; padding: 6px 14px; font-size: 11px;"
+        )
         clear_map_btn.clicked.connect(self._on_clear_map)
         toolbar.addWidget(clear_map_btn)
 
@@ -543,8 +561,10 @@ class MainWindow(QMainWindow):
         self.symbol_panel.undo_requested.connect(self.canvas.undo_point)
         self.symbol_panel.redo_requested.connect(self.canvas.redo_action)
         self.symbol_panel.emoji_mode_toggled.connect(self._on_emoji_mode_toggled)
-        self.symbol_panel.emoji_selected.connect(lambda e: setattr(self.canvas, 'current_emoji', e))
-        self.symbol_panel.emoji_size_changed.connect(lambda s: setattr(self.canvas, '_emoji_fontsize', s))
+        self.symbol_panel.emoji_selected.connect(lambda e: setattr(self.canvas, "current_emoji", e))
+        self.symbol_panel.emoji_size_changed.connect(
+            lambda s: setattr(self.canvas, "_emoji_fontsize", s)
+        )
         self.symbol_panel.emoji_undo_requested.connect(self.canvas.remove_last_emoji)
         self.symbol_panel.pen_mode_toggled.connect(self._on_pen_mode_toggled)
         self.symbol_panel.pen_style_changed.connect(self.canvas.set_pen_style)
@@ -656,8 +676,11 @@ class MainWindow(QMainWindow):
             self._uncheck_zoom_buttons()
 
     _SHAPE_TOOL_NAMES = {
-        "rect": "Retângulo", "ellipse": "Elipse", "arrow": "Seta",
-        "line": "Linha reta", "polygon": "Polígono",
+        "rect": "Retângulo",
+        "ellipse": "Elipse",
+        "arrow": "Seta",
+        "line": "Linha reta",
+        "polygon": "Polígono",
     }
 
     def _on_pen_mode_toggled(self, enabled: bool) -> None:
@@ -876,9 +899,7 @@ class MainWindow(QMainWindow):
         if checked:
             self._disable_other_click_modes(keep="cross_section")
             self.canvas.set_cross_section_mode(True)
-            self.status_label.setText(
-                "● Corte Vertical — clique em DOIS pontos do mapa (A → B)"
-            )
+            self.status_label.setText("● Corte Vertical — clique em DOIS pontos do mapa (A → B)")
             self.status_label.setStyleSheet("color: #8E44AD;")
         else:
             self.canvas.set_cross_section_mode(False)
@@ -897,6 +918,7 @@ class MainWindow(QMainWindow):
         horário sinótico mais próximo do valid_time do modelo.
         """
         from datetime import timedelta
+
         base = dt.replace(minute=0, second=0, microsecond=0)
         # Candidatos: 00Z e 12Z do dia, e 00Z do dia seguinte (para horas ≥ 18Z)
         candidates = [
@@ -916,7 +938,7 @@ class MainWindow(QMainWindow):
     def _on_sounding_step_changed(self) -> None:
         """Step mudou → recarrega a sondagem ativa (e o corte vertical, se houver)."""
         # Corte Vertical (F4): re-dispara ao mudar step/rodada se A→B está ativo.
-        if (self.cross_section_panel.isVisible() and self._active_xsec is not None):
+        if self.cross_section_panel.isVisible() and self._active_xsec is not None:
             self._launch_cross_section()
         if not self.sounding_panel.isVisible():
             return
@@ -1017,10 +1039,16 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("color: #16A085;")
 
         worker = ModelSoundingWorker(
-            lon=lon, lat=lat, target_time=target, cycle=cycle,
+            lon=lon,
+            lat=lat,
+            target_time=target,
+            cycle=cycle,
             # Mesma subpasta dos demais GRIBs (config.grib_dir) — nada solto na
             # raiz nem arquivo duplicado; download_ecmwf reusa o cache se já existe.
-            cycle_date=cycle_date, step=step, data_dir=self.config.grib_dir, parent=self,
+            cycle_date=cycle_date,
+            step=step,
+            data_dir=self.config.grib_dir,
+            parent=self,
         )
         worker.progress.connect(self._on_sounding_progress)
         worker.finished_ok.connect(self._on_sounding_ok)
@@ -1060,9 +1088,13 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("color: #117A65;")
 
         worker = MeteogramWorker(
-            lon=lon, lat=lat, cycle=cycle, cycle_date=cycle_date,
+            lon=lon,
+            lat=lat,
+            cycle=cycle,
+            cycle_date=cycle_date,
             # Mesma subpasta dos demais GRIBs — nada solto/duplicado na raiz.
-            data_dir=self.config.grib_dir, parent=self,
+            data_dir=self.config.grib_dir,
+            parent=self,
         )
         worker.progress.connect(self._on_meteogram_progress)
         worker.finished_ok.connect(self._on_meteogram_ok)
@@ -1085,8 +1117,9 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("color: #E74C3C;")
 
     # ── Corte Vertical (cross-section A→B) — F4 ──────────────────────────────
-    def _on_cross_section_request(self, lon_a: float, lat_a: float,
-                                  lon_b: float, lat_b: float) -> None:
+    def _on_cross_section_request(
+        self, lon_a: float, lat_a: float, lon_b: float, lat_b: float
+    ) -> None:
         """Segundo clique (B) → abre o painel e dispara o corte vertical A→B."""
         self._active_xsec = (float(lon_a), float(lat_a), float(lon_b), float(lat_b))
         self.cross_section_panel.show()
@@ -1110,10 +1143,16 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("color: #8E44AD;")
 
         worker = CrossSectionWorker(
-            lon_a=lon_a, lat_a=lat_a, lon_b=lon_b, lat_b=lat_b, step=step,
-            cycle=cycle, cycle_date=cycle_date,
+            lon_a=lon_a,
+            lat_a=lat_a,
+            lon_b=lon_b,
+            lat_b=lat_b,
+            step=step,
+            cycle=cycle,
+            cycle_date=cycle_date,
             # Mesma subpasta dos demais GRIBs — nada solto/duplicado na raiz.
-            data_dir=self.config.grib_dir, parent=self,
+            data_dir=self.config.grib_dir,
+            parent=self,
         )
         worker.progress.connect(self._on_xsec_progress)
         worker.finished_ok.connect(self._on_xsec_ok)
@@ -1154,9 +1193,15 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("color: #C0392B;")
 
         worker = InstabilityWorker(
-            extent=extent, step=step, cycle=cycle, cycle_date=cycle_date,
+            extent=extent,
+            step=step,
+            cycle=cycle,
+            cycle_date=cycle_date,
             # Mesma subpasta dos demais GRIBs — nada solto/duplicado na raiz.
-            data_dir=self.config.grib_dir, indices=indices, stride=4, parent=self,
+            data_dir=self.config.grib_dir,
+            indices=indices,
+            stride=4,
+            parent=self,
         )
         worker.progress.connect(self._on_instability_progress)
         worker.finished_ok.connect(self._on_instability_ok)
@@ -1252,8 +1297,10 @@ class MainWindow(QMainWindow):
             b = self._fig_base_size
             self.canvas.setFixedSize(int(b.width() * zoom), int(b.height() * zoom))
             # Mantém o centro da carta em vista ao ampliar
-            for bar in (self.canvas_scroll.horizontalScrollBar(),
-                        self.canvas_scroll.verticalScrollBar()):
+            for bar in (
+                self.canvas_scroll.horizontalScrollBar(),
+                self.canvas_scroll.verticalScrollBar(),
+            ):
                 bar.setValue((bar.minimum() + bar.maximum()) // 2)
         if hasattr(self, "_zoom_label"):
             self._zoom_label.setText(f"{int(round(zoom * 100))}%")
@@ -1278,7 +1325,10 @@ class MainWindow(QMainWindow):
                 self.canvas_scroll.horizontalScrollBar().setValue(int(h0 - dx))
                 self.canvas_scroll.verticalScrollBar().setValue(int(v0 - dy))
                 return True
-            if et == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.MiddleButton:
+            if (
+                et == QEvent.Type.MouseButtonRelease
+                and event.button() == Qt.MouseButton.MiddleButton
+            ):
                 self._mesa_pan_active = False
                 self._mesa_pan_origin = None
                 self.canvas_scroll.viewport().unsetCursor()
@@ -1289,8 +1339,10 @@ class MainWindow(QMainWindow):
         """Sincroniza a GUI após zoom-área/recorte: atualiza spinboxes e observações."""
         sp = self.settings_panel
         for spin, val in (
-            (sp.lon_min, extent[0]), (sp.lat_min, extent[1]),
-            (sp.lon_max, extent[2]), (sp.lat_max, extent[3]),
+            (sp.lon_min, extent[0]),
+            (sp.lat_min, extent[1]),
+            (sp.lon_max, extent[2]),
+            (sp.lat_max, extent[3]),
         ):
             spin.blockSignals(True)
             spin.setValue(int(round(val)))
@@ -1304,7 +1356,8 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QInputDialog
 
         text, ok = QInputDialog.getText(
-            self, "Anotação no Mapa",
+            self,
+            "Anotação no Mapa",
             "Texto da anotação:",
         )
         if ok and text.strip():
@@ -1337,12 +1390,8 @@ class MainWindow(QMainWindow):
             target_time=target_time,
             parent=self,
         )
-        self.sat_download_thread.progress.connect(
-            lambda msg: self._update_sat_dialog_status(msg)
-        )
-        self.sat_download_thread.download_percent.connect(
-            self._sat_dl_dialog.update_percent
-        )
+        self.sat_download_thread.progress.connect(lambda msg: self._update_sat_dialog_status(msg))
+        self.sat_download_thread.download_percent.connect(self._sat_dl_dialog.update_percent)
         self.sat_download_thread.cache_hit.connect(self._on_sat_cache_hit)
         self.sat_download_thread.finished_ok.connect(self._on_sat_download_ok)
         self.sat_download_thread.finished_error.connect(self._on_sat_download_error)
@@ -1352,14 +1401,12 @@ class MainWindow(QMainWindow):
 
     def _update_sat_dialog_status(self, msg):
         self.status_label.setText(f"● {msg}")
-        if hasattr(self, '_sat_dl_dialog') and self._sat_dl_dialog:
+        if hasattr(self, "_sat_dl_dialog") and self._sat_dl_dialog:
             self._sat_dl_dialog.update_status(msg)
 
     def _on_sat_cache_hit(self, filename):
-        if hasattr(self, '_sat_dl_dialog') and self._sat_dl_dialog:
-            self._sat_dl_dialog.update_status(
-                f"✓ Arquivo já existe no cache!\n{filename}"
-            )
+        if hasattr(self, "_sat_dl_dialog") and self._sat_dl_dialog:
+            self._sat_dl_dialog.update_status(f"✓ Arquivo já existe no cache!\n{filename}")
             self._sat_dl_dialog.update_percent(100)
 
     def _cancel_sat_download(self):
@@ -1370,7 +1417,7 @@ class MainWindow(QMainWindow):
 
         self.satellite_panel.set_downloading(False)
 
-        if hasattr(self, '_sat_dl_dialog') and self._sat_dl_dialog:
+        if hasattr(self, "_sat_dl_dialog") and self._sat_dl_dialog:
             self._sat_dl_dialog.accept()
             self._sat_dl_dialog = None
 
@@ -1384,7 +1431,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"● Satélite: {sat_data.time_str}")
         self.status_label.setStyleSheet("color: #27AE60;")
 
-        if hasattr(self, '_sat_dl_dialog') and self._sat_dl_dialog:
+        if hasattr(self, "_sat_dl_dialog") and self._sat_dl_dialog:
             self._sat_dl_dialog.finish_ok()
             self._sat_dl_dialog = None
 
@@ -1393,7 +1440,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText("● Erro no download do satélite")
         self.status_label.setStyleSheet("color: #E74C3C;")
 
-        if hasattr(self, '_sat_dl_dialog') and self._sat_dl_dialog:
+        if hasattr(self, "_sat_dl_dialog") and self._sat_dl_dialog:
             self._sat_dl_dialog.finish_error()
             self._sat_dl_dialog = None
 
@@ -1425,12 +1472,8 @@ class MainWindow(QMainWindow):
             target_date=target_date,
             parent=self,
         )
-        self.sst_download_thread.progress.connect(
-            lambda msg: self._update_sst_dialog_status(msg)
-        )
-        self.sst_download_thread.download_percent.connect(
-            self._sst_dl_dialog.update_percent
-        )
+        self.sst_download_thread.progress.connect(lambda msg: self._update_sst_dialog_status(msg))
+        self.sst_download_thread.download_percent.connect(self._sst_dl_dialog.update_percent)
         self.sst_download_thread.finished_ok.connect(self._on_sst_download_ok)
         self.sst_download_thread.finished_error.connect(self._on_sst_download_error)
         self.sst_download_thread.start()
@@ -1439,7 +1482,7 @@ class MainWindow(QMainWindow):
 
     def _update_sst_dialog_status(self, msg):
         self.status_label.setText(f"● {msg}")
-        if hasattr(self, '_sst_dl_dialog') and self._sst_dl_dialog:
+        if hasattr(self, "_sst_dl_dialog") and self._sst_dl_dialog:
             self._sst_dl_dialog.update_status(msg)
 
     def _cancel_sst_download(self):
@@ -1450,7 +1493,7 @@ class MainWindow(QMainWindow):
 
         self.sst_panel.set_downloading(False)
 
-        if hasattr(self, '_sst_dl_dialog') and self._sst_dl_dialog:
+        if hasattr(self, "_sst_dl_dialog") and self._sst_dl_dialog:
             self._sst_dl_dialog.accept()
             self._sst_dl_dialog = None
 
@@ -1464,7 +1507,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"● TSM: {sst_data.time_str}")
         self.status_label.setStyleSheet("color: #27AE60;")
 
-        if hasattr(self, '_sst_dl_dialog') and self._sst_dl_dialog:
+        if hasattr(self, "_sst_dl_dialog") and self._sst_dl_dialog:
             self._sst_dl_dialog.finish_ok()
             self._sst_dl_dialog = None
 
@@ -1473,7 +1516,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText("● Erro no download da TSM")
         self.status_label.setStyleSheet("color: #E74C3C;")
 
-        if hasattr(self, '_sst_dl_dialog') and self._sst_dl_dialog:
+        if hasattr(self, "_sst_dl_dialog") and self._sst_dl_dialog:
             self._sst_dl_dialog.finish_error()
             self._sst_dl_dialog = None
 
@@ -1486,6 +1529,7 @@ class MainWindow(QMainWindow):
     def _store_valid_time(self, data) -> None:
         """Guarda o valid_time do modelo (datetime UTC) para sincronizar obs."""
         from datetime import datetime
+
         vt = getattr(data, "valid_time", None)
         self._last_valid_time = None
         if vt:
@@ -1586,7 +1630,8 @@ class MainWindow(QMainWindow):
         # Aviso discreto na barra de status (sem popup repetitivo)
         if empty_kinds:
             self.status_label.setText(
-                "● Sem estações " + "/".join(empty_kinds)
+                "● Sem estações "
+                + "/".join(empty_kinds)
                 + " para esta região/horário — tente outra região ou rodada"
             )
             self.status_label.setStyleSheet("color: #F39C12;")
@@ -1615,8 +1660,7 @@ class MainWindow(QMainWindow):
 
     def _finalize_line(self):
         # No modo formas, Enter fecha o polígono em rascunho (≥3 vértices)
-        if (self.canvas.interaction_mode == "shape"
-                and self.canvas.shape_tool == "polygon"):
+        if self.canvas.interaction_mode == "shape" and self.canvas.shape_tool == "polygon":
             self.canvas.finalize_shape()
             return
         self.canvas.finalize_line()
@@ -1667,7 +1711,9 @@ class MainWindow(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
 
-        self._dl_existing_files = set(self.config.grib_dir.glob("*.grib2")) if self.config.data_dir else set()
+        self._dl_existing_files = (
+            set(self.config.grib_dir.glob("*.grib2")) if self.config.data_dir else set()
+        )
 
         self._dl_dialog = DownloadProgressDialog("Baixando dados sinóticos", parent=self)
         self._dl_dialog.setStyleSheet(DARK_STYLE)
@@ -1689,14 +1735,14 @@ class MainWindow(QMainWindow):
         color = "#E74C3C" if is_retry else "#F39C12"
         self.status_label.setText(f"● {msg}")
         self.status_label.setStyleSheet(f"color: {color};")
-        if hasattr(self, '_dl_dialog') and self._dl_dialog:
+        if hasattr(self, "_dl_dialog") and self._dl_dialog:
             self._dl_dialog.update_status(msg)
 
     def _on_download_ok(self, data):
         self.settings_panel.set_downloading(False)
         self.progress_bar.setVisible(False)
 
-        if hasattr(self, '_dl_dialog') and self._dl_dialog:
+        if hasattr(self, "_dl_dialog") and self._dl_dialog:
             self._dl_dialog.finish_ok()
             self._dl_dialog = None
 
@@ -1716,7 +1762,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.set_downloading(False)
         self.progress_bar.setVisible(False)
 
-        if hasattr(self, '_dl_dialog') and self._dl_dialog:
+        if hasattr(self, "_dl_dialog") and self._dl_dialog:
             self._dl_dialog.finish_error()
             self._dl_dialog = None
 
@@ -1737,13 +1783,13 @@ class MainWindow(QMainWindow):
 
             gc.collect()
 
-            existing = getattr(self, '_dl_existing_files', set())
+            existing = getattr(self, "_dl_existing_files", set())
             self._cleanup_new_files(existing)
 
         self.settings_panel.set_downloading(False)
         self.progress_bar.setVisible(False)
 
-        if hasattr(self, '_dl_dialog') and self._dl_dialog:
+        if hasattr(self, "_dl_dialog") and self._dl_dialog:
             self._dl_dialog.accept()
             self._dl_dialog = None
 
@@ -1759,12 +1805,12 @@ class MainWindow(QMainWindow):
 
             gc.collect()
 
-            existing = getattr(self, '_pl_existing_files', set())
+            existing = getattr(self, "_pl_existing_files", set())
             self._cleanup_new_files(existing)
 
         self.progress_bar.setVisible(False)
 
-        if hasattr(self, '_pl_dl_dialog') and self._pl_dl_dialog:
+        if hasattr(self, "_pl_dl_dialog") and self._pl_dl_dialog:
             self._pl_dl_dialog.accept()
             self._pl_dl_dialog = None
 
@@ -1797,8 +1843,7 @@ class MainWindow(QMainWindow):
         """Usuário clicou 'Adicionar camada' no FieldLayerPanel."""
         if self.pl_download_thread and self.pl_download_thread.isRunning():
             QMessageBox.information(
-                self, "Aguarde",
-                "Um download já está em andamento. Aguarde concluir."
+                self, "Aguarde", "Um download já está em andamento. Aguarde concluir."
             )
             return
 
@@ -1810,12 +1855,13 @@ class MainWindow(QMainWindow):
         if var_key in ("olr", "precip") and technique == "direct" and step < 3:
             nome = VARIABLE_REGISTRY.get(var_key, {}).get("nome", var_key)
             QMessageBox.warning(
-                self, f"{nome} no modo Direto requer step ≥ 3h",
+                self,
+                f"{nome} no modo Direto requer step ≥ 3h",
                 f"No modo Direto, {nome} usa a janela de 3h da rodada atual e "
                 "vale zero no step 0.\n\n"
                 "Use step +3h ou mais, OU mude o Método para "
-                "\"Estabilizada (mitiga spin-up)\" para obter o campo já no "
-                "horário da análise."
+                '"Estabilizada (mitiga spin-up)" para obter o campo já no '
+                "horário da análise.",
             )
             return
 
@@ -1830,11 +1876,11 @@ class MainWindow(QMainWindow):
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
 
-        self._pl_existing_files = set(self.config.grib_dir.glob("*.grib2")) if self.config.data_dir else set()
-
-        self._pl_dl_dialog = DownloadProgressDialog(
-            f"Baixando {nome}", parent=self
+        self._pl_existing_files = (
+            set(self.config.grib_dir.glob("*.grib2")) if self.config.data_dir else set()
         )
+
+        self._pl_dl_dialog = DownloadProgressDialog(f"Baixando {nome}", parent=self)
         self._pl_dl_dialog.setStyleSheet(DARK_STYLE)
         self._pl_dl_dialog.cancel_requested.connect(self._cancel_pl_download)
 
@@ -1864,7 +1910,7 @@ class MainWindow(QMainWindow):
         color = "#E74C3C" if is_retry else "#9B59B6"
         self.status_label.setText(f"● {msg}")
         self.status_label.setStyleSheet(f"color: {color};")
-        if hasattr(self, '_pl_dl_dialog') and self._pl_dl_dialog:
+        if hasattr(self, "_pl_dl_dialog") and self._pl_dl_dialog:
             self._pl_dl_dialog.update_status(msg)
 
     def _on_pl_download_ok(self, layer_id: str, data, wind_type: str):
@@ -1873,13 +1919,13 @@ class MainWindow(QMainWindow):
         # As linhas de corrente (streamplot) são pesadas e renderizam na thread da
         # UI — sem aviso, a tela "congela" e o usuário pensa que travou. Mantemos o
         # diálogo aberto com mensagem clara + cursor de espera durante a renderização.
-        is_stream = (data.variable == "wind" and wind_type == "stream")
+        is_stream = data.variable == "wind" and wind_type == "stream"
         dlg = getattr(self, "_pl_dl_dialog", None)
         if is_stream and dlg:
             dlg.set_indeterminate()
             dlg.update_status("Gerando linhas de corrente — pode levar alguns segundos...")
             dlg.cancel_btn.setEnabled(False)
-            dlg.repaint()   # repaint do widget (NÃO processEvents — evita re-entrância)
+            dlg.repaint()  # repaint do widget (NÃO processEvents — evita re-entrância)
         if is_stream:
             self.status_label.setText("● Renderizando linhas de corrente...")
             self.status_label.setStyleSheet("color: #E67E22;")
@@ -1909,15 +1955,13 @@ class MainWindow(QMainWindow):
 
         self.field_panel.add_layer_entry(layer_id, label, detail)
 
-        self.status_label.setText(
-            f"● {label} carregado  |  {data.valid_time} UTC"
-        )
+        self.status_label.setText(f"● {label} carregado  |  {data.valid_time} UTC")
         self.status_label.setStyleSheet("color: #27AE60;")
 
     def _on_pl_download_error(self, error_msg: str):
         self.progress_bar.setVisible(False)
 
-        if hasattr(self, '_pl_dl_dialog') and self._pl_dl_dialog:
+        if hasattr(self, "_pl_dl_dialog") and self._pl_dl_dialog:
             self._pl_dl_dialog.finish_error()
             self._pl_dl_dialog = None
 
@@ -1945,7 +1989,7 @@ class MainWindow(QMainWindow):
         if is_stream:
             self.status_label.setText("● Renderizando linhas de corrente — aguarde...")
             self.status_label.setStyleSheet("color: #E67E22;")
-            self.status_label.repaint()   # repaint local, sem re-entrar no event loop
+            self.status_label.repaint()  # repaint local, sem re-entrar no event loop
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             self.canvas.toggle_pl_layer(layer_id, visible)
@@ -1994,8 +2038,11 @@ class MainWindow(QMainWindow):
     def _spatial_available() -> bool:
         """True se o extra 'spatial' (esda/libpysal) estiver instalado."""
         import importlib.util
-        return (importlib.util.find_spec("esda") is not None
-                and importlib.util.find_spec("libpysal") is not None)
+
+        return (
+            importlib.util.find_spec("esda") is not None
+            and importlib.util.find_spec("libpysal") is not None
+        )
 
     def _ask_loczcit_filter_method(self) -> str | None:
         """Modal: método de delimitação da banda. Retorna 'iqr'|'coherence'|None.
@@ -2040,6 +2087,7 @@ class MainWindow(QMainWindow):
         if cycle is None or not cycle_date:
             try:
                 from cartomet_br.data.ecmwf import estimate_available_cycles
+
                 latest = estimate_available_cycles().get("latest")
                 if latest:
                     cycle = latest["cycle"]
@@ -2048,9 +2096,10 @@ class MainWindow(QMainWindow):
                 pass
         if cycle is None or not cycle_date:
             QMessageBox.warning(
-                self, "ZCIT (LOCZCIT-PA)",
+                self,
+                "ZCIT (LOCZCIT-PA)",
                 "Não foi possível determinar a rodada do ECMWF.\n\n"
-                "Clique em \"Verificar Rodadas\" e selecione uma rodada primeiro.",
+                'Clique em "Verificar Rodadas" e selecione uma rodada primeiro.',
             )
             return
 
@@ -2060,7 +2109,8 @@ class MainWindow(QMainWindow):
             return  # usuário cancelou a escolha
         if filter_method == "coherence" and not self._spatial_available():
             QMessageBox.information(
-                self, "Coerência Espacial (LISA)",
+                self,
+                "Coerência Espacial (LISA)",
                 "A Coerência Espacial não está disponível nesta instalação;\n"
                 "usando o filtro IQR.\n\n"
                 "Para habilitar, instale o extra 'spatial':\n    uv sync --extra spatial",
@@ -2086,8 +2136,12 @@ class MainWindow(QMainWindow):
         # Horizonte de previsão do slider → valid_time = rodada + step (desacum. dinâmica)
         step = self.settings_panel.get_step()
         self.loczcit_thread = LoczcitThread(
-            config=self.config, cycle=cycle, cycle_date=cycle_date, step=step,
-            filter_method=filter_method, parent=self,
+            config=self.config,
+            cycle=cycle,
+            cycle_date=cycle_date,
+            step=step,
+            filter_method=filter_method,
+            parent=self,
         )
         self.loczcit_thread.progress.connect(self._on_loczcit_progress)
         self.loczcit_thread.finished_ok.connect(self._on_loczcit_ok)
@@ -2133,7 +2187,8 @@ class MainWindow(QMainWindow):
         # Registra como camada ativa (toggle/remover); recria a entrada se já existia
         self.field_panel.remove_layer_entry("loczcit")
         self.field_panel.add_layer_entry(
-            "loczcit", "ZCIT (LOCZCIT-PA)",
+            "loczcit",
+            "ZCIT (LOCZCIT-PA)",
             f"F{m.get('n_strong', 0)} M{m.get('n_moderate', 0)} "
             f"f{m.get('n_weak', 0)} C{m.get('n_cinematica', 0)} · {method_tag}",
         )
@@ -2146,14 +2201,17 @@ class MainWindow(QMainWindow):
             self.canvas.toggle_loczcit_axis(False)
             dbl = "dupla" if m.get("is_double") else "simples"
             self.field_panel.add_layer_entry(
-                "loczcit_axis", "ZCIT — Eixo (auto)",
-                f"banda {dbl}", checked=False,
+                "loczcit_axis",
+                "ZCIT — Eixo (auto)",
+                f"banda {dbl}",
+                checked=False,
             )
 
         # Salva o produto (raster + índice contínuo) em NetCDF na subpasta loczcit_pa/
         saved_name = ""
         try:
             from cartomet_br.data.loczcit_pa_engine import save_loczcit_netcdf
+
             saved = save_loczcit_netcdf(result, self.config.loczcit_dir)
             saved_name = f" · salvo: loczcit_pa/{saved.name}"
         except Exception as exc:
@@ -2193,6 +2251,7 @@ class MainWindow(QMainWindow):
         if cycle is None or not cycle_date:
             try:
                 from cartomet_br.data.ecmwf import estimate_available_cycles
+
                 latest = estimate_available_cycles().get("latest")
                 if latest:
                     cycle = latest["cycle"]
@@ -2201,9 +2260,10 @@ class MainWindow(QMainWindow):
                 pass
         if cycle is None or not cycle_date:
             QMessageBox.warning(
-                self, "Bloqueio Atmosférico (Z500)",
+                self,
+                "Bloqueio Atmosférico (Z500)",
                 "Não foi possível determinar a rodada do ECMWF.\n\n"
-                "Clique em \"Verificar Rodadas\" e selecione uma rodada primeiro.",
+                'Clique em "Verificar Rodadas" e selecione uma rodada primeiro.',
             )
             return
 
@@ -2212,18 +2272,20 @@ class MainWindow(QMainWindow):
 
         self._blocking_cancelled = False
         self._blocking_dl_dialog = DownloadProgressDialog(
-            "Bloqueio Atmosférico (Z500)", parent=self,
+            "Bloqueio Atmosférico (Z500)",
+            parent=self,
         )
         self._blocking_dl_dialog.setStyleSheet(DARK_STYLE)
         self._blocking_dl_dialog.set_indeterminate()
-        self._blocking_dl_dialog.update_status(
-            "Preparando gh 500 hPa (IFS) e climatologia ERA5..."
-        )
+        self._blocking_dl_dialog.update_status("Preparando gh 500 hPa (IFS) e climatologia ERA5...")
         self._blocking_dl_dialog.cancel_requested.connect(self._cancel_blocking)
 
         step = self.settings_panel.get_step()
         self.blocking_thread = BlockingThread(
-            config=self.config, cycle=cycle, cycle_date=cycle_date, step=step,
+            config=self.config,
+            cycle=cycle,
+            cycle_date=cycle_date,
+            step=step,
             parent=self,
         )
         self.blocking_thread.progress.connect(self._on_blocking_progress)
@@ -2270,7 +2332,8 @@ class MainWindow(QMainWindow):
         # Registra como camada ativa (toggle/remover); recria a entrada se já existia
         self.field_panel.remove_layer_entry("blocking")
         self.field_panel.add_layer_entry(
-            "blocking", "Bloqueio (anom. Z500)",
+            "blocking",
+            "Bloqueio (anom. Z500)",
             f"{result.clim_hour:02d}Z{approx_tag} · "
             f"{m.get('anom_min', 0):.0f}/{m.get('anom_max', 0):+.0f} gpm",
         )
@@ -2295,10 +2358,8 @@ class MainWindow(QMainWindow):
 
     def _process_preset_queue(self):
         """Processa a próxima camada da fila de preset."""
-        if not hasattr(self, '_preset_queue') or not self._preset_queue:
-            self.status_label.setText(
-                f"● Preset '{getattr(self, '_preset_name', '')}' completo!"
-            )
+        if not hasattr(self, "_preset_queue") or not self._preset_queue:
+            self.status_label.setText(f"● Preset '{getattr(self, '_preset_name', '')}' completo!")
             self.status_label.setStyleSheet("color: #27AE60;")
             return
 
@@ -2311,12 +2372,10 @@ class MainWindow(QMainWindow):
 
         try:
             self.pl_download_thread.finished_ok.connect(
-                lambda *_: self._process_preset_queue(),
-                Qt.ConnectionType.SingleShotConnection
+                lambda *_: self._process_preset_queue(), Qt.ConnectionType.SingleShotConnection
             )
             self.pl_download_thread.finished_error.connect(
-                lambda *_: self._process_preset_queue(),
-                Qt.ConnectionType.SingleShotConnection
+                lambda *_: self._process_preset_queue(), Qt.ConnectionType.SingleShotConnection
             )
         except Exception:
             QTimer.singleShot(3000, self._process_preset_queue)
@@ -2328,7 +2387,8 @@ class MainWindow(QMainWindow):
     def _new_project(self):
         """Reinicia o programa para um estado completamente limpo."""
         reply = QMessageBox.question(
-            self, "Novo Projeto",
+            self,
+            "Novo Projeto",
             "Isso irá reiniciar o CartoMet BR.\n\n"
             "Todas as camadas e simbologias serão perdidas.\n"
             "Deseja continuar?",
@@ -2378,7 +2438,7 @@ class MainWindow(QMainWindow):
             "Resolução da Exportação",
             "Escolha a resolução (DPI):",
             opcoes,
-            2,      # índice padrão: 200 DPI
+            2,  # índice padrão: 200 DPI
             False,  # não editável
         )
         if not ok:
@@ -2387,9 +2447,10 @@ class MainWindow(QMainWindow):
 
     def _save_figure(self):
         filepath, _ = QFileDialog.getSaveFileName(
-            self, "Salvar Imagem",
+            self,
+            "Salvar Imagem",
             str(self.config.charts_dir / self._default_chart_name("png")),
-            "PNG (*.png);;JPEG (*.jpg);;PDF (*.pdf)"
+            "PNG (*.png);;JPEG (*.jpg);;PDF (*.pdf)",
         )
         if not filepath:
             return
@@ -2402,7 +2463,9 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f"● Salvo ({dpi} DPI): {Path(filepath).name}")
             self.status_label.setStyleSheet("color: #27AE60;")
         except Exception as e:
-            QMessageBox.critical(self, "Erro ao Exportar", f"Não foi possível salvar o arquivo:\n\n{e}")
+            QMessageBox.critical(
+                self, "Erro ao Exportar", f"Não foi possível salvar o arquivo:\n\n{e}"
+            )
             self.status_label.setText("● Erro ao exportar")
             self.status_label.setStyleSheet("color: #E74C3C;")
 
@@ -2417,14 +2480,15 @@ class MainWindow(QMainWindow):
         from cartomet_br.gui.chart_header_dialog import ChartHeaderDialog
 
         dialog = ChartHeaderDialog(self)
-        if not dialog.exec():            # Cancelado
+        if not dialog.exec():  # Cancelado
             return
         header = dialog.metadata()
 
         filepath, _ = QFileDialog.getSaveFileName(
-            self, "Exportar Carta (OMM)",
+            self,
+            "Exportar Carta (OMM)",
             str(self.config.charts_dir / self._default_chart_name("png")),
-            "PNG (*.png);;PDF (*.pdf);;JPEG (*.jpg)"
+            "PNG (*.png);;PDF (*.pdf);;JPEG (*.jpg)",
         )
         if not filepath:
             return
@@ -2440,7 +2504,9 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f"● Carta exportada ({dpi} DPI): {Path(filepath).name}")
             self.status_label.setStyleSheet("color: #27AE60;")
         except Exception as e:
-            QMessageBox.critical(self, "Erro ao Exportar", f"Não foi possível exportar a carta:\n\n{e}")
+            QMessageBox.critical(
+                self, "Erro ao Exportar", f"Não foi possível exportar a carta:\n\n{e}"
+            )
             self.status_label.setText("● Erro ao exportar carta")
             self.status_label.setStyleSheet("color: #E74C3C;")
         finally:
@@ -2460,7 +2526,8 @@ class MainWindow(QMainWindow):
         drawings = self.canvas.export_drawings_state()
         if not drawings:
             resp = QMessageBox.question(
-                self, "Salvar Projeto",
+                self,
+                "Salvar Projeto",
                 "Nenhum traçado finalizado para salvar.\n\n"
                 "Dica: feche cada linha com [Enter] antes de salvar.\n\n"
                 "Deseja salvar mesmo assim (apenas o enquadramento)?",
@@ -2472,9 +2539,14 @@ class MainWindow(QMainWindow):
                 self.status_label.setStyleSheet("color: #E67E22;")
                 return
 
-        default = self.config.projects_dir / f"analise_{datetime.now():%Y%m%d_%H%M}{project_io.PROJECT_EXTENSION}"
+        default = (
+            self.config.projects_dir
+            / f"analise_{datetime.now():%Y%m%d_%H%M}{project_io.PROJECT_EXTENSION}"
+        )
         filepath, _ = QFileDialog.getSaveFileName(
-            self, "Salvar Projeto de Análise", str(default),
+            self,
+            "Salvar Projeto de Análise",
+            str(default),
             f"Projeto CartoMet BR (*{project_io.PROJECT_EXTENSION});;Todos (*)",
         )
         if not filepath:
@@ -2488,9 +2560,13 @@ class MainWindow(QMainWindow):
         layers = self.canvas.export_layers_state()
         obs = self.settings_panel.get_observations()
         if obs.get("metar") or obs.get("synop"):
-            layers.append({"kind": "observations",
-                           "metar": bool(obs.get("metar")),
-                           "synop": bool(obs.get("synop"))})
+            layers.append(
+                {
+                    "kind": "observations",
+                    "metar": bool(obs.get("metar")),
+                    "synop": bool(obs.get("synop")),
+                }
+            )
 
         project = project_io.build_project(
             extent=list(self.config.extent),
@@ -2513,8 +2589,9 @@ class MainWindow(QMainWindow):
         try:
             path.write_text(project_io.dump_project(project), encoding="utf-8")
         except OSError as e:
-            QMessageBox.critical(self, "Erro ao Salvar Projeto",
-                                 f"Não foi possível salvar o projeto:\n\n{e}")
+            QMessageBox.critical(
+                self, "Erro ao Salvar Projeto", f"Não foi possível salvar o projeto:\n\n{e}"
+            )
             self.status_label.setText("● Erro ao salvar projeto")
             self.status_label.setStyleSheet("color: #E74C3C;")
             return
@@ -2526,7 +2603,9 @@ class MainWindow(QMainWindow):
         from cartomet_br.gui import project_io
 
         filepath, _ = QFileDialog.getOpenFileName(
-            self, "Abrir Projeto de Análise", str(self.config.projects_dir),
+            self,
+            "Abrir Projeto de Análise",
+            str(self.config.projects_dir),
             f"Projeto CartoMet BR (*{project_io.PROJECT_EXTENSION});;Todos (*)",
         )
         if not filepath:
@@ -2537,8 +2616,7 @@ class MainWindow(QMainWindow):
             # Valida/converte cedo: erro claro ANTES de mexer no mapa.
             project_io.records_to_commands(records)
         except (OSError, project_io.ProjectError) as e:
-            QMessageBox.warning(self, "Abrir Projeto",
-                                f"Não foi possível abrir o projeto:\n\n{e}")
+            QMessageBox.warning(self, "Abrir Projeto", f"Não foi possível abrir o projeto:\n\n{e}")
             return
 
         mp = data.get("map", {}) or {}
@@ -2560,20 +2638,32 @@ class MainWindow(QMainWindow):
         # Redesenha as camadas SÓ a partir do cache (nunca baixa) ANTES dos
         # desenhos — assim o traçado OMM fica por cima dos campos.
         n_layers, missed, reactivate = self._restore_layers_from_cache(
-            data.get("layers", []), ctx,
+            data.get("layers", []),
+            ctx,
         )
 
         self.canvas.import_drawings_state(records)
 
         self._show_project_context(
-            ctx, Path(filepath).name, len(records), n_layers, missed, reactivate,
+            ctx,
+            Path(filepath).name,
+            len(records),
+            n_layers,
+            missed,
+            reactivate,
         )
         self.status_label.setText(f"● Projeto aberto: {Path(filepath).name}")
         self.status_label.setStyleSheet("color: #27AE60;")
 
-    def _show_project_context(self, ctx: dict, name: str, n_drawings: int = 0,
-                              n_layers: int = 0, missed: list | None = None,
-                              reactivate: list | None = None) -> None:
+    def _show_project_context(
+        self,
+        ctx: dict,
+        name: str,
+        n_drawings: int = 0,
+        n_layers: int = 0,
+        missed: list | None = None,
+        reactivate: list | None = None,
+    ) -> None:
         """Resumo da abertura: traçados restaurados, camadas redesenhadas do cache,
         o que ficou fora do cache, as camadas memorizadas p/ reativação manual, e a
         rodada/step do projeto. Nunca baixa nada."""
@@ -2593,8 +2683,7 @@ class MainWindow(QMainWindow):
             )
         if missed:
             linhas.append(
-                "Fora do cache (recarregue pelo painel se precisar): "
-                + ", ".join(missed) + "."
+                "Fora do cache (recarregue pelo painel se precisar): " + ", ".join(missed) + "."
             )
         if reactivate:
             linhas.append(
@@ -2617,11 +2706,14 @@ class MainWindow(QMainWindow):
         # Só repete o aviso "recarregue manualmente" quando NADA de camada voltou.
         nota = ""
         if n_layers == 0 and not missed and not reactivate:
-            nota = ("\n\nNenhum campo do modelo foi redesenhado (não havia camadas "
-                    "salvas ou não estavam no cache). Recarregue a rodada/step pelo "
-                    "painel para sobrepô-los ao traçado.")
+            nota = (
+                "\n\nNenhum campo do modelo foi redesenhado (não havia camadas "
+                "salvas ou não estavam no cache). Recarregue a rodada/step pelo "
+                "painel para sobrepô-los ao traçado."
+            )
         QMessageBox.information(
-            self, "Projeto aberto",
+            self,
+            "Projeto aberto",
             f"{restaurado}\n\nProjeto feito para:\n  {' · '.join(partes)}{nota}",
         )
 
@@ -2670,6 +2762,7 @@ class MainWindow(QMainWindow):
             return False
         try:
             from cartomet_br.data.ecmwf import load_goes_netcdf
+
             sat_data = load_goes_netcdf(path)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Satélite em cache ilegível (%s): %s", filename, exc)
@@ -2690,6 +2783,7 @@ class MainWindow(QMainWindow):
             return False
         try:
             from cartomet_br.data.sst import _load_sst_from_file
+
             data = _load_sst_from_file(path)
             self.canvas.plot_sst(data)
             with contextlib.suppress(Exception):
@@ -2700,7 +2794,9 @@ class MainWindow(QMainWindow):
             return False
 
     def _restore_layers_from_cache(
-        self, layers: list, ctx: dict,
+        self,
+        layers: list,
+        ctx: dict,
     ) -> tuple[int, list[str], list[str]]:
         """Recria as camadas salvas. As de cache (sinótica/campos/satélite/TSM) são
         redesenhadas SOMENTE do cache (nunca baixam); as computadas/externas
@@ -2740,9 +2836,13 @@ class MainWindow(QMainWindow):
                         elif kind == "field":
                             wind_type = spec.get("wind_type", "barbs")
                             layer_id, data = svc.load_field(
-                                spec.get("variable", ""), spec.get("level") or None,
-                                int(spec.get("step", 0)), cycle, cdate,
-                                wind_type=wind_type, technique=technique,
+                                spec.get("variable", ""),
+                                spec.get("level") or None,
+                                int(spec.get("step", 0)),
+                                cycle,
+                                cdate,
+                                wind_type=wind_type,
+                                technique=technique,
                             )
                             self.canvas.add_pl_layer(layer_id, data, wind_type)
                             self._add_field_panel_entry(layer_id, data, wind_type)
@@ -2774,7 +2874,8 @@ class MainWindow(QMainWindow):
     def _print_canvas(self):
         """Captura pixel-perfect do mapa (Ctrl+P) — idêntica à tela."""
         filepath, _ = QFileDialog.getSaveFileName(
-            self, "Capturar Tela do Mapa",
+            self,
+            "Capturar Tela do Mapa",
             str(self.config.charts_dir / self._default_chart_name("png")),
             "PNG (*.png);;JPEG (*.jpg)",
         )
@@ -2808,8 +2909,10 @@ class MainWindow(QMainWindow):
             pass
 
         # Observações: desmarca sem disparar novo download
-        for chk in (getattr(self.settings_panel, "synop_check", None),
-                    getattr(self.settings_panel, "metar_check", None)):
+        for chk in (
+            getattr(self.settings_panel, "synop_check", None),
+            getattr(self.settings_panel, "metar_check", None),
+        ):
             if chk is not None:
                 chk.blockSignals(True)
                 chk.setChecked(False)
@@ -2818,8 +2921,7 @@ class MainWindow(QMainWindow):
             self.settings_panel.set_obs_reference_time(None)
 
         # Satélite / TSM: desmarca os toggles dos painéis, se existirem
-        for panel in (getattr(self, "satellite_panel", None),
-                      getattr(self, "sst_panel", None)):
+        for panel in (getattr(self, "satellite_panel", None), getattr(self, "sst_panel", None)):
             chk = getattr(panel, "toggle_check", None) if panel is not None else None
             if chk is not None:
                 chk.blockSignals(True)
@@ -2827,11 +2929,13 @@ class MainWindow(QMainWindow):
                 chk.blockSignals(False)
 
         # 3) Desliga modos de interação e solta os botões da toolbar
-        for btn in (getattr(self, "draw_mode_btn", None),
-                    getattr(self, "annotate_btn", None),
-                    getattr(self, "ruler_btn", None),
-                    getattr(self, "zoom_area_btn", None),
-                    getattr(self, "pan_btn", None)):
+        for btn in (
+            getattr(self, "draw_mode_btn", None),
+            getattr(self, "annotate_btn", None),
+            getattr(self, "ruler_btn", None),
+            getattr(self, "zoom_area_btn", None),
+            getattr(self, "pan_btn", None),
+        ):
             if btn is not None:
                 btn.setChecked(False)
         self.canvas.set_drawing_mode(False)
@@ -2873,6 +2977,7 @@ class MainWindow(QMainWindow):
         """Abre uma pasta no explorador de arquivos do sistema."""
         from PyQt6.QtCore import QUrl
         from PyQt6.QtGui import QDesktopServices
+
         try:
             path.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -2890,7 +2995,8 @@ class MainWindow(QMainWindow):
         size = self._cache_size_bytes()
         if size == 0:
             QMessageBox.information(
-                self, "Limpar Dados Baixados",
+                self,
+                "Limpar Dados Baixados",
                 "Não há dados em cache para limpar.\n\n"
                 "As cartas salvas (pasta 'cartas') são sempre preservadas.",
             )
@@ -2935,7 +3041,9 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("color: #27AE60;")
 
     def _configure_data_dir(self):
-        dir_path = QFileDialog.getExistingDirectory(self, "Selecione o Diretório de Dados", str(self.data_dir.parent))
+        dir_path = QFileDialog.getExistingDirectory(
+            self, "Selecione o Diretório de Dados", str(self.data_dir.parent)
+        )
         if dir_path:
             new_dir = Path(dir_path)
             try:
@@ -2976,16 +3084,17 @@ class MainWindow(QMainWindow):
                 self._import_grib(file_path)
             else:
                 QMessageBox.warning(
-                    self, "Formato não suportado",
+                    self,
+                    "Formato não suportado",
                     f"Extensão '{suffix}' não é suportada.\n\n"
-                    "Formatos aceitos: .grib2, .grib, .nc, .netcdf"
+                    "Formatos aceitos: .grib2, .grib, .nc, .netcdf",
                 )
         except Exception as e:
             logger.exception("Erro ao importar arquivo local: %s", file_path)
             QMessageBox.critical(
-                self, "Erro ao importar",
-                f"Não foi possível carregar o arquivo:\n{file_path.name}\n\n"
-                f"Erro: {e}"
+                self,
+                "Erro ao importar",
+                f"Não foi possível carregar o arquivo:\n{file_path.name}\n\nErro: {e}",
             )
 
     def _import_grib(self, file_path: Path):
@@ -3002,24 +3111,21 @@ class MainWindow(QMainWindow):
         # ─── Regex para nome padrão ECMWF do CartoMet ───
         # PL:  ecmwf_{param}_{YYYYMMDD}_{cycle}_{level}hPa_f{step}.grib2
         # SFC: ecmwf_{param}_{YYYYMMDD}_{cycle}_f{step}.grib2
-        pat_pl = re.compile(
-            r"^ecmwf_(.+?)_(\d{8})_(latest|\d{2}Z)_(\d+)hPa_f(\d{3})\.grib2?$"
-        )
-        pat_sfc = re.compile(
-            r"^ecmwf_(.+?)_(\d{8})_(latest|\d{2}Z)_f(\d{3})\.grib2?$"
-        )
+        pat_pl = re.compile(r"^ecmwf_(.+?)_(\d{8})_(latest|\d{2}Z)_(\d+)hPa_f(\d{3})\.grib2?$")
+        pat_sfc = re.compile(r"^ecmwf_(.+?)_(\d{8})_(latest|\d{2}Z)_f(\d{3})\.grib2?$")
 
         m_pl = pat_pl.match(fname)
         m_sfc = pat_sfc.match(fname)
 
         if not m_pl and not m_sfc:
             QMessageBox.warning(
-                self, "Nome de arquivo não reconhecido",
+                self,
+                "Nome de arquivo não reconhecido",
                 f"O arquivo '{fname}' não segue o padrão ECMWF do CartoMet:\n\n"
                 f"  ecmwf_{{param}}_{{YYYYMMDD}}_{{ciclo}}_f{{step}}.grib2\n"
                 f"  ecmwf_{{param}}_{{YYYYMMDD}}_{{ciclo}}_{{nível}}hPa_f{{step}}.grib2\n\n"
                 f"Renomeie o arquivo seguindo o padrão acima\n"
-                f"ou use dados baixados diretamente pelo CartoMet."
+                f"ou use dados baixados diretamente pelo CartoMet.",
             )
             return
 
@@ -3058,7 +3164,10 @@ class MainWindow(QMainWindow):
         if param_str == "msl":
             logger.info(
                 "Importando MSL como carta sinótica: date=%s cycle=%s step=%d dir=%s",
-                date_str, cycle_tag, step, data_dir,
+                date_str,
+                cycle_tag,
+                step,
+                data_dir,
             )
 
             data = load_synoptic_data(
@@ -3090,16 +3199,22 @@ class MainWindow(QMainWindow):
         if reg_key is None:
             available = ", ".join(sorted(grib_param_to_key.keys()))
             QMessageBox.warning(
-                self, "Variável não reconhecida",
+                self,
+                "Variável não reconhecida",
                 f"O parâmetro '{param_str}' extraído do nome do arquivo\n"
                 f"não corresponde a nenhuma variável suportada.\n\n"
-                f"Parâmetros reconhecidos: {available}"
+                f"Parâmetros reconhecidos: {available}",
             )
             return
 
         logger.info(
             "Importando campo: %s level=%s step=%d date=%s cycle=%s dir=%s",
-            reg_key, level, step, date_str, cycle_tag, data_dir,
+            reg_key,
+            level,
+            step,
+            date_str,
+            cycle_tag,
+            data_dir,
         )
 
         # Dispatch para a função de carga correta
@@ -3133,11 +3248,12 @@ class MainWindow(QMainWindow):
             # Variável em nível de pressão
             if level is None:
                 QMessageBox.warning(
-                    self, "Nível não identificado",
+                    self,
+                    "Nível não identificado",
                     f"A variável '{reg_key}' requer nível de pressão,\n"
                     f"mas o nome do arquivo não contém '{{nível}}hPa'.\n\n"
                     f"Padrão esperado:\n"
-                    f"  ecmwf_{param_str}_YYYYMMDD_ciclo_NNNhPa_fSSS.grib2"
+                    f"  ecmwf_{param_str}_YYYYMMDD_ciclo_NNNhPa_fSSS.grib2",
                 )
                 return
 
@@ -3176,9 +3292,7 @@ class MainWindow(QMainWindow):
 
         self.field_panel.add_layer_entry(layer_id, label, detail)
 
-        self.status_label.setText(
-            f"● Importado: {label}  |  {data.valid_time} UTC"
-        )
+        self.status_label.setText(f"● Importado: {label}  |  {data.valid_time} UTC")
         self.status_label.setStyleSheet("color: #27AE60;")
 
     def _import_netcdf(self, file_path: Path):
@@ -3246,8 +3360,7 @@ class MainWindow(QMainWindow):
             self.status_label.setStyleSheet("color: #27AE60;")
         else:
             QMessageBox.information(
-                self, "Sem dados",
-                f"Nenhuma variável 2D reconhecida em:\n{file_path.name}"
+                self, "Sem dados", f"Nenhuma variável 2D reconhecida em:\n{file_path.name}"
             )
 
     def _import_satellite_nc(self, ds, file_path: Path):
@@ -3331,7 +3444,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
 
-        m, g, y, r = CATEGORY_COLORS   # 0 Magenta, 1 Verde, 2 Amarelo, 3 Vermelho
+        m, g, y, r = CATEGORY_COLORS  # 0 Magenta, 1 Verde, 2 Amarelo, 3 Vermelho
         html = f"""
         <h2 style='color:#E67E22; margin-bottom:2px;'>Índice LOCZCIT-PA</h2>
         <p style='color:#BDC3C7; margin-top:0;'><i>Localização da ZCIT — Potencial Acoplado</i></p>
@@ -3392,7 +3505,8 @@ class MainWindow(QMainWindow):
             p = self._loczcit_methodology_path()
             if p is None:
                 QMessageBox.information(
-                    dlg, "Metodologia",
+                    dlg,
+                    "Metodologia",
                     "O documento da metodologia não foi encontrado nesta instalação.\n"
                     "Ele está disponível no repositório do CartoMet BR (docs/).",
                 )
@@ -3400,6 +3514,7 @@ class MainWindow(QMainWindow):
             # Renderiza o .md como HTML legível (equações + diagramas) e abre no navegador
             try:
                 from cartomet_br.gui.methodology import render_methodology_html
+
                 html_path = render_methodology_html(p)
                 QDesktopServices.openUrl(QUrl.fromLocalFile(str(html_path)))
             except Exception as exc:
@@ -3503,7 +3618,8 @@ class MainWindow(QMainWindow):
             p = self._blocking_methodology_path()
             if p is None:
                 QMessageBox.information(
-                    dlg, "Metodologia",
+                    dlg,
+                    "Metodologia",
                     "O documento da metodologia não foi encontrado nesta instalação.\n"
                     "Ele está disponível no repositório do CartoMet BR (docs/).",
                 )
@@ -3511,6 +3627,7 @@ class MainWindow(QMainWindow):
             # Renderiza o .md como HTML legível (equações) e abre no navegador
             try:
                 from cartomet_br.gui.methodology import render_methodology_html
+
                 html_path = render_methodology_html(p)
                 QDesktopServices.openUrl(QUrl.fromLocalFile(str(html_path)))
             except Exception as exc:
@@ -3541,7 +3658,14 @@ class MainWindow(QMainWindow):
         if logo_path and logo_path.exists():
             logo_label = QLabel()
             pixmap = QPixmap(str(logo_path))
-            logo_label.setPixmap(pixmap.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            logo_label.setPixmap(
+                pixmap.scaled(
+                    120,
+                    120,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
             logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(logo_label)
 
@@ -3591,6 +3715,7 @@ class MainWindow(QMainWindow):
 # ═══════════════════════════════════════════════════════════════════════════════
 #  FUNÇÃO PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def run_gui():
     """Inicia a aplicação GUI."""

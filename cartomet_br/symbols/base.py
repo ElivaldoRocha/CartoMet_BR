@@ -17,6 +17,7 @@ from matplotlib.transforms import IdentityTransform
 #  CLASSE BASE PARA FRENTES
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class _FrenteBase(pe.AbstractPathEffect):
     """
     Classe-base para path effects meteorológicos.
@@ -49,7 +50,7 @@ class _FrenteBase(pe.AbstractPathEffect):
     def _path_geometry(verts: np.ndarray):
         """
         Calcula geometria do path: tangentes, normais, distâncias.
-        
+
         Retorna
         -------
         tx, ty : np.ndarray
@@ -81,7 +82,7 @@ class _FrenteBase(pe.AbstractPathEffect):
     def _interp_at(verts: np.ndarray, cum_dist: np.ndarray, pos: float):
         """
         Interpola posição ao longo do path.
-        
+
         Retorna
         -------
         pt : np.ndarray
@@ -89,10 +90,13 @@ class _FrenteBase(pe.AbstractPathEffect):
         i : int
             Índice do segmento
         """
-        i = int(np.clip(
-            np.searchsorted(cum_dist, pos, side="right") - 1,
-            0, len(verts) - 2,
-        ))
+        i = int(
+            np.clip(
+                np.searchsorted(cum_dist, pos, side="right") - 1,
+                0,
+                len(verts) - 2,
+            )
+        )
         seg = cum_dist[i + 1] - cum_dist[i]
         frac = (pos - cum_dist[i]) / max(seg, 1e-10)
         pt = verts[i] + frac * (verts[i + 1] - verts[i])
@@ -165,17 +169,18 @@ class _FrenteBase(pe.AbstractPathEffect):
 #  FUNÇÕES PARA CRIAR FORMAS GEOMÉTRICAS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 def make_triangle(size: float, direction: int = 1) -> tuple[np.ndarray, list]:
     """
     Cria um triângulo equilátero.
-    
+
     Parâmetros
     ----------
     size : float
         Tamanho do triângulo
     direction : int
         1 = aponta para cima, -1 = aponta para baixo
-        
+
     Retorna
     -------
     verts : np.ndarray
@@ -193,7 +198,7 @@ def make_triangle(size: float, direction: int = 1) -> tuple[np.ndarray, list]:
 def make_semicircle(size: float, n_pts: int = 18, direction: int = 1) -> tuple[np.ndarray, list]:
     """
     Cria um semicírculo.
-    
+
     Parâmetros
     ----------
     size : float
@@ -202,7 +207,7 @@ def make_semicircle(size: float, n_pts: int = 18, direction: int = 1) -> tuple[n
         Número de pontos para aproximação
     direction : int
         1 = abre para cima, -1 = abre para baixo
-        
+
     Retorna
     -------
     verts : np.ndarray
@@ -223,14 +228,14 @@ def make_semicircle(size: float, n_pts: int = 18, direction: int = 1) -> tuple[n
 def make_circle(radius: float, n_pts: int = 20) -> tuple[np.ndarray, list]:
     """
     Cria um círculo completo.
-    
+
     Parâmetros
     ----------
     radius : float
         Raio do círculo
     n_pts : int
         Número de pontos para aproximação
-        
+
     Retorna
     -------
     verts : np.ndarray
@@ -275,6 +280,7 @@ def make_arrowhead(size: float) -> tuple[np.ndarray, list]:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  FUNÇÕES PARA DESENHAR FORMAS
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def draw_filled(
     renderer,

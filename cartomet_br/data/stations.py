@@ -38,13 +38,13 @@ STATION_COLUMNS: list[str] = [
     "station_id",
     "latitude",
     "longitude",
-    "air_temperature",            # °C
-    "dew_point_temperature",      # °C
+    "air_temperature",  # °C
+    "dew_point_temperature",  # °C
     "air_pressure_at_sea_level",  # hPa
-    "eastward_wind",              # m/s (componente u)
-    "northward_wind",             # m/s (componente v)
-    "cloud_coverage",             # oktas (0–8)
-    "current_wx1_symbol",         # código WMO de tempo presente (int)
+    "eastward_wind",  # m/s (componente u)
+    "northward_wind",  # m/s (componente v)
+    "cloud_coverage",  # oktas (0–8)
+    "current_wx1_symbol",  # código WMO de tempo presente (int)
 ]
 
 # Atribuição para a legenda da carta
@@ -63,8 +63,16 @@ _WMO_STATION_LIST_URLS = [
 
 # Conversão de cobertura de nuvens METAR → oktas
 _CLOUD_OKTAS = {
-    "SKC": 0, "NSC": 0, "NCD": 0, "CLR": 0, "CAVOK": 0,
-    "FEW": 2, "SCT": 4, "BKN": 6, "OVC": 8, "VV": 8,
+    "SKC": 0,
+    "NSC": 0,
+    "NCD": 0,
+    "CLR": 0,
+    "CAVOK": 0,
+    "FEW": 2,
+    "SCT": 4,
+    "BKN": 6,
+    "OVC": 8,
+    "VV": 8,
 }
 
 _KT_TO_MS = 0.514444
@@ -73,6 +81,7 @@ _KT_TO_MS = 0.514444
 # ═══════════════════════════════════════════════════════════════════════════════
 #  NORMALIZAÇÃO (pura, testável — sem rede)
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def empty_stations_df() -> pd.DataFrame:
     """DataFrame vazio com as colunas canônicas."""
@@ -135,8 +144,10 @@ def _filter_extent(df: pd.DataFrame, extent: list[float]) -> pd.DataFrame:
         return df
     lon_min, lat_min, lon_max, lat_max = extent
     mask = (
-        (df["longitude"] >= lon_min) & (df["longitude"] <= lon_max)
-        & (df["latitude"] >= lat_min) & (df["latitude"] <= lat_max)
+        (df["longitude"] >= lon_min)
+        & (df["longitude"] <= lon_max)
+        & (df["latitude"] >= lat_min)
+        & (df["latitude"] <= lat_max)
     )
     return df[mask].reset_index(drop=True)
 
@@ -144,6 +155,7 @@ def _filter_extent(df: pd.DataFrame, extent: list[float]) -> pd.DataFrame:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  METAR — NOAA Aviation Weather Center
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def _metar_record_from_json(obj: dict) -> dict:
     """Mapeia um objeto JSON do AWC para um registro canônico."""
@@ -176,6 +188,7 @@ def _metar_record_from_json(obj: dict) -> dict:
     if wx_str:
         try:
             from metpy.plots.wx_symbols import wx_code_to_numeric
+
             codes = wx_code_to_numeric([wx_str])
             if len(codes):
                 wx_symbol = float(codes[0])
@@ -270,6 +283,7 @@ def _metar_payload_to_df(payload: object, extent: list[float]) -> pd.DataFrame:
 #  SYNOP — OGIMET + tabela de coordenadas WMO (nsd_bbsss)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 def _parse_dms_coord(token: str) -> float | None:
     """Converte 'DD-MM-SSH' ou 'DD-MMH' (nsd_bbsss) em grau decimal sinalizado."""
     token = token.strip()
@@ -302,6 +316,7 @@ def _load_wmo_coords(data_dir: Path | None, timeout: int = 60) -> dict[str, tupl
 
     if text is None:
         import requests
+
         last_err: Exception | None = None
         for url in _WMO_STATION_LIST_URLS:
             try:
@@ -334,8 +349,9 @@ def _load_wmo_coords(data_dir: Path | None, timeout: int = 60) -> dict[str, tupl
     return coords
 
 
-def _synop_record_from_decoded(decoded: dict, station_id: str,
-                               coords: dict[str, tuple[float, float]]) -> dict | None:
+def _synop_record_from_decoded(
+    decoded: dict, station_id: str, coords: dict[str, tuple[float, float]]
+) -> dict | None:
     """Constrói um registro canônico a partir de um SYNOP decodificado (pymetdecoder)."""
     latlon = coords.get(station_id)
     if latlon is None:
@@ -427,7 +443,8 @@ def fetch_synop(
     # Conjunto de estações dentro do extent (pré-filtro antes de decodificar)
     lon_min, lat_min, lon_max, lat_max = extent
     in_extent = {
-        sid for sid, (la, lo) in coords.items()
+        sid
+        for sid, (la, lo) in coords.items()
         if lon_min <= lo <= lon_max and lat_min <= la <= lat_max
     }
 
@@ -494,8 +511,10 @@ def fetch_synop(
 #  CACHE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _cache_path(data_dir: Path | None, source: str, extent: list[float],
-                when: datetime | None) -> Path | None:
+
+def _cache_path(
+    data_dir: Path | None, source: str, extent: list[float], when: datetime | None
+) -> Path | None:
     if data_dir is None:
         return None
     tag = when.strftime("%Y%m%d%H") if when else "latest"

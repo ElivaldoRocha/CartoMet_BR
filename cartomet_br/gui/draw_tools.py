@@ -46,15 +46,16 @@ _LINESTYLES: dict[str, str] = {"solid": "-", "dashed": "--", "dotted": ":"}
 #  ESTILO
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class DrawStyle:
     """Estilo de um traço de caneta ou de uma forma (dados puros)."""
 
     edge_color: str = "#E74C3C"
-    fill_color: str | None = None      # None = sem preenchimento
+    fill_color: str | None = None  # None = sem preenchimento
     linewidth: float = 2.0
-    linestyle: str = "solid"           # "solid" | "dashed" | "dotted"
-    alpha: float = 1.0                 # 0.1–1.0 (contorno e fill compartilham)
+    linestyle: str = "solid"  # "solid" | "dashed" | "dotted"
+    alpha: float = 1.0  # 0.1–1.0 (contorno e fill compartilham)
 
     def mpl_linestyle(self) -> str:
         return _LINESTYLES.get(self.linestyle, "-")
@@ -141,8 +142,8 @@ class PenCommand:
 
     points_x: list[float]
     points_y: list[float]
-    style: dict                                  # DrawStyle.to_dict()
-    pressures: list[float] | None = None         # v1 sempre None; gancho p/ pressão
+    style: dict  # DrawStyle.to_dict()
+    pressures: list[float] | None = None  # v1 sempre None; gancho p/ pressão
     artist: object = field(default=None, repr=False)
 
 
@@ -154,13 +155,14 @@ class ShapeCommand:
     points_x: list[float]
     points_y: list[float]
     style: dict
-    head_size_deg: float = 0.0    # escala da ponta da seta congelada no finalize
+    head_size_deg: float = 0.0  # escala da ponta da seta congelada no finalize
     artist: object = field(default=None, repr=False)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  GEOMETRIA (fonte única: preview, finalize e redo usam os MESMOS construtores)
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def build_rectangle_ring(x0: float, y0: float, x1: float, y1: float):
     """Anel fechado de 5 pontos do retângulo definido pela diagonal (x0,y0)-(x1,y1)."""
@@ -180,12 +182,11 @@ def build_ellipse_ring(x0: float, y0: float, x1: float, y1: float, n: int = 120)
     t = np.linspace(0.0, 2.0 * np.pi, n)
     xs = (cx + rx * np.cos(t)).tolist()
     ys = (cy + ry * np.sin(t)).tolist()
-    xs[-1], ys[-1] = xs[0], ys[0]                  # fechamento exato
+    xs[-1], ys[-1] = xs[0], ys[0]  # fechamento exato
     return xs, ys
 
 
-def build_arrow_geometry(x0: float, y0: float, x1: float, y1: float,
-                         head_size_deg: float):
+def build_arrow_geometry(x0: float, y0: float, x1: float, y1: float, head_size_deg: float):
     """Haste + triângulo da ponta da seta (3 vértices), em coords de dados.
 
     O GeoAxes PlateCarree tem aspecto igual em graus, então o ângulo em dados
@@ -193,11 +194,9 @@ def build_arrow_geometry(x0: float, y0: float, x1: float, y1: float,
     onde head_verts é a lista fechada [(x,y), ...] do triângulo.
     """
     ang = math.atan2(y1 - y0, x1 - x0)
-    half = math.radians(25.0)                      # meia-abertura da ponta
-    base1 = (x1 - head_size_deg * math.cos(ang - half),
-             y1 - head_size_deg * math.sin(ang - half))
-    base2 = (x1 - head_size_deg * math.cos(ang + half),
-             y1 - head_size_deg * math.sin(ang + half))
+    half = math.radians(25.0)  # meia-abertura da ponta
+    base1 = (x1 - head_size_deg * math.cos(ang - half), y1 - head_size_deg * math.sin(ang - half))
+    base2 = (x1 - head_size_deg * math.cos(ang + half), y1 - head_size_deg * math.sin(ang + half))
     # Haste termina na base da ponta (não fura o triângulo)
     bx = x1 - head_size_deg * 0.8 * math.cos(ang)
     by = y1 - head_size_deg * 0.8 * math.sin(ang)
@@ -226,6 +225,7 @@ def default_arrow_head_size(extent_width_deg: float, linewidth: float) -> float:
 #  ARTISTAS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class ShapeArtistGroup:
     """Agrupa os artistas de uma forma (contorno + fill + ponta de seta).
 
@@ -249,13 +249,18 @@ class ShapeArtistGroup:
                 art.set_visible(visible)
 
 
-def _polygonal_fill_patch(ax, xs: list[float], ys: list[float], fill_color: str,
-                          alpha: float, transform=None) -> PathPatch:
+def _polygonal_fill_patch(
+    ax, xs: list[float], ys: list[float], fill_color: str, alpha: float, transform=None
+) -> PathPatch:
     """PathPatch de preenchimento com códigos SÓ poligonais (doutrina validada)."""
     verts = list(zip(xs, ys, strict=True))
     codes = [MplPath.MOVETO] + [MplPath.LINETO] * (len(verts) - 2) + [MplPath.CLOSEPOLY]
-    kwargs = {"facecolor": fill_color, "edgecolor": "none", "alpha": alpha,
-                  "zorder": SHAPE_FILL_ZORDER}
+    kwargs = {
+        "facecolor": fill_color,
+        "edgecolor": "none",
+        "alpha": alpha,
+        "zorder": SHAPE_FILL_ZORDER,
+    }
     if transform is not None:
         kwargs["transform"] = transform
     patch = PathPatch(MplPath(verts, codes), **kwargs)
@@ -263,22 +268,34 @@ def _polygonal_fill_patch(ax, xs: list[float], ys: list[float], fill_color: str,
     return patch
 
 
-def create_pen_artist(ax, points_x: list[float], points_y: list[float],
-                      style: DrawStyle, transform=None):
+def create_pen_artist(
+    ax, points_x: list[float], points_y: list[float], style: DrawStyle, transform=None
+):
     """Cria o Line2D final de um traço de caneta (cantos arredondados)."""
     kwargs = {
-        "color": style.edge_color, "linewidth": style.linewidth,
-        "linestyle": style.mpl_linestyle(), "alpha": style.alpha,
-        "solid_capstyle": "round", "solid_joinstyle": "round", "zorder": PEN_ZORDER,
+        "color": style.edge_color,
+        "linewidth": style.linewidth,
+        "linestyle": style.mpl_linestyle(),
+        "alpha": style.alpha,
+        "solid_capstyle": "round",
+        "solid_joinstyle": "round",
+        "zorder": PEN_ZORDER,
     }
     if transform is not None:
         kwargs["transform"] = transform
-    line, = ax.plot(points_x, points_y, **kwargs)
+    (line,) = ax.plot(points_x, points_y, **kwargs)
     return line
 
 
-def create_shape_artist(ax, tool: str, points_x: list[float], points_y: list[float],
-                        style: DrawStyle, head_size_deg: float = 0.0, transform=None):
+def create_shape_artist(
+    ax,
+    tool: str,
+    points_x: list[float],
+    points_y: list[float],
+    style: DrawStyle,
+    head_size_deg: float = 0.0,
+    transform=None,
+):
     """Cria o(s) artista(s) finais de uma forma. Fonte única p/ finalize E redo.
 
     rect/ellipse/line/arrow: points = [x0, x1] / [y0, y1] (diagonal ou extremos).
@@ -286,43 +303,47 @@ def create_shape_artist(ax, tool: str, points_x: list[float], points_y: list[flo
     Retorna Line2D (forma simples sem fill) ou ShapeArtistGroup (composta).
     """
     line_kwargs = {
-        "color": style.edge_color, "linewidth": style.linewidth,
-        "linestyle": style.mpl_linestyle(), "alpha": style.alpha,
-        "solid_capstyle": "round", "zorder": SHAPE_OUTLINE_ZORDER,
+        "color": style.edge_color,
+        "linewidth": style.linewidth,
+        "linestyle": style.mpl_linestyle(),
+        "alpha": style.alpha,
+        "solid_capstyle": "round",
+        "zorder": SHAPE_OUTLINE_ZORDER,
     }
     if transform is not None:
         line_kwargs["transform"] = transform
 
     if tool == "line":
-        line, = ax.plot(points_x, points_y, **line_kwargs)
+        (line,) = ax.plot(points_x, points_y, **line_kwargs)
         return line
 
     if tool == "arrow":
         x0, y0, x1, y1 = points_x[0], points_y[0], points_x[-1], points_y[-1]
-        shaft_xs, shaft_ys, head_verts = build_arrow_geometry(
-            x0, y0, x1, y1, head_size_deg)
-        shaft, = ax.plot(shaft_xs, shaft_ys, **line_kwargs)
+        shaft_xs, shaft_ys, head_verts = build_arrow_geometry(x0, y0, x1, y1, head_size_deg)
+        (shaft,) = ax.plot(shaft_xs, shaft_ys, **line_kwargs)
         head = _polygonal_fill_patch(
-            ax, [v[0] for v in head_verts], [v[1] for v in head_verts],
-            fill_color=style.edge_color, alpha=style.alpha, transform=transform)
+            ax,
+            [v[0] for v in head_verts],
+            [v[1] for v in head_verts],
+            fill_color=style.edge_color,
+            alpha=style.alpha,
+            transform=transform,
+        )
         head.set_zorder(SHAPE_OUTLINE_ZORDER)
         return ShapeArtistGroup([shaft, head])
 
     if tool == "rect":
-        xs, ys = build_rectangle_ring(points_x[0], points_y[0],
-                                      points_x[-1], points_y[-1])
+        xs, ys = build_rectangle_ring(points_x[0], points_y[0], points_x[-1], points_y[-1])
     elif tool == "ellipse":
-        xs, ys = build_ellipse_ring(points_x[0], points_y[0],
-                                    points_x[-1], points_y[-1])
+        xs, ys = build_ellipse_ring(points_x[0], points_y[0], points_x[-1], points_y[-1])
     elif tool == "polygon":
         xs, ys = close_polygon_ring(points_x, points_y)
     else:
         raise ValueError(f"Ferramenta de forma desconhecida: {tool!r}")
 
-    outline, = ax.plot(xs, ys, **line_kwargs)
+    (outline,) = ax.plot(xs, ys, **line_kwargs)
     if style.fill_color:
-        fill = _polygonal_fill_patch(ax, xs, ys, style.fill_color,
-                                     style.alpha, transform=transform)
+        fill = _polygonal_fill_patch(ax, xs, ys, style.fill_color, style.alpha, transform=transform)
         return ShapeArtistGroup([outline, fill])
     return outline
 

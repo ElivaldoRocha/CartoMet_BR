@@ -25,7 +25,7 @@ EXTENT_SUL: list[float] = [-60.0, -35.0, -45.0, -20.0]
 
 def _get_default_data_dir() -> Path:
     """Retorna diretório de dados (usa variável de ambiente se disponível)."""
-    env_dir = os.environ.get('CARTOMET_DATA_DIR')
+    env_dir = os.environ.get("CARTOMET_DATA_DIR")
     if env_dir:
         return Path(env_dir)
     return Path("data")
@@ -33,7 +33,7 @@ def _get_default_data_dir() -> Path:
 
 def _get_default_output_dir() -> Path:
     """Retorna diretório de saída (usa variável de ambiente se disponível)."""
-    env_dir = os.environ.get('CARTOMET_OUTPUT_DIR')
+    env_dir = os.environ.get("CARTOMET_OUTPUT_DIR")
     if env_dir:
         return Path(env_dir)
     return Path("output")
@@ -42,6 +42,7 @@ def _get_default_output_dir() -> Path:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  VALIDAÇÃO
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def validate_extent(extent: list[float]) -> None:
     """
@@ -54,8 +55,7 @@ def validate_extent(extent: list[float]) -> None:
     """
     if not isinstance(extent, (list, tuple)) or len(extent) != 4:
         raise ValueError(
-            f"extent deve ter 4 elementos [lon_min, lat_min, lon_max, lat_max], "
-            f"recebeu: {extent}"
+            f"extent deve ter 4 elementos [lon_min, lat_min, lon_max, lat_max], recebeu: {extent}"
         )
 
     lon_min, lat_min, lon_max, lat_max = extent
@@ -77,11 +77,12 @@ def validate_extent(extent: list[float]) -> None:
 #  CLASSE DE CONFIGURAÇÃO
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class Config:
     """
     Configuração centralizada do CartoMet_BR.
-    
+
     Exemplo de uso:
     >>> config = Config(extent=EXTENT_BRASIL, dpi=200)
     >>> config.output_dir.mkdir(exist_ok=True)
@@ -185,7 +186,11 @@ class Config:
     # Subpastas que contêm dados baixados/cache (limpáveis com segurança).
     # NÃO inclui 'cartas/', que guarda o trabalho do usuário.
     CACHE_SUBDIRS: ClassVar[tuple[str, ...]] = (
-        "grib", "satelite", "tsm", "observacoes", "climatologia",
+        "grib",
+        "satelite",
+        "tsm",
+        "observacoes",
+        "climatologia",
     )
 
     @classmethod
@@ -209,28 +214,23 @@ COLORS: dict[str, str] = {
     "pnmm_contour": "#1A1A1A",
     "high_pressure": "#0066CC",
     "low_pressure": "#CC0000",
-
     # Espessura
     "thickness_warm": "#B2182B",
     "thickness_cold": "#2166AC",
     "thickness_5400": "#0571B0",
-
     # Frentes
     "cold_front": "#1a6faf",
     "warm_front": "#c0392b",
     "stationary_front": "#6a0dad",
     "occluded_front": "#8e44ad",
-
     # Zonas de convergência
     "zcas": "#008000",
     "zcit": "darkorange",
-
     # Outros
     "trough": "saddlebrown",
     "ridge": "#005500",
     "instability_line": "#8B0000",
     "dryline": "#b5651d",
-
     # Mapa base
     "ocean": "#E6F3FF",
     "land": "#F5F5F5",

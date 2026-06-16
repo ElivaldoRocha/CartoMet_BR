@@ -34,8 +34,7 @@ class CrossSectionPanel(AnalysisDock):
     """Dock direito com o corte vertical (pressão log invertida × distância)."""
 
     def __init__(self, title: str = "Corte Vertical (A→B)", parent=None) -> None:
-        super().__init__(title, parent, min_width=520, figsize=(7.6, 6.2),
-                         placeholder=_PLACEHOLDER)
+        super().__init__(title, parent, min_width=520, figsize=(7.6, 6.2), placeholder=_PLACEHOLDER)
 
     def render(self, xs) -> None:
         try:
@@ -64,8 +63,7 @@ class CrossSectionPanel(AnalysisDock):
         if not np.isfinite(wmax) or wmax <= 0:
             wmax = 1.0
         levels_w = np.linspace(-wmax, wmax, 21)
-        cf = ax.contourf(grid_d, grid_p, xs.w, levels=levels_w, cmap="RdBu_r",
-                         extend="both")
+        cf = ax.contourf(grid_d, grid_p, xs.w, levels=levels_w, cmap="RdBu_r", extend="both")
         cbar = self.fig.colorbar(cf, ax=ax, pad=0.02, fraction=0.046)
         cbar.set_label("ω (Pa/s) — azul: ascendência", fontsize=8)
         cbar.ax.tick_params(labelsize=7)
@@ -77,27 +75,35 @@ class CrossSectionPanel(AnalysisDock):
 
         # Umidade específica (g/kg) — contornos verdes tracejados.
         with contextlib.suppress(Exception):
-            csq = ax.contour(grid_d, grid_p, xs.q, colors="#117A65", linewidths=0.7,
-                             linestyles="--", levels=6)
+            csq = ax.contour(
+                grid_d, grid_p, xs.q, colors="#117A65", linewidths=0.7, linestyles="--", levels=6
+            )
             ax.clabel(csq, inline=True, fontsize=6, fmt="%d")
 
         # Barbelas de vento ao longo do corte (subamostradas).
         with contextlib.suppress(Exception):
             si = max(p.size // 13, 1)
             sj = max(d.size // 12, 1)
-            ax.barbs(grid_d[::si, ::sj], grid_p[::si, ::sj],
-                     xs.u[::si, ::sj], xs.v[::si, ::sj], length=5, linewidth=0.5)
+            ax.barbs(
+                grid_d[::si, ::sj],
+                grid_p[::si, ::sj],
+                xs.u[::si, ::sj],
+                xs.v[::si, ::sj],
+                length=5,
+                linewidth=0.5,
+            )
 
         ax.set_yscale("log")
-        ax.set_ylim(p.max(), p.min())   # 1000 hPa embaixo, topo em cima
+        ax.set_ylim(p.max(), p.min())  # 1000 hPa embaixo, topo em cima
         ax.set_yticks(_PLEVELS)
         ax.set_yticklabels([str(v) for v in _PLEVELS])
         ax.set_ylabel("Pressão (hPa)", fontsize=9)
         ax.set_xlabel("Distância ao longo do corte (km)", fontsize=9)
         ax.tick_params(labelsize=8)
 
-        title = (f"Corte A({xs.lats[0]:.1f},{xs.lons[0]:.1f}) → "
-                 f"B({xs.lats[-1]:.1f},{xs.lons[-1]:.1f})")
+        title = (
+            f"Corte A({xs.lats[0]:.1f},{xs.lons[0]:.1f}) → B({xs.lats[-1]:.1f},{xs.lons[-1]:.1f})"
+        )
         if xs.base_time:
             title += f"   •   {xs.base_time}  (+{xs.step}h)"
         self.fig.suptitle(title, fontsize=10, fontweight="bold")

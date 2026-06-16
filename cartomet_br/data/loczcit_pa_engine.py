@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # Blindagem #1 — máscara oceânica por LIMIAR (não `== 0`). Calibrável; valida sobre
 # Marajó: baixo demais reabre o buraco costeiro, alto demais contamina o ∇TSM com
 # temperatura de solo. A borda mar-terra é onde a forçante térmica nasce.
-OCEAN_MASK_THRESHOLD: float = 0.2          # mantém pixels com lsm <= 0.2 (oceano)
+OCEAN_MASK_THRESHOLD: float = 0.2  # mantém pixels com lsm <= 0.2 (oceano)
 
 # Mitigação da Camada Quente Diurna (DWL) da skt (revisões científicas N1/N2): a
 # skin temperature carrega ruído diurno espacialmente variável que polui o ∇TSM.
@@ -57,16 +57,16 @@ EPS: float = 1e-6
 
 # Blindagem #5 — "derivar largo, normalizar e filtrar estrito".
 # Domínio FIXO do índice (a régua calibrada do IQR), formato [lon_min, lat_min, lon_max, lat_max].
-STRICT_EXTENT: list[float] = [-55.0, -15.0, 15.0, 15.0]   # 15°S–15°N, 55°W–15°E
-BUFFER_DEG: float = 2.0                                    # folga p/ diferenças finitas
-BUFFER_EXTENT: list[float] = [-57.0, -17.0, 17.0, 17.0]   # 17°S–17°N (derivar largo)
+STRICT_EXTENT: list[float] = [-55.0, -15.0, 15.0, 15.0]  # 15°S–15°N, 55°W–15°E
+BUFFER_DEG: float = 2.0  # folga p/ diferenças finitas
+BUFFER_EXTENT: list[float] = [-57.0, -17.0, 17.0, 17.0]  # 17°S–17°N (derivar largo)
 
 # Blindagem #3 — desacumulação DINÂMICA da OLR (Técnica B; sem steps hardcoded).
 # A regra de tempo e suas constantes (rodada-base 12 h antes, janelas curta/longa,
 # snapping anti-404) são a FONTE ÚNICA em `olr_timing.py`; o motor delega via
 # `resolve_olr_window`. Aqui só derivamos o Δt da janela curta p/ compat. de teste.
 # Compat.: para a análise (step=0) → target=12, previous=9, Δt=10800 s.
-OLR_WINDOW_SECONDS: float = OLR_WINDOW_SHORT_H * 3600.0   # 10800 s (janela 3 h; step≤144)
+OLR_WINDOW_SECONDS: float = OLR_WINDOW_SHORT_H * 3600.0  # 10800 s (janela 3 h; step≤144)
 
 # Seção 5 — filtro espacial IQR de Tukey.
 IQR_CONSTANT: float = 1.5
@@ -85,20 +85,20 @@ OLR_THRESHOLD_WEAK: float = 240.0
 # C_THR calibrado (calibrate_cthr.py, pesquisa ZCIT_AXIS) — convergência ORGANIZADA,
 # não o fundo fraco dos alísios. Faixa segura 2e-5..5e-5. MIN_CLUSTER remove núcleos
 # isolados (coerência morfológica), em pixels de grade.
-C_THR: float = 3.0e-5                       # s⁻¹
-MIN_CLUSTER_PIXELS: int = 80               # área mínima de aglomerado coerente
+C_THR: float = 3.0e-5  # s⁻¹
+MIN_CLUSTER_PIXELS: int = 80  # área mínima de aglomerado coerente
 
 # Envelope climatológico de latitude da ZCIT atlântica (migração sazonal sinusoidal):
 #   φ_c(doy) = ITCZ_PHI_MEAN + ITCZ_AMP·cos(2π(doy − ITCZ_DOY_PEAK)/365.25)
 # Trava física que rejeita convecção subtropical transiente (VCAN/DOL) fora da faixa
 # φ_c ± ITCZ_LAT_HALFWIDTH. Refs.: Waliser & Gautier (1993); Nobre & Shukla (1996).
-ITCZ_PHI_MEAN: float = 5.0                  # °N — latitude média anual do eixo
-ITCZ_AMP: float = 4.5                       # ° — amplitude da migração sazonal
-ITCZ_DOY_PEAK: int = 245                    # dia do ano da posição mais ao norte (~2 set)
-ITCZ_LAT_HALFWIDTH: float = 7.5             # ° — meia-largura do envelope
+ITCZ_PHI_MEAN: float = 5.0  # °N — latitude média anual do eixo
+ITCZ_AMP: float = 4.5  # ° — amplitude da migração sazonal
+ITCZ_DOY_PEAK: int = 245  # dia do ano da posição mais ao norte (~2 set)
+ITCZ_LAT_HALFWIDTH: float = 7.5  # ° — meia-largura do envelope
 
 # Códigos de categoria do raster (Seção 6).
-CAT_CINEMATICA: int = 0     # banda sustentada só por convergência (OLR>240); magenta
+CAT_CINEMATICA: int = 0  # banda sustentada só por convergência (OLR>240); magenta
 CAT_FRACA: int = 1
 CAT_MODERADA: int = 2
 CAT_FORTE: int = 3
@@ -106,7 +106,10 @@ CAT_FORTE: int = 3
 # Blindagem #7 — render categórico (0 Magenta, 1 Verde, 2 Amarelo, 3 Vermelho escuro).
 CATEGORY_COLORS: list[str] = ["#FF00FF", "#2E8B57", "#FFD700", "#8B0000"]
 CATEGORY_LABELS: dict[int, str] = {
-    0: "Cinemática", 1: "Fraca", 2: "Moderada", 3: "Forte",
+    0: "Cinemática",
+    1: "Fraca",
+    2: "Moderada",
+    3: "Forte",
 }
 
 
@@ -114,16 +117,17 @@ CATEGORY_LABELS: dict[int, str] = {
 #  RESULTADO
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class LoczcitResult:
     """Saída do motor LOCZCIT-PA — raster categórico + índice contínuo."""
 
-    raster: np.ndarray          # 2D: categorias {0, 1, 2, 3} ou NaN
-    lons: np.ndarray            # 1D (domínio estrito)
-    lats: np.ndarray            # 1D (domínio estrito)
+    raster: np.ndarray  # 2D: categorias {0, 1, 2, 3} ou NaN
+    lons: np.ndarray  # 1D (domínio estrito)
+    lats: np.ndarray  # 1D (domínio estrito)
     index: np.ndarray | None = None  # I_ZCIT contínuo [0,1] (potencial acoplado)
-    valid_time: str = ""        # instante alvo (análise)
-    base_time: str = ""         # rodada-base da OLR desacumulada
+    valid_time: str = ""  # instante alvo (análise)
+    base_time: str = ""  # rodada-base da OLR desacumulada
     axis: object | None = None  # ZcitAxisDual (overlay opcional do eixo) — None se indisponível
     meta: dict = field(default_factory=dict)
 
@@ -144,19 +148,20 @@ plan_olr_deaccumulation = resolve_olr_window
 #  F1 — AQUISIÇÃO DAS FORÇANTES (leitura no domínio BUFFER; cache-antes-da-rede)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class InputBundle:
     """Tensores brutos lidos no domínio buffer (17°S–17°N), prontos p/ derivar."""
 
-    skt: np.ndarray             # Temperatura de pele (°C) — bruta (mascarar no ∇TSM)
-    lsm: np.ndarray             # Máscara terra-mar (fração 0–1)
-    u10: np.ndarray             # Vento zonal 10 m (m/s)
-    v10: np.ndarray             # Vento meridional 10 m (m/s)
-    ttr_hi: np.ndarray          # ttr acumulado no step alto (J/m²)
-    ttr_lo: np.ndarray          # ttr acumulado no step baixo (J/m²)
-    lons: np.ndarray            # 1D (buffer)
-    lats: np.ndarray            # 1D (buffer)
-    window_seconds: float = OLR_WINDOW_SECONDS   # Δt da desacumulação (dinâmico)
+    skt: np.ndarray  # Temperatura de pele (°C) — bruta (mascarar no ∇TSM)
+    lsm: np.ndarray  # Máscara terra-mar (fração 0–1)
+    u10: np.ndarray  # Vento zonal 10 m (m/s)
+    v10: np.ndarray  # Vento meridional 10 m (m/s)
+    ttr_hi: np.ndarray  # ttr acumulado no step alto (J/m²)
+    ttr_lo: np.ndarray  # ttr acumulado no step baixo (J/m²)
+    lons: np.ndarray  # 1D (buffer)
+    lats: np.ndarray  # 1D (buffer)
+    window_seconds: float = OLR_WINDOW_SECONDS  # Δt da desacumulação (dinâmico)
     valid_time: str = ""
     base_time: str = ""
 
@@ -224,10 +229,17 @@ def _fetch_inputs(
         _guard()
         try:
             f = download_ecmwf(
-                variables=[param], levels=None, step=s, cycle=cycle, levtype="sfc",
+                variables=[param],
+                levels=None,
+                step=s,
+                cycle=cycle,
+                levtype="sfc",
                 date=cycle_date,
-                output_path=data_dir / f"loczcit_{shortname}_{cycle_date}_{cycle:02d}Z_f{s:03d}.grib2",
-                data_dir=data_dir, source=source, force_download=force_download,
+                output_path=data_dir
+                / f"loczcit_{shortname}_{cycle_date}_{cycle:02d}Z_f{s:03d}.grib2",
+                data_dir=data_dir,
+                source=source,
+                force_download=force_download,
             )
         except FileNotFoundError as e:
             raise LoczcitDataError(
@@ -246,7 +258,7 @@ def _fetch_inputs(
     u_da, ds_u = _dl("10u", "u10", step)
     v_da, ds_v = _dl("10v", "v10", step)
 
-    skt_c = np.asarray(skt_da.values) - 273.15   # K → °C
+    skt_c = np.asarray(skt_da.values) - 273.15  # K → °C
     lsm = np.asarray(lsm_da.values)
     u10 = np.asarray(u_da.values)
     v10 = np.asarray(v_da.values)
@@ -264,17 +276,26 @@ def _fetch_inputs(
 
     # ── OLR desacumulada (Técnica B DINÂMICA): ttr da rodada-base madura ──
     plan = resolve_olr_window(cycle, cycle_date, step)
-    _emit(f"LOCZCIT-PA: baixando OLR madura (rodada {plan.base_cycle:02d}Z, steps "
-          f"{plan.step_hi}−{plan.step_lo})...")
+    _emit(
+        f"LOCZCIT-PA: baixando OLR madura (rodada {plan.base_cycle:02d}Z, steps "
+        f"{plan.step_hi}−{plan.step_lo})..."
+    )
 
     def _ttr(s: int) -> np.ndarray:
         _guard()
         try:
             f = download_ecmwf(
-                variables=["ttr"], levels=None, step=s, cycle=plan.base_cycle, levtype="sfc",
+                variables=["ttr"],
+                levels=None,
+                step=s,
+                cycle=plan.base_cycle,
+                levtype="sfc",
                 date=plan.base_date,
-                output_path=data_dir / f"loczcit_ttr_{plan.base_date}_{plan.base_cycle:02d}Z_f{s:03d}.grib2",
-                data_dir=data_dir, source=source, force_download=force_download,
+                output_path=data_dir
+                / f"loczcit_ttr_{plan.base_date}_{plan.base_cycle:02d}Z_f{s:03d}.grib2",
+                data_dir=data_dir,
+                source=source,
+                force_download=force_download,
             )
         except FileNotFoundError as e:
             raise LoczcitDataError(
@@ -291,12 +312,22 @@ def _fetch_inputs(
     ttr_hi = _ttr(plan.step_hi)
     ttr_lo = _ttr(plan.step_lo)
 
-    base_time = f"{plan.base_cycle:02d}Z {plan.base_date[6:8]}/{plan.base_date[4:6]}/{plan.base_date[0:4]}"
+    base_time = (
+        f"{plan.base_cycle:02d}Z {plan.base_date[6:8]}/{plan.base_date[4:6]}/{plan.base_date[0:4]}"
+    )
 
     return InputBundle(
-        skt=skt_c, lsm=lsm, u10=u10, v10=v10, ttr_hi=ttr_hi, ttr_lo=ttr_lo,
-        lons=lons, lats=lats, window_seconds=plan.window_seconds,
-        valid_time=valid_time, base_time=base_time,
+        skt=skt_c,
+        lsm=lsm,
+        u10=u10,
+        v10=v10,
+        ttr_hi=ttr_hi,
+        ttr_lo=ttr_lo,
+        lons=lons,
+        lats=lats,
+        window_seconds=plan.window_seconds,
+        valid_time=valid_time,
+        base_time=base_time,
     )
 
 
@@ -304,20 +335,22 @@ def _fetch_inputs(
 #  F2 — FORÇANTES NO BUFFER (derivar largo; blindagem #5)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class Forcings:
     """Forçantes derivadas no domínio buffer (ainda não normalizadas)."""
 
-    grad_tsm: np.ndarray        # |∇TSM| (°C/100km), oceano
-    convergence: np.ndarray     # C = -(∂u/∂x+∂v/∂y) do vento 10 m (s⁻¹)
-    f_olr: np.ndarray           # OLR instantânea desacumulada (W/m²)
+    grad_tsm: np.ndarray  # |∇TSM| (°C/100km), oceano
+    convergence: np.ndarray  # C = -(∂u/∂x+∂v/∂y) do vento 10 m (s⁻¹)
+    f_olr: np.ndarray  # OLR instantânea desacumulada (W/m²)
     lons: np.ndarray
     lats: np.ndarray
-    lsm: np.ndarray | None = None   # máscara terra-mar (p/ máscara ativa acoplada)
+    lsm: np.ndarray | None = None  # máscara terra-mar (p/ máscara ativa acoplada)
 
 
-def _convergence_metpy(u: np.ndarray, v: np.ndarray,
-                       lons: np.ndarray, lats: np.ndarray) -> np.ndarray:
+def _convergence_metpy(
+    u: np.ndarray, v: np.ndarray, lons: np.ndarray, lats: np.ndarray
+) -> np.ndarray:
     """C = -(∂u/∂x + ∂v/∂y) via MetPy (fallback p/ diferenças finitas)."""
     try:
         import metpy.calc as mpcalc
@@ -325,14 +358,18 @@ def _convergence_metpy(u: np.ndarray, v: np.ndarray,
 
         dx, dy = mpcalc.lat_lon_grid_deltas(lons, lats)
         div = mpcalc.divergence(u * units("m/s"), v * units("m/s"), dx=dx, dy=dy)
-        return -np.asarray(div.magnitude)            # convergência = -divergência
+        return -np.asarray(div.magnitude)  # convergência = -divergência
     except Exception as exc:  # pragma: no cover — fallback robusto
         logger.warning("MetPy falhou na convergência (%s); diferenças finitas.", exc)
         lat_rad = np.deg2rad(lats)
         R = 6.371e6
         dy = np.deg2rad(np.diff(lats).mean()) * R
-        dx2d = (np.deg2rad(np.diff(lons).mean()) * R
-                * np.cos(lat_rad)[:, np.newaxis] * np.ones((1, len(lons))))
+        dx2d = (
+            np.deg2rad(np.diff(lons).mean())
+            * R
+            * np.cos(lat_rad)[:, np.newaxis]
+            * np.ones((1, len(lons)))
+        )
         dudx = np.gradient(u, axis=1) / dx2d
         dvdy = np.gradient(v, dy, axis=0)
         return -(dudx + dvdy)
@@ -352,7 +389,7 @@ def _nanaware_gaussian(field: np.ndarray, sigma: float) -> np.ndarray:
         num = gaussian_filter(filled, sigma=sigma, mode="nearest")
         den = gaussian_filter(valid, sigma=sigma, mode="nearest")
         out = np.where(den > 0, num / den, np.nan)
-    out[valid == 0] = np.nan          # mantém o continente (NaN de entrada) como NaN
+    out[valid == 0] = np.nan  # mantém o continente (NaN de entrada) como NaN
     return out
 
 
@@ -382,8 +419,12 @@ def compute_forcings(bundle: InputBundle) -> Forcings:
     f_olr = -(bundle.ttr_hi - bundle.ttr_lo) / bundle.window_seconds
 
     return Forcings(
-        grad_tsm=grad_tsm, convergence=conv, f_olr=f_olr,
-        lons=bundle.lons, lats=bundle.lats, lsm=bundle.lsm,
+        grad_tsm=grad_tsm,
+        convergence=conv,
+        f_olr=f_olr,
+        lons=bundle.lons,
+        lats=bundle.lats,
+        lsm=bundle.lsm,
     )
 
 
@@ -391,18 +432,19 @@ def compute_forcings(bundle: InputBundle) -> Forcings:
 #  F3 — CORTE ESTRITO + NORMALIZAÇÃO MERIDIONAL (blindagens #2, #5)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class NormalizedForcings:
     """Forçantes no domínio ESTRITO: três normalizadas [0,1] + OLR absoluta."""
 
-    tsm_n: np.ndarray           # ∇TSM normalizada
-    conv_n: np.ndarray          # convergência normalizada
-    olr_n_inv: np.ndarray       # OLR normalizada e INVERTIDA (1 − x̂)
-    olr_abs: np.ndarray         # OLR absoluta (W/m²) — "Verdade Terrestre" p/ classificar
+    tsm_n: np.ndarray  # ∇TSM normalizada
+    conv_n: np.ndarray  # convergência normalizada
+    olr_n_inv: np.ndarray  # OLR normalizada e INVERTIDA (1 − x̂)
+    olr_abs: np.ndarray  # OLR absoluta (W/m²) — "Verdade Terrestre" p/ classificar
     lons: np.ndarray
     lats: np.ndarray
     conv_abs: np.ndarray | None = None  # convergência ABSOLUTA (s⁻¹) p/ a máscara ativa
-    lsm: np.ndarray | None = None       # máscara terra-mar (estrito) p/ a máscara ativa
+    lsm: np.ndarray | None = None  # máscara terra-mar (estrito) p/ a máscara ativa
 
 
 def _cut_strict(field: np.ndarray, lons: np.ndarray, lats: np.ndarray) -> tuple:
@@ -420,6 +462,7 @@ def normalize_meridional(field: np.ndarray) -> np.ndarray:
     artificial de zeros no IQR. Campo é [lat, lon]; cada coluna = um meridiano.
     """
     import warnings as _w
+
     with np.errstate(invalid="ignore"), _w.catch_warnings():
         # Colunas 100% NaN (terra) disparam "All-NaN slice" — esperado e tratado.
         _w.simplefilter("ignore", category=RuntimeWarning)
@@ -428,7 +471,7 @@ def normalize_meridional(field: np.ndarray) -> np.ndarray:
     rng = cmax - cmin
     norm = (field - cmin) / (rng + EPS)
     # Colunas degeneradas (incl. 100% NaN) → NaN explícito
-    degenerate = ~(rng >= EPS)                       # True onde rng<eps ou NaN
+    degenerate = ~(rng >= EPS)  # True onde rng<eps ou NaN
     norm = np.where(np.broadcast_to(degenerate, field.shape), np.nan, norm)
     return norm
 
@@ -448,16 +491,21 @@ def cut_and_normalize(forc: Forcings) -> NormalizedForcings:
     olr_n_inv = 1.0 - normalize_meridional(olr_s)
 
     return NormalizedForcings(
-        tsm_n=tsm_n, conv_n=conv_n, olr_n_inv=olr_n_inv, olr_abs=olr_s,
-        lons=lons_s, lats=lats_s,
-        conv_abs=conv_s,           # convergência absoluta (pré-norm) p/ a máscara ativa
-        lsm=lsm_s,                 # lsm estrito p/ o portão oceânico da máscara ativa
+        tsm_n=tsm_n,
+        conv_n=conv_n,
+        olr_n_inv=olr_n_inv,
+        olr_abs=olr_s,
+        lons=lons_s,
+        lats=lats_s,
+        conv_abs=conv_s,  # convergência absoluta (pré-norm) p/ a máscara ativa
+        lsm=lsm_s,  # lsm estrito p/ o portão oceânico da máscara ativa
     )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  F4 — ACOPLAMENTO (Ockham) + IQR (Tukey) + CLASSIFICAÇÃO por OLR
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def couple_ockham(norm: NormalizedForcings) -> np.ndarray:
     """I_ZCIT = média aritmética das 3 forçantes normalizadas (Navalha de Ockham).
@@ -484,14 +532,14 @@ def iqr_latitude_band(izcit: np.ndarray, lats: np.ndarray) -> np.ndarray:
                 continue
             max_lats.append(lats[int(np.nanargmax(col))])
     max_lats = np.asarray(max_lats, dtype=float)
-    if max_lats.size < 4:                         # amostra insuficiente p/ IQR
+    if max_lats.size < 4:  # amostra insuficiente p/ IQR
         return np.ones_like(izcit, dtype=bool)
 
     q1, q3 = np.percentile(max_lats, [25, 75])
     iqr = q3 - q1
     lo = q1 - IQR_CONSTANT * iqr
     hi = q3 + IQR_CONSTANT * iqr
-    band = (lats >= lo) & (lats <= hi)            # [nlat]
+    band = (lats >= lo) & (lats <= hi)  # [nlat]
     return np.broadcast_to(band[:, None], izcit.shape)
 
 
@@ -512,9 +560,11 @@ def classify_by_olr(olr_abs: np.ndarray) -> np.ndarray:
 # ── Máscara ATIVA acoplada + envelope sazonal + classificação 4 classes ──────────
 # Portados de _rascunhos/Projeto_ZCIT_AXIS/zcit_coupled.py (valores idênticos).
 
+
 def _largest_clusters(binary: np.ndarray, min_size: int) -> np.ndarray:
     """Mantém só aglomerados conexos com área >= min_size (8-conectividade=Queen)."""
     from scipy.ndimage import label
+
     structure = np.ones((3, 3), dtype=int)
     labels, n = label(binary, structure=structure)
     if n == 0:
@@ -526,9 +576,14 @@ def _largest_clusters(binary: np.ndarray, min_size: int) -> np.ndarray:
 
 
 def active_mask(
-    olr_abs: np.ndarray, conv_abs: np.ndarray | None, lsm: np.ndarray | None, *,
-    t_env: float = OLR_THRESHOLD_WEAK, c_thr: float = C_THR,
-    ocean_thr: float = OCEAN_MASK_THRESHOLD, min_cluster: int = MIN_CLUSTER_PIXELS,
+    olr_abs: np.ndarray,
+    conv_abs: np.ndarray | None,
+    lsm: np.ndarray | None,
+    *,
+    t_env: float = OLR_THRESHOLD_WEAK,
+    c_thr: float = C_THR,
+    ocean_thr: float = OCEAN_MASK_THRESHOLD,
+    min_cluster: int = MIN_CLUSTER_PIXELS,
 ) -> np.ndarray:
     """Portão físico ACOPLADO: oceano ∧ (OLR<t_env ∨ C>c_thr), depois coerência morfológica.
 
@@ -548,14 +603,14 @@ def active_mask(
     return _largest_clusters(raw, min_cluster)
 
 
-def itcz_central_latitude(doy: int, phi_mean: float = ITCZ_PHI_MEAN,
-                          amp: float = ITCZ_AMP, doy_peak: int = ITCZ_DOY_PEAK) -> float:
+def itcz_central_latitude(
+    doy: int, phi_mean: float = ITCZ_PHI_MEAN, amp: float = ITCZ_AMP, doy_peak: int = ITCZ_DOY_PEAK
+) -> float:
     """Latitude central climatológica do eixo da ZCIT atlântica para o dia do ano `doy`."""
     return float(phi_mean + amp * np.cos(2.0 * np.pi * (doy - doy_peak) / 365.25))
 
 
-def itcz_lat_band(lats: np.ndarray, doy: int,
-                  half_width: float = ITCZ_LAT_HALFWIDTH, **kw):
+def itcz_lat_band(lats: np.ndarray, doy: int, half_width: float = ITCZ_LAT_HALFWIDTH, **kw):
     """Máscara 1D [nlat] da faixa física plausível da ZCIT em `doy` (±half_width de φ_c).
 
     Devolve (inside[nlat] bool, (lo, phi_c, hi)). Zera o peso fora da faixa, rejeitando
@@ -580,8 +635,12 @@ def categorical_raster(olr_abs: np.ndarray, active: np.ndarray) -> np.ndarray:
     a = np.asarray(active, dtype=bool) & np.isfinite(olr_abs)
     with np.errstate(invalid="ignore"):
         raster[a & (olr_abs <= OLR_THRESHOLD_STRONG)] = float(CAT_FORTE)
-        raster[a & (olr_abs > OLR_THRESHOLD_STRONG) & (olr_abs <= OLR_THRESHOLD_MODERATE)] = float(CAT_MODERADA)
-        raster[a & (olr_abs > OLR_THRESHOLD_MODERATE) & (olr_abs <= OLR_THRESHOLD_WEAK)] = float(CAT_FRACA)
+        raster[a & (olr_abs > OLR_THRESHOLD_STRONG) & (olr_abs <= OLR_THRESHOLD_MODERATE)] = float(
+            CAT_MODERADA
+        )
+        raster[a & (olr_abs > OLR_THRESHOLD_MODERATE) & (olr_abs <= OLR_THRESHOLD_WEAK)] = float(
+            CAT_FRACA
+        )
         raster[a & (olr_abs > OLR_THRESHOLD_WEAK)] = float(CAT_CINEMATICA)
     return raster
 
@@ -622,6 +681,7 @@ def build_raster(
             SpatialDepsMissing,
             coherence_mask,
         )
+
         try:
             active = active & np.asarray(coherence_mask(izcit), dtype=bool)
         except SpatialDepsMissing:
@@ -638,6 +698,7 @@ def build_raster(
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ORQUESTRADOR PÚBLICO (F1→F4)
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def compute_loczcit_pa(
     cycle: int,
@@ -663,8 +724,13 @@ def compute_loczcit_pa(
     LoczcitCancelled entre downloads).
     """
     bundle = _fetch_inputs(
-        cycle=cycle, cycle_date=cycle_date, data_dir=Path(data_dir), step=step,
-        source=source, force_download=force_download, progress_callback=progress_callback,
+        cycle=cycle,
+        cycle_date=cycle_date,
+        data_dir=Path(data_dir),
+        step=step,
+        source=source,
+        force_download=force_download,
+        progress_callback=progress_callback,
         cancel_check=cancel_check,
     )
     if progress_callback:
@@ -681,8 +747,13 @@ def compute_loczcit_pa(
     axis = _detect_axis_safe(norm, izcit, active, doy)
 
     return LoczcitResult(
-        raster=raster, index=izcit, lons=norm.lons, lats=norm.lats,
-        valid_time=bundle.valid_time, base_time=bundle.base_time, axis=axis,
+        raster=raster,
+        index=izcit,
+        lons=norm.lons,
+        lats=norm.lats,
+        valid_time=bundle.valid_time,
+        base_time=bundle.base_time,
+        axis=axis,
         meta={
             "n_strong": int(np.nansum(raster == CAT_FORTE)),
             "n_moderate": int(np.nansum(raster == CAT_MODERADA)),
@@ -704,14 +775,20 @@ def _doy_from_valid_time(valid_time: str) -> int | None:
         return None
 
 
-def _detect_axis_safe(norm: NormalizedForcings, izcit: np.ndarray,
-                      active: np.ndarray, doy: int | None) -> object | None:
+def _detect_axis_safe(
+    norm: NormalizedForcings, izcit: np.ndarray, active: np.ndarray, doy: int | None
+) -> object | None:
     """Detecta o eixo (ZcitAxisDual) injetando I_ZCIT + máscara ativa. Falha → None."""
     try:
         from cartomet_br.data.zcit_dual import detect_zcit_axis_dual
+
         return detect_zcit_axis_dual(
-            norm.olr_abs, norm.lats, norm.lons, lsm=norm.lsm,
-            intensity=izcit, mask_override=active,
+            norm.olr_abs,
+            norm.lats,
+            norm.lons,
+            lsm=norm.lsm,
+            intensity=izcit,
+            mask_override=active,
         )
     except Exception as exc:  # pragma: no cover — overlay é best-effort
         logger.warning("Detecção de eixo da ZCIT indisponível (%s); seguindo sem overlay.", exc)
@@ -721,6 +798,7 @@ def _detect_axis_safe(norm: NormalizedForcings, izcit: np.ndarray,
 # ═══════════════════════════════════════════════════════════════════════════════
 #  PERSISTÊNCIA — salva o produto (raster + índice) em NetCDF georreferenciado
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def _stamp_from_valid(valid_time: str) -> str:
     """'2026-05-31T12:00' → '20260531T1200Z' (ordenável, sem espaços)."""
@@ -746,44 +824,53 @@ def save_loczcit_netcdf(result: LoczcitResult, out_dir) -> Path:
 
     data_vars = {
         "loczcit_raster": (
-            ("lat", "lon"), result.raster,
+            ("lat", "lon"),
+            result.raster,
             {
                 "long_name": "Categoria da ZCIT (LOCZCIT-PA)",
                 "flag_values": [0, 1, 2, 3],
                 "flag_meanings": "cinematica fraca moderada forte",
                 "comment": "0=Cinematica(magenta) 1=Fraca(verde) 2=Moderada(amarelo) "
-                           "3=Forte(vermelho); NaN=nulo",
+                "3=Forte(vermelho); NaN=nulo",
             },
         ),
     }
     if result.index is not None:
         data_vars["izcit"] = (
-            ("lat", "lon"), result.index,
+            ("lat", "lon"),
+            result.index,
             {
                 "long_name": "Indice LOCZCIT-PA (potencial de acoplamento fisico)",
-                "units": "1", "valid_range": [0.0, 1.0],
+                "units": "1",
+                "valid_range": [0.0, 1.0],
             },
         )
 
     ds = xr.Dataset(
         data_vars,
         coords={
-            "lat": ("lat", np.asarray(result.lats),
-                    {"units": "degrees_north", "standard_name": "latitude"}),
-            "lon": ("lon", np.asarray(result.lons),
-                    {"units": "degrees_east", "standard_name": "longitude"}),
+            "lat": (
+                "lat",
+                np.asarray(result.lats),
+                {"units": "degrees_north", "standard_name": "latitude"},
+            ),
+            "lon": (
+                "lon",
+                np.asarray(result.lons),
+                {"units": "degrees_east", "standard_name": "longitude"},
+            ),
         },
         attrs={
             "title": "Indice Integrado LOCZCIT-PA (Potencial Acoplado)",
             "summary": "Raster categorico da ZCIT (3=Forte/2=Moderada/1=Fraca) + "
-                       "indice continuo de acoplamento (dTSM, convergencia 10m, OLR desacumulada).",
+            "indice continuo de acoplamento (dTSM, convergencia 10m, OLR desacumulada).",
             "valid_time": result.valid_time,
             "base_time_olr": result.base_time,
             "ocean_mask_threshold": OCEAN_MASK_THRESHOLD,
             "olr_thresholds_wm2": "180/210/240",
             "filter_method": result.meta.get("filter_method", "iqr"),
             "method": "LOCZCIT-PA - Rocha (2022, UFPA); Ferreira et al. (2005); "
-                      "Gadgil & Guruprasad (1990)",
+            "Gadgil & Guruprasad (1990)",
             "source": "ECMWF IFS Cycle 50r1 (Open Data, CC-BY-4.0)",
             "institution": "PPGGRD-UFPA / FAMET-UFPA",
             "software": "CartoMet BR v3.0",

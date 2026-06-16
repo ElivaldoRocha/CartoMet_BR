@@ -26,6 +26,7 @@ METODOLOGIA (fundamentada na literatura — ver relatório de revisão):
 Autoria científica de base: Ferreira et al. (2005); Rocha (2022, UFPA); Adam et al. (2016);
 Collimore et al. (2003); Anselin (1995); Cleveland (1979); Tukey (1977).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -36,28 +37,29 @@ from scipy.ndimage import gaussian_filter, label
 # ──────────────────────────────────────────────────────────────────────────────
 #  PARÂMETROS FÍSICOS E ESTATÍSTICOS (calibráveis; defaults com base na literatura)
 # ──────────────────────────────────────────────────────────────────────────────
-OLR_ENVELOPE: float = 240.0     # W/m² — borda da nebulosidade convectiva (Collimore 2003)
-OLR_DEEP_CORE: float = 200.0    # W/m² — convecção profunda/organizada (Gu & Adler 2002)
-OCEAN_MASK_THRESHOLD: float = 0.2   # lsm <= 0.2 é oceano (preserva a interface costeira)
-CENTROID_POWER: float = 1.0     # expoente do peso (>1 afia para o núcleo; Adam usa 10)
+OLR_ENVELOPE: float = 240.0  # W/m² — borda da nebulosidade convectiva (Collimore 2003)
+OLR_DEEP_CORE: float = 200.0  # W/m² — convecção profunda/organizada (Gu & Adler 2002)
+OCEAN_MASK_THRESHOLD: float = 0.2  # lsm <= 0.2 é oceano (preserva a interface costeira)
+CENTROID_POWER: float = 1.0  # expoente do peso (>1 afia para o núcleo; Adam usa 10)
 MIN_CONVECTIVE_PIXELS: int = 3  # portão de cobertura: mínimo de pixels convectivos/coluna
-MIN_CLUSTER_PIXELS: int = 80    # área mínima de um aglomerado coerente (remove núcleos isolados)
-IQR_K: float = 1.5              # cercas de Tukey
-IQR_WINDOW: int | None = 40     # janela móvel do IQR (em colunas); None = IQR global
-LOWESS_FRAC: float = 0.30       # suavidade do LOWESS (fração de pontos por janela local)
-MAX_GAP_COLS: int = 16          # vão máximo (colunas) interpolado; além disso, encerra o eixo
-SMOOTH_SIGMA: float = 1.0       # suavização gaussiana do campo antes de tudo (anti-ruído)
+MIN_CLUSTER_PIXELS: int = 80  # área mínima de um aglomerado coerente (remove núcleos isolados)
+IQR_K: float = 1.5  # cercas de Tukey
+IQR_WINDOW: int | None = 40  # janela móvel do IQR (em colunas); None = IQR global
+LOWESS_FRAC: float = 0.30  # suavidade do LOWESS (fração de pontos por janela local)
+MAX_GAP_COLS: int = 16  # vão máximo (colunas) interpolado; além disso, encerra o eixo
+SMOOTH_SIGMA: float = 1.0  # suavização gaussiana do campo antes de tudo (anti-ruído)
 
 
 @dataclass
 class ZcitAxis:
     """Resultado da detecção do eixo da ZCIT."""
-    lons: np.ndarray                       # 1D — todas as longitudes do domínio
-    lat_axis: np.ndarray                   # 1D — latitude do eixo suavizado (NaN onde não há ZCIT)
-    lat_centroid_raw: np.ndarray           # 1D — centroide bruto (antes de IQR/suavização)
-    lat_centroid_kept: np.ndarray          # 1D — centroide após portão + IQR
-    coverage: np.ndarray                   # 1D — nº de pixels convectivos por coluna
-    envelope_mask: np.ndarray              # 2D — máscara do envelope convectivo coerente
+
+    lons: np.ndarray  # 1D — todas as longitudes do domínio
+    lat_axis: np.ndarray  # 1D — latitude do eixo suavizado (NaN onde não há ZCIT)
+    lat_centroid_raw: np.ndarray  # 1D — centroide bruto (antes de IQR/suavização)
+    lat_centroid_kept: np.ndarray  # 1D — centroide após portão + IQR
+    coverage: np.ndarray  # 1D — nº de pixels convectivos por coluna
+    envelope_mask: np.ndarray  # 2D — máscara do envelope convectivo coerente
     meta: dict = field(default_factory=dict)
 
 
@@ -65,9 +67,12 @@ class ZcitAxis:
 #  1+2. ENVELOPE CONVECTIVO COERENTE (limiar físico + coerência espacial)
 # ══════════════════════════════════════════════════════════════════════════════
 def convective_envelope(
-    olr: np.ndarray, lsm: np.ndarray | None,
-    t_env: float = OLR_ENVELOPE, ocean_thr: float = OCEAN_MASK_THRESHOLD,
-    min_cluster: int = MIN_CLUSTER_PIXELS, smooth_sigma: float = SMOOTH_SIGMA,
+    olr: np.ndarray,
+    lsm: np.ndarray | None,
+    t_env: float = OLR_ENVELOPE,
+    ocean_thr: float = OCEAN_MASK_THRESHOLD,
+    min_cluster: int = MIN_CLUSTER_PIXELS,
+    smooth_sigma: float = SMOOTH_SIGMA,
     coherence: str = "morphological",
 ) -> tuple[np.ndarray, np.ndarray]:
     """Devolve (olr_oceano, máscara_envelope_coerente).
@@ -108,18 +113,19 @@ def convective_envelope(
 
 def _largest_clusters(binary: np.ndarray, min_size: int) -> np.ndarray:
     """Mantém apenas aglomerados conexos com área >= min_size (8-conectividade=Queen)."""
-    structure = np.ones((3, 3), dtype=int)          # vizinhança Queen (8 vizinhos)
+    structure = np.ones((3, 3), dtype=int)  # vizinhança Queen (8 vizinhos)
     labels, n = label(binary, structure=structure)
     if n == 0:
         return np.zeros_like(binary, dtype=bool)
     sizes = np.bincount(labels.ravel())
-    sizes[0] = 0                                    # fundo
+    sizes[0] = 0  # fundo
     keep = np.where(sizes >= min_size)[0]
     return np.isin(labels, keep)
 
 
-def _lisa_lowlow_mask(olr_ocean: np.ndarray, p_thresh: float = 0.05,
-                      permutations: int = 999, seed: int = 42) -> np.ndarray:
+def _lisa_lowlow_mask(
+    olr_ocean: np.ndarray, p_thresh: float = 0.05, permutations: int = 999, seed: int = 42
+) -> np.ndarray:
     """Máscara dos clusters Low-Low significativos (convecção coerente) via I de Moran Local.
 
     SINAL CRÍTICO: no campo CRU de OLR, convecção = OLR BAIXA. Logo a ZCIT é Low-Low
@@ -131,14 +137,15 @@ def _lisa_lowlow_mask(olr_ocean: np.ndarray, p_thresh: float = 0.05,
         from libpysal.weights import lat2W
     except ImportError:
         import warnings
+
         warnings.warn("esda/libpysal ausentes; use coherence='morphological'.", stacklevel=2)
         return np.zeros_like(olr_ocean, dtype=bool)
 
     nlat, nlon = olr_ocean.shape
     finite = np.isfinite(olr_ocean)
     filled = np.where(finite, olr_ocean, np.nanmedian(olr_ocean))
-    w = lat2W(nlat, nlon, rook=False)               # Queen
-    w.transform = "r"                               # padronização por linha
+    w = lat2W(nlat, nlon, rook=False)  # Queen
+    w.transform = "r"  # padronização por linha
     lm = Moran_Local(filled.ravel(), w, permutations=permutations, seed=seed)
     # quadrante 3 = Low-Low no esda; significativo
     ll = (lm.q == 3) & (lm.p_sim < p_thresh)
@@ -149,8 +156,11 @@ def _lisa_lowlow_mask(olr_ocean: np.ndarray, p_thresh: float = 0.05,
 #  3. CENTROIDE MERIDIONAL PONDERADO + PORTÃO DE COBERTURA
 # ══════════════════════════════════════════════════════════════════════════════
 def meridional_centroid(
-    olr_ocean: np.ndarray, mask: np.ndarray, lats: np.ndarray,
-    t_env: float = OLR_ENVELOPE, power: float = CENTROID_POWER,
+    olr_ocean: np.ndarray,
+    mask: np.ndarray,
+    lats: np.ndarray,
+    t_env: float = OLR_ENVELOPE,
+    power: float = CENTROID_POWER,
     min_pixels: int = MIN_CONVECTIVE_PIXELS,
     intensity: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -192,8 +202,9 @@ def meridional_centroid(
 # ══════════════════════════════════════════════════════════════════════════════
 #  4. REJEIÇÃO DE OUTLIERS — CERCAS DE TUKEY (IQR) sobre a série de latitudes
 # ══════════════════════════════════════════════════════════════════════════════
-def reject_outliers_iqr(lat_axis: np.ndarray, k: float = IQR_K,
-                        window: int | None = IQR_WINDOW) -> np.ndarray:
+def reject_outliers_iqr(
+    lat_axis: np.ndarray, k: float = IQR_K, window: int | None = IQR_WINDOW
+) -> np.ndarray:
     """Marca como NaN as longitudes cuja latitude de eixo é outlier (Tukey 1.5·IQR).
 
     window=None -> IQR global. window=N -> IQR em janela móvel de ±N colunas
@@ -230,8 +241,9 @@ def reject_outliers_iqr(lat_axis: np.ndarray, k: float = IQR_K,
 # ══════════════════════════════════════════════════════════════════════════════
 #  5. SUAVIZAÇÃO ROBUSTA (LOWESS) + TRATAMENTO DE LACUNAS
 # ══════════════════════════════════════════════════════════════════════════════
-def smooth_axis(lons: np.ndarray, lat_axis: np.ndarray, frac: float = LOWESS_FRAC,
-                max_gap: int = MAX_GAP_COLS) -> np.ndarray:
+def smooth_axis(
+    lons: np.ndarray, lat_axis: np.ndarray, frac: float = LOWESS_FRAC, max_gap: int = MAX_GAP_COLS
+) -> np.ndarray:
     """LOWESS robusto (it=3, biweight) sobre os centroides retidos.
 
     - Ajusta y(longitude) suave e resistente a outliers residuais.
@@ -250,7 +262,8 @@ def smooth_axis(lons: np.ndarray, lat_axis: np.ndarray, frac: float = LOWESS_FRA
     x, y = lons[valid], lat_axis[valid]
     try:
         from statsmodels.nonparametric.smoothers_lowess import lowess
-        sm = lowess(y, x, frac=frac, it=3, return_sorted=True)   # robusto
+
+        sm = lowess(y, x, frac=frac, it=3, return_sorted=True)  # robusto
         interp = np.interp(lons, sm[:, 0], sm[:, 1], left=np.nan, right=np.nan)
     except ImportError:  # pragma: no cover — fallback sem statsmodels
         interp = np.interp(lons, x, y, left=np.nan, right=np.nan)
@@ -259,7 +272,7 @@ def smooth_axis(lons: np.ndarray, lat_axis: np.ndarray, frac: float = LOWESS_FRA
     idx_valid = np.where(valid)[0]
     col_idx = np.arange(len(lons))
     nearest = np.min(np.abs(col_idx[:, None] - idx_valid[None, :]), axis=1)
-    interp[nearest > max_gap] = np.nan                       # encerra em vãos longos
+    interp[nearest > max_gap] = np.nan  # encerra em vãos longos
     return interp
 
 
@@ -267,14 +280,23 @@ def smooth_axis(lons: np.ndarray, lat_axis: np.ndarray, frac: float = LOWESS_FRA
 #  ORQUESTRADOR
 # ══════════════════════════════════════════════════════════════════════════════
 def detect_zcit_axis(
-    olr: np.ndarray, lats: np.ndarray, lons: np.ndarray,
-    lsm: np.ndarray | None = None, *,
-    t_env: float = OLR_ENVELOPE, coherence: str = "morphological",
-    centroid_power: float = CENTROID_POWER, min_pixels: int = MIN_CONVECTIVE_PIXELS,
-    min_cluster: int = MIN_CLUSTER_PIXELS, iqr_k: float = IQR_K,
-    iqr_window: int | None = IQR_WINDOW, lowess_frac: float = LOWESS_FRAC,
-    max_gap: int = MAX_GAP_COLS, smooth_sigma: float = SMOOTH_SIGMA,
-    intensity: np.ndarray | None = None, mask_override: np.ndarray | None = None,
+    olr: np.ndarray,
+    lats: np.ndarray,
+    lons: np.ndarray,
+    lsm: np.ndarray | None = None,
+    *,
+    t_env: float = OLR_ENVELOPE,
+    coherence: str = "morphological",
+    centroid_power: float = CENTROID_POWER,
+    min_pixels: int = MIN_CONVECTIVE_PIXELS,
+    min_cluster: int = MIN_CLUSTER_PIXELS,
+    iqr_k: float = IQR_K,
+    iqr_window: int | None = IQR_WINDOW,
+    lowess_frac: float = LOWESS_FRAC,
+    max_gap: int = MAX_GAP_COLS,
+    smooth_sigma: float = SMOOTH_SIGMA,
+    intensity: np.ndarray | None = None,
+    mask_override: np.ndarray | None = None,
 ) -> ZcitAxis:
     """Pipeline completo: envelope coerente -> centroide ponderado + portão -> IQR -> LOWESS.
 
@@ -283,26 +305,44 @@ def detect_zcit_axis(
     máscara ATIVA acoplada `oceano ∧ (OLR<240 ∨ C>C_THR)`). Ambos None = OLR-only validado.
     """
     olr_ocean, mask = convective_envelope(
-        olr, lsm, t_env=t_env, min_cluster=min_cluster,
-        smooth_sigma=smooth_sigma, coherence=coherence,
+        olr,
+        lsm,
+        t_env=t_env,
+        min_cluster=min_cluster,
+        smooth_sigma=smooth_sigma,
+        coherence=coherence,
     )
     if mask_override is not None:
         mask = np.asarray(mask_override, dtype=bool)
     lat_raw, coverage = meridional_centroid(
-        olr_ocean, mask, lats, t_env=t_env, power=centroid_power, min_pixels=min_pixels,
+        olr_ocean,
+        mask,
+        lats,
+        t_env=t_env,
+        power=centroid_power,
+        min_pixels=min_pixels,
         intensity=intensity,
     )
     lat_kept = reject_outliers_iqr(lat_raw, k=iqr_k, window=iqr_window)
     lat_smooth = smooth_axis(lons, lat_kept, frac=lowess_frac, max_gap=max_gap)
 
     return ZcitAxis(
-        lons=np.asarray(lons), lat_axis=lat_smooth,
-        lat_centroid_raw=lat_raw, lat_centroid_kept=lat_kept,
-        coverage=coverage, envelope_mask=mask,
+        lons=np.asarray(lons),
+        lat_axis=lat_smooth,
+        lat_centroid_raw=lat_raw,
+        lat_centroid_kept=lat_kept,
+        coverage=coverage,
+        envelope_mask=mask,
         meta={
-            "t_env": t_env, "coherence": coherence, "centroid_power": centroid_power,
-            "min_pixels": min_pixels, "min_cluster": min_cluster, "iqr_k": iqr_k,
-            "iqr_window": iqr_window, "lowess_frac": lowess_frac, "max_gap": max_gap,
+            "t_env": t_env,
+            "coherence": coherence,
+            "centroid_power": centroid_power,
+            "min_pixels": min_pixels,
+            "min_cluster": min_cluster,
+            "iqr_k": iqr_k,
+            "iqr_window": iqr_window,
+            "lowess_frac": lowess_frac,
+            "max_gap": max_gap,
             "n_valid_longitudes": int(np.isfinite(lat_smooth).sum()),
         },
     )

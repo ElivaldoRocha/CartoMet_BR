@@ -32,8 +32,7 @@ class MeteogramPanel(AnalysisDock):
     """Dock direito com o meteograma (4 painéis empilhados sobre o eixo de steps)."""
 
     def __init__(self, title: str = "Meteograma (Ponto)", parent=None) -> None:
-        super().__init__(title, parent, min_width=480, figsize=(7.0, 7.8),
-                         placeholder=_PLACEHOLDER)
+        super().__init__(title, parent, min_width=480, figsize=(7.0, 7.8), placeholder=_PLACEHOLDER)
 
     def render(self, ts) -> None:
         try:
@@ -69,7 +68,7 @@ class MeteogramPanel(AnalysisDock):
         ax_w.set_ylabel("Vento 10 m\n(m/s)", fontsize=9)
         ax_w.grid(True, alpha=0.3)
         with contextlib.suppress(Exception):
-            theta = np.radians(ts.wind_dir)             # direção de onde sopra
+            theta = np.radians(ts.wind_dir)  # direção de onde sopra
             u = -ts.wind_speed * np.sin(theta)
             v = -ts.wind_speed * np.cos(theta)
             vmax = float(np.nanmax(ts.wind_speed)) if ts.wind_speed.size else 1.0

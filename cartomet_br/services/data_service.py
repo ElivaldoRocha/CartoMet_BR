@@ -109,8 +109,7 @@ class DataService:
         if variable_key not in VARIABLE_REGISTRY:
             available = ", ".join(sorted(VARIABLE_REGISTRY.keys()))
             raise ValidationError(
-                f"Variável '{variable_key}' não encontrada.\n"
-                f"Disponíveis: {available}"
+                f"Variável '{variable_key}' não encontrada.\nDisponíveis: {available}"
             )
         return VARIABLE_REGISTRY[variable_key]
 
@@ -120,14 +119,9 @@ class DataService:
         if variable_key in ("olr", "tcwv", "precip", "sst_model", "sst_grad"):
             return  # Variáveis de superfície, sem nível
         if level is None:
-            raise ValidationError(
-                f"A variável '{variable_key}' requer um nível de pressão."
-            )
+            raise ValidationError(f"A variável '{variable_key}' requer um nível de pressão.")
         if level not in PL_LEVELS:
-            raise ValidationError(
-                f"Nível {level} hPa não disponível.\n"
-                f"Níveis válidos: {PL_LEVELS}"
-            )
+            raise ValidationError(f"Nível {level} hPa não disponível.\nNíveis válidos: {PL_LEVELS}")
 
     # ─── operações de dados ──────────────────────────────────────────────
 
@@ -151,7 +145,9 @@ class DataService:
 
         logger.info(
             "Solicitando dados sinóticos: step=%d, cycle=%s, date=%s",
-            step, cycle, cycle_date,
+            step,
+            cycle,
+            cycle_date,
         )
 
         try:
@@ -192,7 +188,10 @@ class DataService:
 
         logger.info(
             "Solicitando campo: %s nível=%s step=%d cycle=%s",
-            variable_key, level, step, cycle,
+            variable_key,
+            level,
+            step,
+            cycle,
         )
 
         try:
@@ -260,9 +259,7 @@ class DataService:
         except (ValidationError, DataServiceError):
             raise
         except Exception as exc:
-            raise DownloadError(
-                self._format_download_error(exc, step)
-            ) from exc
+            raise DownloadError(self._format_download_error(exc, step)) from exc
 
     def load_satellite(
         self,
@@ -285,9 +282,7 @@ class DataService:
                 progress_callback=progress_callback,
             )
         except Exception as exc:
-            raise DownloadError(
-                f"Erro ao baixar imagem de satélite: {exc}"
-            ) from exc
+            raise DownloadError(f"Erro ao baixar imagem de satélite: {exc}") from exc
 
     def get_available_cycles(self) -> dict:
         """Estima ciclos ECMWF disponíveis com base no horário UTC."""
@@ -366,8 +361,7 @@ class DataService:
             )
         if "connection" in msg.lower() or "timeout" in msg.lower():
             return (
-                "Erro de conexão com o servidor ECMWF.\n\n"
-                "Verifique sua internet e tente novamente."
+                "Erro de conexão com o servidor ECMWF.\n\nVerifique sua internet e tente novamente."
             )
         if "permission" in msg.lower() or "access" in msg.lower():
             return (

@@ -24,17 +24,17 @@ VALID_STEPS: list[int] = list(range(0, 145, 3)) + list(range(150, 241, 6))
 
 def get_assets_path() -> Path:
     """Retorna caminho dos assets, funciona em dev e no executável."""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         base: Path = Path(sys._MEIPASS)
     else:
         base = Path(__file__).parent.parent
-    return base / 'assets'
+    return base / "assets"
 
 
 def get_icon_path() -> Path | None:
     """Retorna caminho do ícone 32x32."""
     assets: Path = get_assets_path()
-    for name in ['CartoMet_BR_logo_32_32.ico', 'icon.ico', 'icon.svg']:
+    for name in ["CartoMet_BR_logo_32_32.ico", "icon.ico", "icon.svg"]:
         path: Path = assets / name
         if path.exists():
             return path
@@ -44,7 +44,7 @@ def get_icon_path() -> Path | None:
 def get_logo_path() -> Path | None:
     """Retorna caminho da logo 400x400."""
     assets: Path = get_assets_path()
-    for name in ['CartoMet_BR_logo_400_400.png', 'logo.png', 'logo.svg']:
+    for name in ["CartoMet_BR_logo_400_400.png", "logo.png", "logo.svg"]:
         path: Path = assets / name
         if path.exists():
             return path
@@ -54,7 +54,7 @@ def get_logo_path() -> Path | None:
 def get_institutional_logos_path() -> Path | None:
     """Retorna caminho das logos institucionais."""
     assets: Path = get_assets_path()
-    path: Path = assets / 'Logos_UFPA_IG_FAMET_PPGGRD.png'
+    path: Path = assets / "Logos_UFPA_IG_FAMET_PPGGRD.png"
     if path.exists():
         return path
     return None

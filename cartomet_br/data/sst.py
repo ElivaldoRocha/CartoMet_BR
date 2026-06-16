@@ -38,10 +38,10 @@ ERDDAP_URL = "https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41"
 class SSTData:
     """Container para dados de TSM (Temperatura da Superfície do Mar)."""
 
-    sst: np.ndarray          # Temperatura em °C (2D: lat × lon)
-    lons: np.ndarray         # Longitudes 1D
-    lats: np.ndarray         # Latitudes 1D
-    time_str: str            # Data da análise (ex.: "2026-03-23")
+    sst: np.ndarray  # Temperatura em °C (2D: lat × lon)
+    lons: np.ndarray  # Longitudes 1D
+    lats: np.ndarray  # Latitudes 1D
+    time_str: str  # Data da análise (ex.: "2026-03-23")
     source: str = "MUR SST 1km — NASA/NOAA"
 
 
@@ -145,13 +145,11 @@ def download_mur_sst(
         raise RuntimeError(f"Erro HTTP {status} ao acessar ERDDAP:\n{e}") from e
     except requests.ConnectionError as e:
         raise RuntimeError(
-            "Não foi possível conectar ao ERDDAP.\n"
-            "Verifique sua conexão com a internet."
+            "Não foi possível conectar ao ERDDAP.\nVerifique sua conexão com a internet."
         ) from e
     except requests.Timeout:
         raise RuntimeError(
-            "Timeout ao conectar ao ERDDAP (300s).\n"
-            "O servidor pode estar lento — tente novamente."
+            "Timeout ao conectar ao ERDDAP (300s).\nO servidor pode estar lento — tente novamente."
         )
 
     total_size = int(resp.headers.get("content-length", 0))
@@ -224,7 +222,9 @@ def download_mur_sst(
     _emit("status", f"TSM carregada — {actual_date_str}")
     _emit("percent", 100)
 
-    logger.info("MUR SST carregado: %s, shape=%s, stride=%d", actual_date_str, sst_arr.shape, stride)
+    logger.info(
+        "MUR SST carregado: %s, shape=%s, stride=%d", actual_date_str, sst_arr.shape, stride
+    )
 
     return SSTData(
         sst=sst_arr,

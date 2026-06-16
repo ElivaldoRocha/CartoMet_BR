@@ -43,11 +43,12 @@ from cartomet_br.gui._constants import VALID_STEPS
 #  PAINEL DE SATÉLITE (esquerda, abaixo das simbologias)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class SatellitePanel(QWidget):
     """Painel para download e controle de imagem de satélite GOES."""
 
-    download_requested = pyqtSignal(object)   # datetime alvo
-    toggle_requested = pyqtSignal(bool)       # mostrar/ocultar
+    download_requested = pyqtSignal(object)  # datetime alvo
+    toggle_requested = pyqtSignal(bool)  # mostrar/ocultar
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -131,10 +132,7 @@ class SatellitePanel(QWidget):
         hora = self.hora_combo.currentData()
         minuto = self.min_combo.currentData()
 
-        target = datetime(
-            qdate.year(), qdate.month(), qdate.day(),
-            hora, minuto, 0, tzinfo=UTC
-        )
+        target = datetime(qdate.year(), qdate.month(), qdate.day(), hora, minuto, 0, tzinfo=UTC)
 
         now_utc = datetime.now(UTC)
         if target > now_utc:
@@ -170,11 +168,12 @@ class SatellitePanel(QWidget):
 #  PAINEL DE TSM (MUR SST 1 km — NASA/NOAA)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class SSTPanel(QWidget):
     """Painel para download e controle de TSM (MUR SST 1 km)."""
 
-    download_requested = pyqtSignal(object)   # datetime alvo
-    toggle_requested = pyqtSignal(bool)       # mostrar/ocultar
+    download_requested = pyqtSignal(object)  # datetime alvo
+    toggle_requested = pyqtSignal(bool)  # mostrar/ocultar
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -237,8 +236,13 @@ class SSTPanel(QWidget):
         """Monta o datetime alvo e emite sinal."""
         qdate = self.date_edit.date()
         target = datetime(
-            qdate.year(), qdate.month(), qdate.day(),
-            0, 0, 0, tzinfo=UTC,
+            qdate.year(),
+            qdate.month(),
+            qdate.day(),
+            0,
+            0,
+            0,
+            tzinfo=UTC,
         )
         self.status_label.setText("")
         self.download_requested.emit(target)
@@ -261,6 +265,7 @@ class SSTPanel(QWidget):
 # ═══════════════════════════════════════════════════════════════════════════════
 #  PAINEL DE CONFIGURAÇÕES (direita)
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class SettingsPanel(QWidget):
     """Painel de configurações com região, step e opções."""
@@ -364,9 +369,7 @@ class SettingsPanel(QWidget):
         self.theme_combo = QComboBox()
         for name in ["Clássico", "Branco", "Pastel", "Tons de cinza", "Terra", "Escuro"]:
             self.theme_combo.addItem(name)
-        self.theme_combo.currentTextChanged.connect(
-            lambda name: self.theme_changed.emit(name)
-        )
+        self.theme_combo.currentTextChanged.connect(lambda name: self.theme_changed.emit(name))
         theme_row.addWidget(self.theme_combo)
         region_layout.addLayout(theme_row)
 
@@ -383,8 +386,7 @@ class SettingsPanel(QWidget):
         rodada_layout.addWidget(self.cycle_combo)
 
         self.rodada_info_label = QLabel(
-            "<small style='color: #95A5A6;'>"
-            "Clique Verificar para ver rodadas</small>"
+            "<small style='color: #95A5A6;'>Clique Verificar para ver rodadas</small>"
         )
         self.rodada_info_label.setWordWrap(True)
         rodada_layout.addWidget(self.rodada_info_label)
@@ -467,7 +469,9 @@ class SettingsPanel(QWidget):
         self.thickness_check = QCheckBox("Espessura 1000-500 hPa")
         self.thickness_check.setChecked(True)
         self.thickness_check.stateChanged.connect(
-            lambda state: self.layers_changed.emit("thickness", state == Qt.CheckState.Checked.value)
+            lambda state: self.layers_changed.emit(
+                "thickness", state == Qt.CheckState.Checked.value
+            )
         )
         options_layout.addWidget(self.thickness_check)
 
@@ -491,7 +495,9 @@ class SettingsPanel(QWidget):
             "00Z, 06Z, 12Z e 18Z — o overlay usa o sinótico mais próximo do modelo."
         )
         self.synop_check.stateChanged.connect(
-            lambda state: self.observations_changed.emit("synop", state == Qt.CheckState.Checked.value)
+            lambda state: self.observations_changed.emit(
+                "synop", state == Qt.CheckState.Checked.value
+            )
         )
         obs_layout.addWidget(self.synop_check)
 
@@ -500,7 +506,9 @@ class SettingsPanel(QWidget):
             "Observações de aeródromos (NOAA AWC), atualizadas de hora em hora."
         )
         self.metar_check.stateChanged.connect(
-            lambda state: self.observations_changed.emit("metar", state == Qt.CheckState.Checked.value)
+            lambda state: self.observations_changed.emit(
+                "metar", state == Qt.CheckState.Checked.value
+            )
         )
         obs_layout.addWidget(self.metar_check)
 
@@ -517,7 +525,7 @@ class SettingsPanel(QWidget):
         # As estações refletem o presente/passado; em steps futuros não existem.
         self._obs_ref_dt = None
         self.step_combo.currentIndexChanged.connect(self._update_observations_ui)
-        self._update_observations_ui()   # estado inicial coerente com o step atual
+        self._update_observations_ui()  # estado inicial coerente com o step atual
 
     def _on_region_changed(self, name):
         if name in self.REGIONS:
@@ -536,7 +544,12 @@ class SettingsPanel(QWidget):
         self.smooth_label.setText(f"{sigma:.1f}")
 
     def get_extent(self):
-        return [self.lon_min.value(), self.lat_min.value(), self.lon_max.value(), self.lat_max.value()]
+        return [
+            self.lon_min.value(),
+            self.lat_min.value(),
+            self.lon_max.value(),
+            self.lat_max.value(),
+        ]
 
     def get_smoothing(self):
         return self.smooth_slider.value() / 10.0
@@ -654,9 +667,7 @@ class SettingsPanel(QWidget):
                 current_data = self.cycle_combo.currentData()
 
                 self.cycle_combo.clear()
-                self.cycle_combo.addItem(
-                    f"Mais recente ({latest['label']})", None
-                )
+                self.cycle_combo.addItem(f"Mais recente ({latest['label']})", None)
 
                 for c in info["available"]:
                     max_step_str = f"+{c['max_step']}h"
@@ -665,8 +676,7 @@ class SettingsPanel(QWidget):
                         "date_ymd": c["base_datetime"].strftime("%Y%m%d"),
                     }
                     self.cycle_combo.addItem(
-                        f"{c['label']} {c['date_str']} (até {max_step_str})",
-                        cycle_data
+                        f"{c['label']} {c['date_str']} (até {max_step_str})", cycle_data
                     )
 
                 if current_data is not None and isinstance(current_data, dict):
@@ -676,9 +686,7 @@ class SettingsPanel(QWidget):
                             self.cycle_combo.setCurrentIndex(i)
                             break
 
-                avail_str = ", ".join(
-                    f"{c['label']}" for c in info["available"]
-                )
+                avail_str = ", ".join(f"{c['label']}" for c in info["available"])
                 self.rodada_detail_label.setText(
                     f"<small style='color: #7F8C8D;'>"
                     f"Hora UTC: {info['utc_now']}<br>"
@@ -689,9 +697,7 @@ class SettingsPanel(QWidget):
                     "<p style='color: #E74C3C;'>Nenhuma rodada identificada</p>"
                 )
         except Exception as e:
-            self.rodada_info_label.setText(
-                f"<p style='color: #E74C3C;'>Erro: {str(e)[:50]}</p>"
-            )
+            self.rodada_info_label.setText(f"<p style='color: #E74C3C;'>Erro: {str(e)[:50]}</p>")
 
     def update_rodada_from_data(self, data):
         """Atualiza info da rodada após download bem-sucedido."""
@@ -719,16 +725,17 @@ class SettingsPanel(QWidget):
 # Variáveis de superfície/integradas (sem seletor de nível)
 SURFACE_VARS = {"olr", "tcwv"}
 
+
 class FieldLayerPanel(QWidget):
     """Painel para adicionar/gerenciar campos em altitude e superfície."""
 
-    add_layer_requested = pyqtSignal(str, int, str)   # (var_key, level, wind_type)
-    toggle_layer_requested = pyqtSignal(str, bool)     # (layer_id, visible)
-    remove_layer_requested = pyqtSignal(str)           # (layer_id)
-    preset_requested = pyqtSignal(str)                 # (preset_name)
-    loczcit_requested = pyqtSignal()                   # índice ZCIT (LOCZCIT-PA)
-    blocking_requested = pyqtSignal()                  # bloqueio atmosférico (anom. Z500)
-    instability_requested = pyqtSignal(object)         # campos de instabilidade (lista de índices)
+    add_layer_requested = pyqtSignal(str, int, str)  # (var_key, level, wind_type)
+    toggle_layer_requested = pyqtSignal(str, bool)  # (layer_id, visible)
+    remove_layer_requested = pyqtSignal(str)  # (layer_id)
+    preset_requested = pyqtSignal(str)  # (preset_name)
+    loczcit_requested = pyqtSignal()  # índice ZCIT (LOCZCIT-PA)
+    blocking_requested = pyqtSignal()  # bloqueio atmosférico (anom. Z500)
+    instability_requested = pyqtSignal(object)  # campos de instabilidade (lista de índices)
 
     ANALYSIS_PRESETS = {
         "Sinótica clássica": [
@@ -759,28 +766,28 @@ class FieldLayerPanel(QWidget):
 
     # Campos que requerem nível de pressão
     PL_VAR_OPTIONS = [
-        ("t",          "Temperatura (t)"),
-        ("r",          "Umidade Relativa (r)"),
-        ("q",          "Umidade Específica (q)"),
-        ("gh",         "Geopotencial (gh)"),
-        ("wind",       "Vento (u, v)"),
+        ("t", "Temperatura (t)"),
+        ("r", "Umidade Relativa (r)"),
+        ("q", "Umidade Específica (q)"),
+        ("gh", "Geopotencial (gh)"),
+        ("wind", "Vento (u, v)"),
         ("wind_speed", "Isotacas (vel. vento)"),
-        ("w",          "Vel. Vertical ω (w)"),
-        ("d",          "Divergência (d)"),
-        ("vo",         "Vorticidade (vo)"),
-        ("temp_adv",       "Advecção de Temperatura"),
-        ("temp_grad",      "Gradiente de Temperatura"),
-        ("frontogenesis",  "Frontogênese (Petterssen)"),
-        ("mfc",            "Convergência de Umidade (MFC)"),
+        ("w", "Vel. Vertical ω (w)"),
+        ("d", "Divergência (d)"),
+        ("vo", "Vorticidade (vo)"),
+        ("temp_adv", "Advecção de Temperatura"),
+        ("temp_grad", "Gradiente de Temperatura"),
+        ("frontogenesis", "Frontogênese (Petterssen)"),
+        ("mfc", "Convergência de Umidade (MFC)"),
     ]
 
     # Campos de superfície / integrados (sem nível)
     SFC_VAR_OPTIONS = [
-        ("tcwv",      "Água Precipitável (mm)"),
-        ("olr",       "OLR (desacumulada, W/m²)"),
-        ("precip",    "Precipitação (3h, mm)"),
+        ("tcwv", "Água Precipitável (mm)"),
+        ("olr", "OLR (desacumulada, W/m²)"),
+        ("precip", "Precipitação (3h, mm)"),
         ("sst_model", "TSM modelo IFS (°C)"),
-        ("sst_grad",  "Gradiente de TSM (°C/100km)"),
+        ("sst_grad", "Gradiente de TSM (°C/100km)"),
     ]
 
     def __init__(self, parent=None):
@@ -873,7 +880,11 @@ class FieldLayerPanel(QWidget):
         instab_buttons = (
             ("K-Index", ["kindex"], "Índice K na grade nativa (vetorizado, rápido)."),
             ("Lifted Index", ["li"], "Lifted Index — ascensão de parcela em grade engrossada."),
-            ("CAPE / CIN", ["cape", "cin"], "CAPE e CIN de superfície — grade engrossada (mais lento)."),
+            (
+                "CAPE / CIN",
+                ["cape", "cin"],
+                "CAPE e CIN de superfície — grade engrossada (mais lento).",
+            ),
         )
         for i, (label, idxs, tip) in enumerate(instab_buttons):
             btn = QPushButton(label)
@@ -884,9 +895,7 @@ class FieldLayerPanel(QWidget):
                 }
                 QPushButton:hover { background-color: #E74C3C; }
             """)
-            btn.setToolTip(
-                tip + "\n\nModelo IFS, 13 níveis — produto APROXIMADO (não observação)."
-            )
+            btn.setToolTip(tip + "\n\nModelo IFS, 13 níveis — produto APROXIMADO (não observação).")
             btn.clicked.connect(lambda _checked, idx=idxs: self.instability_requested.emit(idx))
             instab_layout.addWidget(btn, 0, i)
         layout.addWidget(instab_group)
@@ -1072,6 +1081,7 @@ class FieldLayerPanel(QWidget):
     def _on_sfc_var_changed(self, idx):
         """Mostra o seletor de método só para variáveis desacumuláveis (OLR/precip)."""
         from cartomet_br.data.ecmwf import VARIABLE_REGISTRY
+
         key = self.sfc_var_combo.currentData()
         tem_tecnica = VARIABLE_REGISTRY.get(key, {}).get("tem_tecnica", False)
         self.technique_row.setVisible(tem_tecnica)

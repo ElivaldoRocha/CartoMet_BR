@@ -27,12 +27,12 @@ from scipy.ndimage import gaussian_filter, label
 logger = logging.getLogger(__name__)
 
 # Parâmetros calibráveis do filtro LISA.
-SIGNIFICANCE_P: float = 0.05    # limiar do p-valor (Monte Carlo)
-N_PERMUTATIONS: int = 999       # permutações do Moran Local
-MIN_OBJECT_PIXELS: int = 50     # área mínima de um aglomerado (descarta órfãos)
-SMOOTH_SIGMA: float = 1.0       # suavização anti-ruído antes do LISA
-_LISA_SEED: int = 42            # reprodutibilidade operacional (mesmo dado → mesma máscara)
-_HH_QUADRANT: int = 1           # convenção esda: HH=1, LH=2, LL=3, HL=4
+SIGNIFICANCE_P: float = 0.05  # limiar do p-valor (Monte Carlo)
+N_PERMUTATIONS: int = 999  # permutações do Moran Local
+MIN_OBJECT_PIXELS: int = 50  # área mínima de um aglomerado (descarta órfãos)
+SMOOTH_SIGMA: float = 1.0  # suavização anti-ruído antes do LISA
+_LISA_SEED: int = 42  # reprodutibilidade operacional (mesmo dado → mesma máscara)
+_HH_QUADRANT: int = 1  # convenção esda: HH=1, LH=2, LL=3, HL=4
 
 
 class SpatialDepsMissing(RuntimeError):
@@ -79,7 +79,7 @@ def coherence_mask(
     # 1) Suavização (dilui ruído diurno residual da skt e anomalias transientes).
     filled = np.where(finite, izcit, np.nanmedian(izcit))
     smooth = gaussian_filter(filled, sigma=sigma)
-    if np.nanstd(smooth) < 1e-12:           # campo degenerado (constante) → sem hotspots
+    if np.nanstd(smooth) < 1e-12:  # campo degenerado (constante) → sem hotspots
         return empty
 
     # 2) Vizinhança da grade regular (Queen, 8 vizinhos) + Moran Local.
@@ -91,7 +91,7 @@ def coherence_mask(
 
     # 3) Hotspots High-High e significativos.
     hh = (lm.q == _HH_QUADRANT) & (lm.p_sim < p_thresh)
-    hh_grid = hh.reshape(nlat, nlon) & finite       # só onde havia sinal real
+    hh_grid = hh.reshape(nlat, nlon) & finite  # só onde havia sinal real
     if not hh_grid.any():
         return empty
 
@@ -103,6 +103,6 @@ def coherence_mask(
     counts = np.bincount(labels.ravel(), minlength=n + 1)
     sizes = counts[1:]
     keep_ids = np.where(sizes >= min_pixels)[0] + 1
-    if keep_ids.size == 0:                           # nenhum atinge min_pixels → o maior
+    if keep_ids.size == 0:  # nenhum atinge min_pixels → o maior
         keep_ids = np.array([int(np.argmax(sizes)) + 1])
     return np.isin(labels, keep_ids)

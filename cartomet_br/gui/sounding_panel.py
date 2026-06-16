@@ -129,16 +129,24 @@ class SoundingPanel(QDockWidget):
     # ─────────────────────────────────────────────────────────────────────────
     #  Helpers de desenho
     # ─────────────────────────────────────────────────────────────────────────
-    def _show_centered_message(self, text: str, color: str = "#333333",
-                               facecolor: str = "white") -> None:
+    def _show_centered_message(
+        self, text: str, color: str = "#333333", facecolor: str = "white"
+    ) -> None:
         """Limpa a figura e escreve uma mensagem centralizada."""
         self.fig.clear()
         self.fig.set_facecolor(facecolor)
         ax = self.fig.add_subplot(111)
         ax.axis("off")
         ax.text(
-            0.5, 0.5, text, ha="center", va="center", wrap=True,
-            fontsize=12, color=color, transform=ax.transAxes,
+            0.5,
+            0.5,
+            text,
+            ha="center",
+            va="center",
+            wrap=True,
+            fontsize=12,
+            color=color,
+            transform=ax.transAxes,
         )
         self.canvas.draw_idle()
 
@@ -175,11 +183,16 @@ class SoundingPanel(QDockWidget):
         ax = self.fig.add_subplot(111)
         ax.axis("off")
         ax.text(
-            0.5, 0.5,
+            0.5,
+            0.5,
             f"⚠️ Observações futuras indisponíveis.\n\n"
             f"O balão de {time_label}\nainda não foi lançado.",
-            ha="center", va="center", fontsize=13, color="#FFD700",
-            transform=ax.transAxes, fontweight="bold",
+            ha="center",
+            va="center",
+            fontsize=13,
+            color="#FFD700",
+            transform=ax.transAxes,
+            fontweight="bold",
         )
         self.canvas.draw_idle()
 
@@ -187,7 +200,7 @@ class SoundingPanel(QDockWidget):
         """Desenha o painel completo a partir de um SoundingResult."""
         self._progress.hide()
         note = getattr(result, "source_note", "")
-        icon = "🛰" if note else "🎈"   # 🛰 = perfil do modelo · 🎈 = radiossonda
+        icon = "🛰" if note else "🎈"  # 🛰 = perfil do modelo · 🎈 = radiossonda
         self._header.setText(f"{icon} {result.station_label} — {result.time_label}")
         if note:
             self._source_badge.setText(f"⚠️ {note}")
@@ -260,8 +273,10 @@ class SoundingPanel(QDockWidget):
                 hod = Hodograph(ax_hod, component_range=80.0)
                 hod.add_grid(increment=20)
                 hod.plot_colormapped(
-                    result.u_wind_q[niveis], result.v_wind_q[niveis],
-                    p[niveis], cmap="BuPu_r",
+                    result.u_wind_q[niveis],
+                    result.v_wind_q[niveis],
+                    p[niveis],
+                    cmap="BuPu_r",
                 )
                 ax_hod.set_xlim(-40, 40)
                 ax_hod.set_ylim(-40, 40)
@@ -270,12 +285,28 @@ class SoundingPanel(QDockWidget):
             except Exception as e:  # noqa: BLE001 — vento parcial não derruba o resto
                 logger.debug("Hodógrafo indisponível: %s", e)
                 ax_hod.axis("off")
-                ax_hod.text(0.5, 0.5, "Vento\nindisponível", ha="center", va="center",
-                            fontsize=8, color="#999999", transform=ax_hod.transAxes)
+                ax_hod.text(
+                    0.5,
+                    0.5,
+                    "Vento\nindisponível",
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color="#999999",
+                    transform=ax_hod.transAxes,
+                )
         else:
             ax_hod.axis("off")
-            ax_hod.text(0.5, 0.5, "Sem dados\nde vento", ha="center", va="center",
-                        fontsize=8, color="#999999", transform=ax_hod.transAxes)
+            ax_hod.text(
+                0.5,
+                0.5,
+                "Sem dados\nde vento",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color="#999999",
+                transform=ax_hod.transAxes,
+            )
 
         # ── Tabela de índices (inferior direita) ─────────────────────────────
         ax_tbl = self.fig.add_subplot(gs[1:, -1])
@@ -285,12 +316,12 @@ class SoundingPanel(QDockWidget):
         for i, (label, value) in enumerate(result.indices):
             y = 0.95 - i * (0.9 / n)
             ax_tbl.text(0.02, y, label, fontsize=8, va="top")
-            ax_tbl.text(0.98, y, value, fontsize=8, va="top", ha="right",
-                        fontweight="bold")
+            ax_tbl.text(0.98, y, value, fontsize=8, va="top", ha="right", fontweight="bold")
 
         self.fig.suptitle(
             f"{result.station_label}   •   {result.time_label}",
-            fontsize=11, fontweight="bold",
+            fontsize=11,
+            fontweight="bold",
         )
         with contextlib.suppress(Exception):
             self.fig.tight_layout(rect=(0, 0, 1, 0.96))

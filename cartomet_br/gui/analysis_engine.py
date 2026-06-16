@@ -24,11 +24,19 @@ class MeteogramWorker(QThread):
     """
 
     progress = pyqtSignal(str)
-    finished_ok = pyqtSignal(object)   # PointTimeseries
+    finished_ok = pyqtSignal(object)  # PointTimeseries
     finished_error = pyqtSignal(str)
 
-    def __init__(self, lon: float, lat: float, cycle: int | None,
-                 cycle_date: str | None, data_dir, steps=None, parent=None) -> None:
+    def __init__(
+        self,
+        lon: float,
+        lat: float,
+        cycle: int | None,
+        cycle_date: str | None,
+        data_dir,
+        steps=None,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.lon = float(lon)
         self.lat = float(lat)
@@ -40,14 +48,18 @@ class MeteogramWorker(QThread):
     def run(self) -> None:
         try:
             from cartomet_br.data.ecmwf import load_point_timeseries
+
             ts = load_point_timeseries(
-                self.lon, self.lat, steps=self.steps, cycle=self.cycle,
-                cycle_date=self.cycle_date, data_dir=self.data_dir,
+                self.lon,
+                self.lat,
+                steps=self.steps,
+                cycle=self.cycle,
+                cycle_date=self.cycle_date,
+                data_dir=self.data_dir,
                 progress_cb=self.progress.emit,
             )
         except Exception as e:  # rede, GRIB ausente, etc.
-            logger.warning("Falha ao montar meteograma (%.2f,%.2f): %s",
-                           self.lon, self.lat, e)
+            logger.warning("Falha ao montar meteograma (%.2f,%.2f): %s", self.lon, self.lat, e)
             self.finished_error.emit(
                 "Não foi possível montar o meteograma neste ponto.\n"
                 "Verifique a rodada/step (rede ou cache).\n\n"
@@ -62,12 +74,21 @@ class CrossSectionWorker(QThread):
     """Monta o corte vertical A→B do IFS, fora da thread da GUI (F4)."""
 
     progress = pyqtSignal(str)
-    finished_ok = pyqtSignal(object)   # CrossSection
+    finished_ok = pyqtSignal(object)  # CrossSection
     finished_error = pyqtSignal(str)
 
-    def __init__(self, lon_a: float, lat_a: float, lon_b: float, lat_b: float,
-                 step: int, cycle: int | None, cycle_date: str | None,
-                 data_dir, parent=None) -> None:
+    def __init__(
+        self,
+        lon_a: float,
+        lat_a: float,
+        lon_b: float,
+        lat_b: float,
+        step: int,
+        cycle: int | None,
+        cycle_date: str | None,
+        data_dir,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.lon_a = float(lon_a)
         self.lat_a = float(lat_a)
@@ -82,9 +103,15 @@ class CrossSectionWorker(QThread):
         self.progress.emit("Baixando coluna do modelo e interpolando o corte…")
         try:
             from cartomet_br.data.ecmwf import load_cross_section
+
             xs = load_cross_section(
-                self.lon_a, self.lat_a, self.lon_b, self.lat_b,
-                step=self.step, cycle=self.cycle, cycle_date=self.cycle_date,
+                self.lon_a,
+                self.lat_a,
+                self.lon_b,
+                self.lat_b,
+                step=self.step,
+                cycle=self.cycle,
+                cycle_date=self.cycle_date,
                 data_dir=self.data_dir,
             )
         except Exception as e:  # rede, GRIB ausente, etc.
@@ -107,11 +134,20 @@ class InstabilityWorker(QThread):
     """
 
     progress = pyqtSignal(str)
-    finished_ok = pyqtSignal(object)   # dict[str, PLFieldData]
+    finished_ok = pyqtSignal(object)  # dict[str, PLFieldData]
     finished_error = pyqtSignal(str)
 
-    def __init__(self, extent, step: int, cycle: int | None, cycle_date: str | None,
-                 data_dir, indices, stride: int = 4, parent=None) -> None:
+    def __init__(
+        self,
+        extent,
+        step: int,
+        cycle: int | None,
+        cycle_date: str | None,
+        data_dir,
+        indices,
+        stride: int = 4,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.extent = list(extent)
         self.step = step
@@ -124,10 +160,15 @@ class InstabilityWorker(QThread):
     def run(self) -> None:
         try:
             from cartomet_br.data.ecmwf import compute_instability_fields
+
             fields = compute_instability_fields(
-                self.extent, step=self.step, cycle=self.cycle,
-                cycle_date=self.cycle_date, data_dir=self.data_dir,
-                indices=self.indices, coarsen_stride=self.stride,
+                self.extent,
+                step=self.step,
+                cycle=self.cycle,
+                cycle_date=self.cycle_date,
+                data_dir=self.data_dir,
+                indices=self.indices,
+                coarsen_stride=self.stride,
                 progress_cb=self.progress.emit,
             )
         except Exception as e:  # rede, GRIB ausente, etc.

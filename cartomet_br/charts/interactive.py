@@ -39,7 +39,9 @@ logger = logging.getLogger(__name__)
 N_INTERP = 150
 
 
-def interpolar_pontos(xs: list[float] | np.ndarray, ys: list[float] | np.ndarray, n: int = N_INTERP) -> tuple[np.ndarray, np.ndarray]:
+def interpolar_pontos(
+    xs: list[float] | np.ndarray, ys: list[float] | np.ndarray, n: int = N_INTERP
+) -> tuple[np.ndarray, np.ndarray]:
     """Densifica pontos clicados em curva suave via spline cúbica."""
     xs = np.array(xs, dtype=float)
     ys = np.array(ys, dtype=float)
@@ -68,10 +70,11 @@ def interpolar_pontos(xs: list[float] | np.ndarray, ys: list[float] | np.ndarray
 #  CLASSE PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class InteractiveChart:
     """
     Ferramenta interativa para desenhar frentes sobre mapa ou carta sinótica.
-    
+
     Layout:
     ┌────────────────────────────────────────┬──────────────┐
     │                                        │  CONTROLES   │
@@ -92,7 +95,7 @@ class InteractiveChart:
     ):
         """
         Inicializa a ferramenta interativa.
-        
+
         Parâmetros
         ----------
         config : Config, opcional
@@ -179,7 +182,8 @@ class InteractiveChart:
 
             # GridSpec: mapa ocupa 85% da largura, painel lateral 15%
             gs = gridspec.GridSpec(
-                1, 2,
+                1,
+                2,
                 width_ratios=[6, 1],
                 wspace=0.02,
             )
@@ -188,9 +192,13 @@ class InteractiveChart:
             crs_mapa = ccrs.PlateCarree()
             self.ax = self.fig.add_subplot(gs[0], projection=crs_mapa)
             self.ax.set_extent(
-                [self.config.extent[0], self.config.extent[2],
-                 self.config.extent[1], self.config.extent[3]],
-                crs=crs_mapa
+                [
+                    self.config.extent[0],
+                    self.config.extent[2],
+                    self.config.extent[1],
+                    self.config.extent[3],
+                ],
+                crs=crs_mapa,
             )
 
             # Features do mapa
@@ -198,21 +206,31 @@ class InteractiveChart:
             self.ax.add_feature(cfeature.OCEAN, facecolor="#d4e6f1", zorder=1)
             self.ax.add_feature(cfeature.LAKES, facecolor="#d4e6f1", alpha=0.7, zorder=2)
             self.ax.add_feature(cfeature.COASTLINE, linewidth=0.7, edgecolor="#333333", zorder=3)
-            self.ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor="#888888",
-                               linestyle=":", zorder=3)
+            self.ax.add_feature(
+                cfeature.BORDERS, linewidth=0.5, edgecolor="#888888", linestyle=":", zorder=3
+            )
             self.ax.add_feature(
                 cfeature.NaturalEarthFeature(
-                    "cultural", "admin_1_states_provinces_lines", "50m",
-                    edgecolor="#aaaaaa", facecolor="none"
+                    "cultural",
+                    "admin_1_states_provinces_lines",
+                    "50m",
+                    edgecolor="#aaaaaa",
+                    facecolor="none",
                 ),
-                linewidth=0.3, zorder=3,
+                linewidth=0.3,
+                zorder=3,
             )
 
             # Gridlines
             gl = self.ax.gridlines(
-                crs=crs_mapa, draw_labels=True,
-                linewidth=0.3, color="#999999", alpha=0.5, linestyle="--",
-                xlocs=range(-100, 10, 10), ylocs=range(-80, 20, 10),
+                crs=crs_mapa,
+                draw_labels=True,
+                linewidth=0.3,
+                color="#999999",
+                alpha=0.5,
+                linestyle="--",
+                xlocs=range(-100, 10, 10),
+                ylocs=range(-80, 20, 10),
             )
             gl.top_labels = False
             gl.right_labels = False
@@ -223,7 +241,10 @@ class InteractiveChart:
             # Título do mapa
             self.ax.set_title(
                 "CartoMet_BR — Ferramenta de Análise Sinótica",
-                fontsize=12, fontweight="bold", color="#1A1A1A", pad=10,
+                fontsize=12,
+                fontweight="bold",
+                color="#1A1A1A",
+                pad=10,
             )
 
             # Painel lateral
@@ -247,28 +268,58 @@ class InteractiveChart:
         # ─── SEÇÃO: STATUS ATUAL ───────────────────────────────────────────
         y_pos = 0.97
 
-        ax.text(0.5, y_pos, "STATUS", fontsize=9, fontweight="bold",
-                ha="center", va="top", color="#333333",
-                transform=ax.transAxes)
+        ax.text(
+            0.5,
+            y_pos,
+            "STATUS",
+            fontsize=9,
+            fontweight="bold",
+            ha="center",
+            va="top",
+            color="#333333",
+            transform=ax.transAxes,
+        )
         y_pos -= 0.04
 
         # Texto de status (será atualizado dinamicamente)
         self.status_text = ax.text(
-            0.5, y_pos, "", fontsize=8, ha="center", va="top",
-            color="#1a6faf", fontweight="bold", transform=ax.transAxes,
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
-                     edgecolor="#1a6faf", linewidth=0.5),
+            0.5,
+            y_pos,
+            "",
+            fontsize=8,
+            ha="center",
+            va="top",
+            color="#1a6faf",
+            fontweight="bold",
+            transform=ax.transAxes,
+            bbox=dict(
+                boxstyle="round,pad=0.3", facecolor="white", edgecolor="#1a6faf", linewidth=0.5
+            ),
         )
         y_pos -= 0.08
 
         # ─── SEÇÃO: CONTROLES ──────────────────────────────────────────────
-        ax.plot([0.1, 0.9], [y_pos + 0.02, y_pos + 0.02], color="#CCCCCC",
-                linewidth=0.5, transform=ax.transAxes, clip_on=False)
+        ax.plot(
+            [0.1, 0.9],
+            [y_pos + 0.02, y_pos + 0.02],
+            color="#CCCCCC",
+            linewidth=0.5,
+            transform=ax.transAxes,
+            clip_on=False,
+        )
         y_pos -= 0.02
 
-        ax.text(0.5, y_pos, "CONTROLES", fontsize=9, fontweight="bold",
-                ha="center", va="top", color="#333333",
-                transform=ax.transAxes)
+        ax.text(
+            0.5,
+            y_pos,
+            "CONTROLES",
+            fontsize=9,
+            fontweight="bold",
+            ha="center",
+            va="top",
+            color="#333333",
+            transform=ax.transAxes,
+        )
         y_pos -= 0.04
 
         controles = [
@@ -281,38 +332,95 @@ class InteractiveChart:
         ]
 
         for tecla, acao in controles:
-            ax.text(0.08, y_pos, f"[{tecla}]", fontsize=7, fontweight="bold",
-                    ha="left", va="top", color="#555555", family="monospace",
-                    transform=ax.transAxes)
-            ax.text(0.92, y_pos, acao, fontsize=7, ha="right", va="top",
-                    color="#666666", transform=ax.transAxes)
+            ax.text(
+                0.08,
+                y_pos,
+                f"[{tecla}]",
+                fontsize=7,
+                fontweight="bold",
+                ha="left",
+                va="top",
+                color="#555555",
+                family="monospace",
+                transform=ax.transAxes,
+            )
+            ax.text(
+                0.92,
+                y_pos,
+                acao,
+                fontsize=7,
+                ha="right",
+                va="top",
+                color="#666666",
+                transform=ax.transAxes,
+            )
             y_pos -= 0.035
 
         # ─── SEÇÃO: SIMBOLOGIAS ────────────────────────────────────────────
         y_pos -= 0.02
-        ax.plot([0.1, 0.9], [y_pos + 0.02, y_pos + 0.02], color="#CCCCCC",
-                linewidth=0.5, transform=ax.transAxes, clip_on=False)
+        ax.plot(
+            [0.1, 0.9],
+            [y_pos + 0.02, y_pos + 0.02],
+            color="#CCCCCC",
+            linewidth=0.5,
+            transform=ax.transAxes,
+            clip_on=False,
+        )
         y_pos -= 0.02
 
-        ax.text(0.5, y_pos, "SIMBOLOGIAS", fontsize=9, fontweight="bold",
-                ha="center", va="top", color="#333333",
-                transform=ax.transAxes)
+        ax.text(
+            0.5,
+            y_pos,
+            "SIMBOLOGIAS",
+            fontsize=9,
+            fontweight="bold",
+            ha="center",
+            va="top",
+            color="#333333",
+            transform=ax.transAxes,
+        )
         y_pos -= 0.04
 
         for tecla, modo in MODOS.items():
             # Tecla
-            ax.text(0.08, y_pos, f"[{tecla}]", fontsize=7, fontweight="bold",
-                    ha="left", va="top", color=modo["cor"], family="monospace",
-                    transform=ax.transAxes)
+            ax.text(
+                0.08,
+                y_pos,
+                f"[{tecla}]",
+                fontsize=7,
+                fontweight="bold",
+                ha="left",
+                va="top",
+                color=modo["cor"],
+                family="monospace",
+                transform=ax.transAxes,
+            )
             # Nome
             nome_curto = modo["nome"].replace(" (RidgeAxis)", "").replace(" (Dryline)", "")
-            ax.text(0.92, y_pos, nome_curto, fontsize=7, ha="right", va="top",
-                    color=modo["cor"], transform=ax.transAxes)
+            ax.text(
+                0.92,
+                y_pos,
+                nome_curto,
+                fontsize=7,
+                ha="right",
+                va="top",
+                color=modo["cor"],
+                transform=ax.transAxes,
+            )
             y_pos -= 0.035
 
         # ─── RODAPÉ ────────────────────────────────────────────────────────
-        ax.text(0.5, 0.02, "CartoMet_BR v1.0", fontsize=6, ha="center", va="bottom",
-                color="#999999", style="italic", transform=ax.transAxes)
+        ax.text(
+            0.5,
+            0.02,
+            "CartoMet_BR v1.0",
+            fontsize=6,
+            ha="center",
+            va="bottom",
+            color="#999999",
+            style="italic",
+            transform=ax.transAxes,
+        )
 
     def _kwargs_plot(self, modo_key: str, flip: bool = False) -> dict[str, Any]:
         """Retorna kwargs para plotagem de linha."""
@@ -340,10 +448,14 @@ class InteractiveChart:
             self.status_text.set_text(status)
             self.status_text.set_color(m["cor"])
             # Atualiza cor da borda do bbox
-            self.status_text.set_bbox(dict(
-                boxstyle="round,pad=0.3", facecolor="white",
-                edgecolor=m["cor"], linewidth=1.0,
-            ))
+            self.status_text.set_bbox(
+                dict(
+                    boxstyle="round,pad=0.3",
+                    facecolor="white",
+                    edgecolor=m["cor"],
+                    linewidth=1.0,
+                )
+            )
 
         self.fig.canvas.draw_idle()
 
@@ -358,9 +470,8 @@ class InteractiveChart:
 
         if len(self.estado["pts_x"]) >= 2:
             xi, yi = interpolar_pontos(self.estado["pts_x"], self.estado["pts_y"])
-            linha, = self.ax.plot(
-                xi, yi,
-                **self._kwargs_plot(self.estado["modo"], flip=self.estado["flip"])
+            (linha,) = self.ax.plot(
+                xi, yi, **self._kwargs_plot(self.estado["modo"], flip=self.estado["flip"])
             )
             self.estado["preview"] = linha
 
@@ -382,6 +493,7 @@ class InteractiveChart:
     def _colocar_ponto(self, x: float, y: float) -> None:
         """Coloca símbolo pontual (ex.: centros de pressão, furacão) com clique único."""
         import matplotlib.patheffects as pe
+
         modo = MODOS[self.estado["modo"]]
         cor = modo["cor"]
 
@@ -391,10 +503,16 @@ class InteractiveChart:
             label = modo.get("label", "?")
             fontsize = modo.get("fontsize", 22)
             artist = self.ax.text(
-                x, y, label,
-                fontsize=fontsize, fontweight="bold", color=cor,
-                ha="center", va="center",
-                transform=self.ax.transData, zorder=25,
+                x,
+                y,
+                label,
+                fontsize=fontsize,
+                fontweight="bold",
+                color=cor,
+                ha="center",
+                va="center",
+                transform=self.ax.transData,
+                zorder=25,
                 path_effects=[pe.withStroke(linewidth=3, foreground="white")],
             )
 
@@ -437,9 +555,8 @@ class InteractiveChart:
                     self.estado["preview"] = None
 
                 xi, yi = interpolar_pontos(self.estado["pts_x"], self.estado["pts_y"])
-                linha, = self.ax.plot(
-                    xi, yi,
-                    **self._kwargs_plot(self.estado["modo"], flip=self.estado["flip"])
+                (linha,) = self.ax.plot(
+                    xi, yi, **self._kwargs_plot(self.estado["modo"], flip=self.estado["flip"])
                 )
                 self.estado["linhas"].append(linha)
 
@@ -485,6 +602,7 @@ class InteractiveChart:
     def _salvar(self) -> None:
         """Salva a imagem atual."""
         from datetime import datetime
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"cartomet_interactive_{timestamp}.png"
         output_path = self.config.output_dir / filename
@@ -506,6 +624,7 @@ class InteractiveChart:
 #  FUNÇÃO DE CONVENIÊNCIA
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 def run_interactive(
     config: Config | None = None,
     use_synoptic_background: bool = False,
@@ -513,7 +632,7 @@ def run_interactive(
 ) -> None:
     """
     Inicia a ferramenta interativa.
-    
+
     Parâmetros
     ----------
     config : Config, opcional

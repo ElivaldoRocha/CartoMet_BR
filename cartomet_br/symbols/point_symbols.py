@@ -16,6 +16,7 @@ from matplotlib.path import Path
 #  UTILIDADES
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class _CompoundArtist:
     """Agrupa vários artists matplotlib em um só para undo/redo."""
 
@@ -43,10 +44,12 @@ def _symbol_size(ax, frac: float = 0.035) -> float:
 def _make_circle_path(cx: float, cy: float, radius: float, n_pts: int = 24) -> Path:
     """Cria path circular fechado."""
     angles = np.linspace(0, 2 * np.pi, n_pts, endpoint=False)
-    verts = np.column_stack([
-        cx + radius * np.cos(angles),
-        cy + radius * np.sin(angles),
-    ])
+    verts = np.column_stack(
+        [
+            cx + radius * np.cos(angles),
+            cy + radius * np.sin(angles),
+        ]
+    )
     verts = np.vstack([verts, verts[0]])
     codes = [Path.MOVETO] + [Path.LINETO] * (n_pts - 1) + [Path.CLOSEPOLY]
     return Path(verts, codes)
@@ -73,10 +76,7 @@ def _make_arm_polygon(r: float, s: float, n: int = 20) -> np.ndarray:
 
     t3 = t[:, None]
     center = (
-        (1 - t3) ** 3 * p0
-        + 3 * (1 - t3) ** 2 * t3 * p1
-        + 3 * (1 - t3) * t3 ** 2 * p2
-        + t3 ** 3 * p3
+        (1 - t3) ** 3 * p0 + 3 * (1 - t3) ** 2 * t3 * p1 + 3 * (1 - t3) * t3**2 * p2 + t3**3 * p3
     )
 
     # Tangente → normal
@@ -106,6 +106,7 @@ def _arm_to_path(arm_pts: np.ndarray, cx: float, cy: float) -> Path:
 #  FURACÃO (OMM)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 def draw_hurricane(ax, x: float, y: float, color: str = "#CC0000"):
     """
     Furacão — Símbolo clássico OMM.
@@ -127,8 +128,12 @@ def draw_hurricane(ax, x: float, y: float, color: str = "#CC0000"):
 
     compound = Path.make_compound_path(circle_path, arm1_path, arm2_path)
     patch = PathPatch(
-        compound, facecolor=color, edgecolor=color, linewidth=0.5,
-        transform=ccrs.PlateCarree(), zorder=25,
+        compound,
+        facecolor=color,
+        edgecolor=color,
+        linewidth=0.5,
+        transform=ccrs.PlateCarree(),
+        zorder=25,
     )
     ax.add_patch(patch)
     return patch
@@ -137,6 +142,7 @@ def draw_hurricane(ax, x: float, y: float, color: str = "#CC0000"):
 # ═══════════════════════════════════════════════════════════════════════════════
 #  TEMPESTADE TROPICAL
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def draw_tropical_storm(ax, x: float, y: float, color: str = "#CC0000"):
     """
@@ -155,16 +161,24 @@ def draw_tropical_storm(ax, x: float, y: float, color: str = "#CC0000"):
 
     arms_compound = Path.make_compound_path(arm1_path, arm2_path)
     arms_patch = PathPatch(
-        arms_compound, facecolor=color, edgecolor=color, linewidth=0.5,
-        transform=ccrs.PlateCarree(), zorder=25,
+        arms_compound,
+        facecolor=color,
+        edgecolor=color,
+        linewidth=0.5,
+        transform=ccrs.PlateCarree(),
+        zorder=25,
     )
     ax.add_patch(arms_patch)
 
     # Círculo vazado (branco por dentro, borda colorida) — desenhado POR CIMA
     circle_path = _make_circle_path(x, y, r)
     circle_patch = PathPatch(
-        circle_path, facecolor="white", edgecolor=color, linewidth=1.5,
-        transform=ccrs.PlateCarree(), zorder=26,
+        circle_path,
+        facecolor="white",
+        edgecolor=color,
+        linewidth=1.5,
+        transform=ccrs.PlateCarree(),
+        zorder=26,
     )
     ax.add_patch(circle_patch)
 
@@ -174,6 +188,7 @@ def draw_tropical_storm(ax, x: float, y: float, color: str = "#CC0000"):
 # ═══════════════════════════════════════════════════════════════════════════════
 #  VÓRTICE CICLÔNICO
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def _make_vortex_blade(s: float, n: int = 20) -> np.ndarray:
     """
@@ -192,10 +207,7 @@ def _make_vortex_blade(s: float, n: int = 20) -> np.ndarray:
 
     t3 = t[:, None]
     center = (
-        (1 - t3) ** 3 * p0
-        + 3 * (1 - t3) ** 2 * t3 * p1
-        + 3 * (1 - t3) * t3 ** 2 * p2
-        + t3 ** 3 * p3
+        (1 - t3) ** 3 * p0 + 3 * (1 - t3) ** 2 * t3 * p1 + 3 * (1 - t3) * t3**2 * p2 + t3**3 * p3
     )
 
     # Tangente → normal
@@ -234,8 +246,12 @@ def draw_vortex(ax, x: float, y: float, color: str = "#CC0000"):
 
     compound = Path.make_compound_path(*blade_paths)
     patch = PathPatch(
-        compound, facecolor=color, edgecolor=color, linewidth=0.5,
-        transform=ccrs.PlateCarree(), zorder=25,
+        compound,
+        facecolor=color,
+        edgecolor=color,
+        linewidth=0.5,
+        transform=ccrs.PlateCarree(),
+        zorder=25,
     )
     ax.add_patch(patch)
     return patch

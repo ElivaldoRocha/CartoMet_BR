@@ -27,10 +27,11 @@ from cartomet_br.symbols.base import (
 #  FRENTE FRIA
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class FrenteFria(_FrenteBase):
     """
     Frente Fria — Triângulos preenchidos azuis perpendiculares ao path.
-    
+
     Representa a borda dianteira de uma massa de ar frio que avança
     e empurra o ar quente para cima.
     """
@@ -44,20 +45,18 @@ class FrenteFria(_FrenteBase):
 
     def _draw_symbol(self, renderer, gc, pt, angle, idx, identity):
         raw, codes = make_triangle(self.symbol_size)
-        draw_filled(
-            renderer, gc, raw, codes, pt, angle,
-            self.color, identity, self._rotate
-        )
+        draw_filled(renderer, gc, raw, codes, pt, angle, self.color, identity, self._rotate)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  FRENTE QUENTE
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class FrenteQuente(_FrenteBase):
     """
     Frente Quente — Semicírculos preenchidos vermelhos perpendiculares ao path.
-    
+
     Representa a borda dianteira de uma massa de ar quente que avança
     sobre o ar frio mais denso.
     """
@@ -71,20 +70,18 @@ class FrenteQuente(_FrenteBase):
 
     def _draw_symbol(self, renderer, gc, pt, angle, idx, identity):
         raw, codes = make_semicircle(self.symbol_size)
-        draw_filled(
-            renderer, gc, raw, codes, pt, angle,
-            self.color, identity, self._rotate
-        )
+        draw_filled(renderer, gc, raw, codes, pt, angle, self.color, identity, self._rotate)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  FRENTE ESTACIONÁRIA
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class FrenteEstacionaria(_FrenteBase):
     """
     Frente Estacionária — Padrão WMO.
-    
+
     Segmentos alternando azul (triângulo no lado +normal)
     e vermelho (semicírculo no lado -normal).
     O flip inverte AMBOS os lados simultaneamente.
@@ -117,14 +114,12 @@ class FrenteEstacionaria(_FrenteBase):
         cut_positions = [0.0]
         for k in range(len(sym_positions)):
             if k + 1 < len(sym_positions):
-                cut_positions.append(
-                    (sym_positions[k] + sym_positions[k + 1]) / 2
-                )
+                cut_positions.append((sym_positions[k] + sym_positions[k + 1]) / 2)
             else:
                 cut_positions.append(total)
 
         for k, sym_pos in enumerate(sym_positions):
-            is_fria = (k % 2 == 0)
+            is_fria = k % 2 == 0
             cor = self._COR_FRIA if is_fria else self._COR_QUENTE
 
             p_start = cut_positions[k]
@@ -158,14 +153,12 @@ class FrenteEstacionaria(_FrenteBase):
             if is_fria:
                 raw, codes = make_triangle(s, direction=dir_tri)
                 draw_filled(
-                    renderer, gc, raw, codes, pt, angle,
-                    self._COR_FRIA, identity, self._rotate
+                    renderer, gc, raw, codes, pt, angle, self._COR_FRIA, identity, self._rotate
                 )
             else:
                 raw, codes = make_semicircle(s, direction=dir_semi)
                 draw_filled(
-                    renderer, gc, raw, codes, pt, angle,
-                    self._COR_QUENTE, identity, self._rotate
+                    renderer, gc, raw, codes, pt, angle, self._COR_QUENTE, identity, self._rotate
                 )
 
 
@@ -173,10 +166,11 @@ class FrenteEstacionaria(_FrenteBase):
 #  FRENTE OCLUSA
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class FrenteOclusa(_FrenteBase):
     """
     Frente Oclusa — Alternância triângulo ↔ semicírculo no MESMO lado.
-    
+
     Cor roxa. Representa quando uma frente fria alcança e se funde
     com uma frente quente.
     """
@@ -194,15 +188,13 @@ class FrenteOclusa(_FrenteBase):
             raw, codes = make_triangle(s)
         else:
             raw, codes = make_semicircle(s)
-        draw_filled(
-            renderer, gc, raw, codes, pt, angle,
-            self.color, identity, self._rotate
-        )
+        draw_filled(renderer, gc, raw, codes, pt, angle, self.color, identity, self._rotate)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  FRONTOGÊNESE
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class Frontogenese(_FrenteBase):
     """
@@ -246,8 +238,15 @@ class Frontogenese(_FrenteBase):
             angle_sym = angle + (np.pi if self.flip else 0)
             raw, codes = make_triangle(s)
             draw_filled(
-                renderer, gc0, raw, codes, pt, angle_sym,
-                self.color, identity, self._rotate,
+                renderer,
+                gc0,
+                raw,
+                codes,
+                pt,
+                angle_sym,
+                self.color,
+                identity,
+                self._rotate,
             )
 
         # Pontos preenchidos entre triângulos consecutivos, sobre a linha
@@ -261,7 +260,9 @@ class Frontogenese(_FrenteBase):
             gc_d.set_linewidth(0)
             gc_d.set_foreground(self.color)
             renderer.draw_path(
-                gc_d, Path(raw_c + pt, codes_c), identity,
+                gc_d,
+                Path(raw_c + pt, codes_c),
+                identity,
                 to_rgba(self.color),
             )
             gc_d.restore()
@@ -272,6 +273,7 @@ class Frontogenese(_FrenteBase):
 # ═══════════════════════════════════════════════════════════════════════════════
 #  FRONTÓLISE
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class Frontolise(_FrenteBase):
     """
@@ -315,8 +317,15 @@ class Frontolise(_FrenteBase):
             angle_sym = angle + (np.pi if self.flip else 0)
             raw, codes = make_triangle(s)
             draw_filled(
-                renderer, gc0, raw, codes, pt, angle_sym,
-                self.color, identity, self._rotate,
+                renderer,
+                gc0,
+                raw,
+                codes,
+                pt,
+                angle_sym,
+                self.color,
+                identity,
+                self._rotate,
             )
 
         # Barras inclinadas (/) entre triângulos, cruzando a linha

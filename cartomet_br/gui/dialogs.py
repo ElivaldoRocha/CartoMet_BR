@@ -34,6 +34,7 @@ from cartomet_br.gui.themes import DARK_STYLE
 #  JANELA DE BOAS-VINDAS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class WelcomeDialog(QDialog):
     """Janela de boas-vindas exibida ao iniciar o programa."""
 
@@ -55,11 +56,14 @@ class WelcomeDialog(QDialog):
         if logo_path and logo_path.exists():
             logo_label = QLabel()
             pixmap = QPixmap(str(logo_path))
-            logo_label.setPixmap(pixmap.scaled(
-                100, 100,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            ))
+            logo_label.setPixmap(
+                pixmap.scaled(
+                    100,
+                    100,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
             logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(logo_label)
 
@@ -136,11 +140,14 @@ class WelcomeDialog(QDialog):
         if inst_path and inst_path.exists():
             inst_label = QLabel()
             pixmap_inst = QPixmap(str(inst_path))
-            inst_label.setPixmap(pixmap_inst.scaled(
-                500, 180,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            ))
+            inst_label.setPixmap(
+                pixmap_inst.scaled(
+                    500,
+                    180,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
             inst_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(inst_label)
         else:
@@ -185,6 +192,7 @@ class WelcomeDialog(QDialog):
 #  DIÁLOGO DE CONFIGURAÇÃO INICIAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class FirstRunDialog(QDialog):
     """Diálogo para configurar diretório de dados na primeira execução."""
 
@@ -208,11 +216,14 @@ class FirstRunDialog(QDialog):
         if logo_path and logo_path.exists():
             logo_label = QLabel()
             pixmap = QPixmap(str(logo_path))
-            logo_label.setPixmap(pixmap.scaled(
-                100, 100,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            ))
+            logo_label.setPixmap(
+                pixmap.scaled(
+                    100,
+                    100,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
             header.addWidget(logo_label)
 
         title_layout = QVBoxLayout()
@@ -291,7 +302,8 @@ class FirstRunDialog(QDialog):
 
     def _browse_directory(self):
         dir_path = QFileDialog.getExistingDirectory(
-            self, "Selecione o Diretório",
+            self,
+            "Selecione o Diretório",
             str(Path.home() / "Documents"),
         )
         if dir_path:
@@ -315,9 +327,10 @@ class FirstRunDialog(QDialog):
             self.accept()
         except PermissionError:
             QMessageBox.critical(
-                self, "Erro de Permissão",
+                self,
+                "Erro de Permissão",
                 f"Não foi possível criar/escrever no diretório:\n{self.data_dir}\n\n"
-                "Escolha outro local (ex: sua pasta Documentos)."
+                "Escolha outro local (ex: sua pasta Documentos).",
             )
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Erro ao criar diretório:\n{e}")

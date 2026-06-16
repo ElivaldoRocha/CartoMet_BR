@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 #  CAPTURA DE PROGRESSO (tqdm do ECMWF client)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class StderrProgressCapture(io.TextIOBase):
     """Captura stderr para extrair progresso do tqdm do ECMWF client."""
 
@@ -53,9 +54,9 @@ class StderrProgressCapture(io.TextIOBase):
 
         self._buffer += text
 
-        match = re.search(r'(\d{1,3})%\|', self._buffer)
+        match = re.search(r"(\d{1,3})%\|", self._buffer)
         if not match:
-            match = re.search(r'\s(\d{1,3})%', self._buffer)
+            match = re.search(r"\s(\d{1,3})%", self._buffer)
 
         if match:
             pct = int(match.group(1))
@@ -76,6 +77,7 @@ class StderrProgressCapture(io.TextIOBase):
 #  INTERCEPTOR DE RETRIES (multiurl → GUI)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class _RetryLogHandler(logging.Handler):
     """Intercepta mensagens de retry do multiurl e repassa para a GUI.
 
@@ -94,25 +96,22 @@ class _RetryLogHandler(logging.Handler):
             msg = record.getMessage()
             # "Recovering from HTTP error [429 Too Many Requests], attempt 2 of 500"
             if "Recovering from HTTP error" in msg and "429" in msg:
-                attempt_match = re.search(r'attempt (\d+) of (\d+)', msg)
+                attempt_match = re.search(r"attempt (\d+) of (\d+)", msg)
                 if attempt_match:
                     attempt = attempt_match.group(1)
                     self.message_callback(
-                        f"Servidor ECMWF ocupado (HTTP 429) — "
-                        f"tentativa {attempt}, aguardando..."
+                        f"Servidor ECMWF ocupado (HTTP 429) — tentativa {attempt}, aguardando..."
                     )
                 return
             # "Recovering from connection error [...], attempt N of M"
             if "Recovering from connection error" in msg:
-                attempt_match = re.search(r'attempt (\d+)', msg)
+                attempt_match = re.search(r"attempt (\d+)", msg)
                 attempt = attempt_match.group(1) if attempt_match else "?"
-                self.message_callback(
-                    f"Erro de conexão — tentativa {attempt}, reconectando..."
-                )
+                self.message_callback(f"Erro de conexão — tentativa {attempt}, reconectando...")
                 return
             # "Retrying in 120 seconds"
             if "Retrying in" in msg:
-                wait_match = re.search(r'Retrying in (\d+) seconds', msg)
+                wait_match = re.search(r"Retrying in (\d+) seconds", msg)
                 if wait_match:
                     secs = int(wait_match.group(1))
                     mins = secs // 60
@@ -121,9 +120,7 @@ class _RetryLogHandler(logging.Handler):
                             f"Aguardando {mins}min{secs % 60:02d}s para nova tentativa..."
                         )
                     else:
-                        self.message_callback(
-                            f"Aguardando {secs}s para nova tentativa..."
-                        )
+                        self.message_callback(f"Aguardando {secs}s para nova tentativa...")
                 return
             # "Retrying using mirror ..."
             if "Retrying using mirror" in msg:
@@ -149,6 +146,7 @@ def _attach_retry_handler(message_callback) -> tuple[logging.Handler, logging.Lo
 #  THREAD DE DOWNLOAD SINÓTICO
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class DownloadThread(QThread):
     """Thread para download de dados sinóticos ECMWF via DataService."""
 
@@ -157,8 +155,14 @@ class DownloadThread(QThread):
     finished_ok = pyqtSignal(object)
     finished_error = pyqtSignal(str)
 
-    def __init__(self, config: Config, step: int, cycle: int | None = None,
-                 cycle_date: str | None = None, parent=None):
+    def __init__(
+        self,
+        config: Config,
+        step: int,
+        cycle: int | None = None,
+        cycle_date: str | None = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.service = DataService(config)
         self.step = step
@@ -174,9 +178,7 @@ class DownloadThread(QThread):
         sys.stderr = capture
 
         # Intercepta mensagens de retry do multiurl → GUI
-        retry_handler, retry_logger = _attach_retry_handler(
-            lambda msg: self.progress.emit(msg)
-        )
+        retry_handler, retry_logger = _attach_retry_handler(lambda msg: self.progress.emit(msg))
 
         try:
             # Validação via service (levanta ValidationError)
@@ -222,6 +224,7 @@ class DownloadThread(QThread):
 #  THREAD DE DOWNLOAD DE CAMPOS PL / OLR
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class PLDownloadThread(QThread):
     """Thread para download de variáveis em nível de pressão / OLR via DataService."""
 
@@ -230,8 +233,18 @@ class PLDownloadThread(QThread):
     finished_ok = pyqtSignal(str, object)  # (layer_id, PLFieldData)
     finished_error = pyqtSignal(str)
 
-    def __init__(self, variable_key, level, step, cycle, config, wind_type="barbs",
-                 cycle_date=None, technique="direct", parent=None):
+    def __init__(
+        self,
+        variable_key,
+        level,
+        step,
+        cycle,
+        config,
+        wind_type="barbs",
+        cycle_date=None,
+        technique="direct",
+        parent=None,
+    ):
         super().__init__(parent)
         self.service = DataService(config)
         self.variable_key = variable_key
@@ -251,9 +264,7 @@ class PLDownloadThread(QThread):
         sys.stderr = capture
 
         # Intercepta mensagens de retry do multiurl → GUI
-        retry_handler, retry_logger = _attach_retry_handler(
-            lambda msg: self.progress.emit(msg)
-        )
+        retry_handler, retry_logger = _attach_retry_handler(lambda msg: self.progress.emit(msg))
 
         try:
             var_info = VARIABLE_REGISTRY[self.variable_key]
@@ -287,6 +298,7 @@ class PLDownloadThread(QThread):
 # ═══════════════════════════════════════════════════════════════════════════════
 #  THREAD DE DOWNLOAD GOES-EAST
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class SatDownloadThread(QThread):
     """Thread para download de imagem GOES-East via DataService."""
@@ -328,12 +340,13 @@ class SatDownloadThread(QThread):
 #  THREAD DE DOWNLOAD MUR SST (TSM)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class SSTDownloadThread(QThread):
     """Thread para download de dados MUR SST via ERDDAP OPeNDAP."""
 
     progress = pyqtSignal(str)
     download_percent = pyqtSignal(int)
-    finished_ok = pyqtSignal(object)   # SSTData
+    finished_ok = pyqtSignal(object)  # SSTData
     finished_error = pyqtSignal(str)
 
     def __init__(self, config: Config, target_date=None, parent=None):
@@ -371,6 +384,7 @@ class SSTDownloadThread(QThread):
 #  THREAD DE DOWNLOAD DE OBSERVAÇÕES (SYNOP / METAR)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class StationDownloadThread(QThread):
     """Thread para baixar observações de superfície (SYNOP/METAR).
 
@@ -379,11 +393,12 @@ class StationDownloadThread(QThread):
     """
 
     progress = pyqtSignal(str)
-    finished_ok = pyqtSignal(object)   # dict[str, DataFrame]
+    finished_ok = pyqtSignal(object)  # dict[str, DataFrame]
     finished_error = pyqtSignal(str)
 
-    def __init__(self, config: Config, want_metar: bool, want_synop: bool,
-                 target_time=None, parent=None):
+    def __init__(
+        self, config: Config, want_metar: bool, want_synop: bool, target_time=None, parent=None
+    ):
         super().__init__(parent)
         self.config = config
         self.want_metar = want_metar
@@ -401,13 +416,17 @@ class StationDownloadThread(QThread):
             if self.want_metar:
                 self.progress.emit("Consultando METAR (NOAA AWC)...")
                 result["metar"] = fetch_metar(
-                    extent, when=self.target_time, data_dir=data_dir,
+                    extent,
+                    when=self.target_time,
+                    data_dir=data_dir,
                 )
 
             if self.want_synop:
                 self.progress.emit("Consultando SYNOP (OGIMET)...")
                 result["synop"] = fetch_synop(
-                    extent, when=self.target_time, data_dir=data_dir,
+                    extent,
+                    when=self.target_time,
+                    data_dir=data_dir,
                     progress_callback=lambda msg: self.progress.emit(msg),
                 )
 
@@ -422,6 +441,7 @@ class StationDownloadThread(QThread):
 #  THREAD DO ÍNDICE LOCZCIT-PA (ZCIT)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class LoczcitThread(QThread):
     """Thread que roda o motor LOCZCIT-PA fora da UI (blindagem #6).
 
@@ -429,18 +449,25 @@ class LoczcitThread(QThread):
     """
 
     progress = pyqtSignal(str)
-    finished_ok = pyqtSignal(object)   # LoczcitResult
+    finished_ok = pyqtSignal(object)  # LoczcitResult
     finished_error = pyqtSignal(str)
     finished_cancelled = pyqtSignal()
 
-    def __init__(self, config: Config, cycle: int | None, cycle_date: str | None,
-                 step: int = 0, filter_method: str = "iqr", parent=None):
+    def __init__(
+        self,
+        config: Config,
+        cycle: int | None,
+        cycle_date: str | None,
+        step: int = 0,
+        filter_method: str = "iqr",
+        parent=None,
+    ):
         super().__init__(parent)
         self.config = config
         self.cycle = cycle
         self.cycle_date = cycle_date
         self.step = step
-        self.filter_method = filter_method   # "iqr" (padrão) | "coherence" (LISA)
+        self.filter_method = filter_method  # "iqr" (padrão) | "coherence" (LISA)
         self._cancelled = False
 
     def cancel(self):
@@ -454,9 +481,7 @@ class LoczcitThread(QThread):
         )
 
         # Intercepta retries do multiurl (HTTP 429) → mostra ao usuário
-        retry_handler, retry_logger = _attach_retry_handler(
-            lambda msg: self.progress.emit(msg)
-        )
+        retry_handler, retry_logger = _attach_retry_handler(lambda msg: self.progress.emit(msg))
         try:
             result = compute_loczcit_pa(
                 cycle=self.cycle,
@@ -482,6 +507,7 @@ class LoczcitThread(QThread):
 #  THREAD DA ANÁLISE DE BLOQUEIO ATMOSFÉRICO (ANOMALIA DE Z500)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class BlockingThread(QThread):
     """Thread da análise de bloqueio: gh 500 (IFS) − climatologia ERA5 do dia.
 
@@ -489,12 +515,13 @@ class BlockingThread(QThread):
     """
 
     progress = pyqtSignal(str)
-    finished_ok = pyqtSignal(object)   # BlockingResult
+    finished_ok = pyqtSignal(object)  # BlockingResult
     finished_error = pyqtSignal(str)
     finished_cancelled = pyqtSignal()
 
-    def __init__(self, config: Config, cycle: int | None, cycle_date: str | None,
-                 step: int = 0, parent=None):
+    def __init__(
+        self, config: Config, cycle: int | None, cycle_date: str | None, step: int = 0, parent=None
+    ):
         super().__init__(parent)
         self.config = config
         self.cycle = cycle
@@ -513,9 +540,7 @@ class BlockingThread(QThread):
         )
 
         # Intercepta retries do multiurl (HTTP 429 no download do gh) → usuário
-        retry_handler, retry_logger = _attach_retry_handler(
-            lambda msg: self.progress.emit(msg)
-        )
+        retry_handler, retry_logger = _attach_retry_handler(lambda msg: self.progress.emit(msg))
         try:
             result = compute_blocking(
                 cycle=self.cycle,
@@ -540,6 +565,7 @@ class BlockingThread(QThread):
 # ═══════════════════════════════════════════════════════════════════════════════
 #  DIÁLOGO DE PROGRESSO DE DOWNLOAD
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class DownloadProgressDialog(QDialog):
     """Janela de progresso que aparece durante downloads ECMWF."""
@@ -614,17 +640,11 @@ class DownloadProgressDialog(QDialog):
         self.status_label.setText(msg)
         # Destaca visualmente mensagens de retry/429
         if "429" in msg or "tentativa" in msg or "Aguardando" in msg:
-            self.status_label.setStyleSheet(
-                "font-size: 12px; font-weight: bold; color: #E67E22;"
-            )
+            self.status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #E67E22;")
         elif "concluído" in msg.lower() or "carregad" in msg.lower():
-            self.status_label.setStyleSheet(
-                "font-size: 12px; font-weight: bold; color: #27AE60;"
-            )
+            self.status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #27AE60;")
         else:
-            self.status_label.setStyleSheet(
-                "font-size: 12px; font-weight: bold; color: #3498DB;"
-            )
+            self.status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #3498DB;")
 
     def update_percent(self, pct: int):
         self.progress_bar.setValue(pct)

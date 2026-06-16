@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 #  FUNÇÃO PARA PLOTAR CENTROS H/L
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 def plot_maxmin_points(
     ax,
     lon: np.ndarray,
@@ -43,7 +44,7 @@ def plot_maxmin_points(
 ):
     """
     Plota símbolos H/L nos máximos/mínimos locais com filtros de qualidade.
-    
+
     Parâmetros
     ----------
     ax : matplotlib axes
@@ -96,14 +97,16 @@ def plot_maxmin_points(
             if extrema == "min" and value > threshold:
                 continue
 
-        candidates.append({
-            "y": mxy[i],
-            "x": mxx[i],
-            "lon": lon[mxy[i], mxx[i]],
-            "lat": lat[mxy[i], mxx[i]],
-            "value": value,
-            "intensity": abs(value - 1013.25),
-        })
+        candidates.append(
+            {
+                "y": mxy[i],
+                "x": mxx[i],
+                "lon": lon[mxy[i], mxx[i]],
+                "lat": lat[mxy[i], mxx[i]],
+                "value": value,
+                "intensity": abs(value - 1013.25),
+            }
+        )
 
     # Ordena por intensidade
     candidates.sort(key=lambda c: c["intensity"], reverse=True)
@@ -113,7 +116,7 @@ def plot_maxmin_points(
     for cand in candidates:
         too_close = False
         for sel in selected:
-            dist = np.sqrt((cand["y"] - sel["y"])**2 + (cand["x"] - sel["x"])**2)
+            dist = np.sqrt((cand["y"] - sel["y"]) ** 2 + (cand["x"] - sel["x"]) ** 2)
             if dist < min_distance:
                 too_close = True
                 break
@@ -129,7 +132,8 @@ def plot_maxmin_points(
 
     for cand in selected:
         ax.text(
-            cand["lon"], cand["lat"],
+            cand["lon"],
+            cand["lat"],
             symbol,
             color=color,
             fontsize=20,
@@ -141,7 +145,8 @@ def plot_maxmin_points(
             zorder=20,
         )
         ax.text(
-            cand["lon"], cand["lat"],
+            cand["lon"],
+            cand["lat"],
             f"\n{int(cand['value'])}",
             color=color,
             fontsize=10,
@@ -158,6 +163,7 @@ def plot_maxmin_points(
 #  FUNÇÃO PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 def create_synoptic_chart(
     config: Config | None = None,
     extent: list[float] | None = None,
@@ -168,7 +174,7 @@ def create_synoptic_chart(
 ):
     """
     Gera carta sinótica com qualidade profissional.
-    
+
     Parâmetros
     ----------
     config : Config, opcional
@@ -183,7 +189,7 @@ def create_synoptic_chart(
         Se True, exibe a figura
     return_fig : bool
         Se True, retorna (fig, ax) para manipulação adicional
-        
+
     Retorna
     -------
     Path ou tuple
@@ -210,7 +216,7 @@ def create_synoptic_chart(
     ax = plt.axes(projection=ccrs.PlateCarree())
     ax.set_extent(
         [config.extent[0], config.extent[2], config.extent[1], config.extent[3]],
-        crs=ccrs.PlateCarree()
+        crs=ccrs.PlateCarree(),
     )
 
     # Fundo geográfico
@@ -218,19 +224,21 @@ def create_synoptic_chart(
     ax.add_feature(cfeature.LAND, facecolor=COLORS["land"], zorder=1)
     ax.add_feature(cfeature.LAKES, facecolor=COLORS["ocean"], edgecolor="none", zorder=1)
     ax.add_feature(cfeature.COASTLINE, linewidth=0.6, edgecolor=COLORS["coastline"], zorder=5)
-    ax.add_feature(cfeature.BORDERS, linewidth=0.4, edgecolor=COLORS["borders"], linestyle="--", zorder=5)
+    ax.add_feature(
+        cfeature.BORDERS, linewidth=0.4, edgecolor=COLORS["borders"], linestyle="--", zorder=5
+    )
     ax.add_feature(cfeature.STATES, linewidth=0.2, edgecolor=COLORS["states"], zorder=4)
 
     # Espessura 1000-500 hPa
     thickness_levels = np.arange(
-        LEVELS["thickness"]["min"],
-        LEVELS["thickness"]["max"],
-        LEVELS["thickness"]["step"]
+        LEVELS["thickness"]["min"], LEVELS["thickness"]["max"], LEVELS["thickness"]["step"]
     )
     thickness_levels_no_5400 = thickness_levels[thickness_levels != 5400]
 
     cs_thickness = ax.contour(
-        data.lons, data.lats, data.thickness,
+        data.lons,
+        data.lats,
+        data.thickness,
         levels=thickness_levels_no_5400,
         colors=[
             COLORS["thickness_cold"] if lv < 5400 else COLORS["thickness_warm"]
@@ -248,7 +256,9 @@ def create_synoptic_chart(
 
     # Linha de 5400m em destaque
     cs_5400 = ax.contour(
-        data.lons, data.lats, data.thickness,
+        data.lons,
+        data.lats,
+        data.thickness,
         levels=[5400],
         colors=COLORS["thickness_5400"],
         linestyles="solid",
@@ -261,14 +271,12 @@ def create_synoptic_chart(
         txt.set_path_effects([pe.withStroke(linewidth=3, foreground="white")])
 
     # PNMM
-    pnmm_levels = np.arange(
-        LEVELS["pnmm"]["min"],
-        LEVELS["pnmm"]["max"],
-        LEVELS["pnmm"]["step"]
-    )
+    pnmm_levels = np.arange(LEVELS["pnmm"]["min"], LEVELS["pnmm"]["max"], LEVELS["pnmm"]["step"])
 
     cs_pnmm = ax.contour(
-        data.lons, data.lats, data.pnmm,
+        data.lons,
+        data.lats,
+        data.pnmm,
         levels=pnmm_levels,
         colors=COLORS["pnmm_contour"],
         linewidths=1.0,
@@ -282,17 +290,31 @@ def create_synoptic_chart(
 
     # Centros H/L
     plot_maxmin_points(
-        ax, data.lon2d, data.lat2d, data.pnmm,
-        extrema="max", nsize=80, symbol="H",
+        ax,
+        data.lon2d,
+        data.lat2d,
+        data.pnmm,
+        extrema="max",
+        nsize=80,
+        symbol="H",
         color=COLORS["high_pressure"],
-        min_distance=25, threshold=1018, max_points=8,
+        min_distance=25,
+        threshold=1018,
+        max_points=8,
     )
 
     plot_maxmin_points(
-        ax, data.lon2d, data.lat2d, data.pnmm,
-        extrema="min", nsize=60, symbol="L",
+        ax,
+        data.lon2d,
+        data.lat2d,
+        data.pnmm,
+        extrema="min",
+        nsize=60,
+        symbol="L",
         color=COLORS["low_pressure"],
-        min_distance=20, threshold=1008, max_points=10,
+        min_distance=20,
+        threshold=1008,
+        max_points=10,
     )
 
     # Gridlines
@@ -330,16 +352,47 @@ def create_synoptic_chart(
     # Legenda fora do mapa
     legend_elements = [
         Line2D([0], [0], color=COLORS["pnmm_contour"], linewidth=1.5, label="PNMM (hPa)"),
-        Line2D([0], [0], color=COLORS["thickness_warm"], linewidth=1.0, linestyle="--",
-               label="Espessura > 5400m (quente)"),
-        Line2D([0], [0], color=COLORS["thickness_cold"], linewidth=1.0, linestyle="--",
-               label="Espessura < 5400m (frio)"),
-        Line2D([0], [0], color=COLORS["thickness_5400"], linewidth=2.5,
-               label="5400m (transição térmica)"),
-        Line2D([0], [0], marker="$H$", color=COLORS["high_pressure"], linestyle="None",
-               markersize=12, label="Centro de alta pressão"),
-        Line2D([0], [0], marker="$L$", color=COLORS["low_pressure"], linestyle="None",
-               markersize=12, label="Centro de baixa pressão"),
+        Line2D(
+            [0],
+            [0],
+            color=COLORS["thickness_warm"],
+            linewidth=1.0,
+            linestyle="--",
+            label="Espessura > 5400m (quente)",
+        ),
+        Line2D(
+            [0],
+            [0],
+            color=COLORS["thickness_cold"],
+            linewidth=1.0,
+            linestyle="--",
+            label="Espessura < 5400m (frio)",
+        ),
+        Line2D(
+            [0],
+            [0],
+            color=COLORS["thickness_5400"],
+            linewidth=2.5,
+            label="5400m (transição térmica)",
+        ),
+        Line2D(
+            [0],
+            [0],
+            marker="$H$",
+            color=COLORS["high_pressure"],
+            linestyle="None",
+            markersize=12,
+            label="Centro de alta pressão",
+        ),
+        Line2D(
+            [0],
+            [0],
+            marker="$L$",
+            color=COLORS["low_pressure"],
+            linestyle="None",
+            markersize=12,
+            label="Centro de baixa pressão",
+        ),
     ]
 
     legend = ax.legend(
@@ -357,7 +410,8 @@ def create_synoptic_chart(
 
     # Créditos
     fig.text(
-        0.98, 0.01,
+        0.98,
+        0.01,
         "Dados: ECMWF Open Data (IFS) | CC BY 4.0",
         fontsize=7,
         ha="right",

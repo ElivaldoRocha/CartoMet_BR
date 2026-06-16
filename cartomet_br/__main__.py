@@ -42,7 +42,8 @@ Exemplos:
     )
 
     parser.add_argument(
-        "--version", "-v",
+        "--version",
+        "-v",
         action="version",
         version=f"CartoMet_BR {__version__}",
     )
@@ -61,13 +62,15 @@ Exemplos:
         help="Gera carta sinótica automática",
     )
     synoptic_parser.add_argument(
-        "--step", "-s",
+        "--step",
+        "-s",
         type=int,
         default=0,
         help="Passo de previsão em horas (0=análise, 24, 48, etc.)",
     )
     synoptic_parser.add_argument(
-        "--extent", "-e",
+        "--extent",
+        "-e",
         type=float,
         nargs=4,
         metavar=("LON_MIN", "LAT_MIN", "LON_MAX", "LAT_MAX"),
@@ -86,7 +89,8 @@ Exemplos:
         help="Resolução da imagem (default: 200)",
     )
     synoptic_parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=str,
         default=None,
         help="Nome do arquivo de saída",
@@ -103,18 +107,21 @@ Exemplos:
         help="Abre ferramenta interativa para desenhar frentes",
     )
     interactive_parser.add_argument(
-        "--with-synoptic", "-w",
+        "--with-synoptic",
+        "-w",
         action="store_true",
         help="Usa carta sinótica como fundo",
     )
     interactive_parser.add_argument(
-        "--step", "-s",
+        "--step",
+        "-s",
         type=int,
         default=0,
         help="Passo de previsão (se usar fundo sinótico)",
     )
     interactive_parser.add_argument(
-        "--extent", "-e",
+        "--extent",
+        "-e",
         type=float,
         nargs=4,
         metavar=("LON_MIN", "LAT_MIN", "LON_MAX", "LAT_MAX"),
@@ -148,6 +155,7 @@ Exemplos:
     # Executa comando
     if args.command == "gui":
         from cartomet_br.gui import run_gui
+
         run_gui()
 
     elif args.command == "synoptic":
