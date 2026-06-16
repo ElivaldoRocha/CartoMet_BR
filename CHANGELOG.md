@@ -9,6 +9,39 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **🗂️ Carta OMM (exportação institucional):** novo **Arquivo → "Exportar Carta
+  (OMM)…"** compõe, **somente no arquivo** (PNG/PDF), um **cabeçalho institucional**
+  (instituição, analista, tipo de carta, validade/rodada/step auto-preenchidos, hora
+  de emissão, logo opcional — defaults lembrados via `QSettings`) e uma **legenda
+  apenas dos símbolos OMM efetivamente desenhados**. A mobília fica fora do mapa (não
+  altera a geometria do Cartopy) e é incluída no recorte do export; a edição ao vivo e
+  o "Salvar Imagem" cru permanecem intactos.
+- **📈 Meteograma (série temporal num ponto):** clique num ponto → evolução do IFS em
+  **+0…+72h** (T em 1000 hPa, vento de 10 m, precipitação por intervalo, PNMM e água
+  precipitável) num painel docado de 4 eixos. Download **serializado por step**
+  (cache-first, anti-429) em thread — a GUI nunca trava. Rótulo de honestidade
+  (previsão **pontual do modelo**, aproximada).
+- **🔪 Corte Vertical (cross-section A→B):** dois cliques no mapa definem a reta; o
+  painel mostra a **seção pressão × distância** de ω (ascendência), temperatura,
+  umidade e vento, por interpolação ao longo do caminho (13 níveis). Re-dispara ao
+  mudar step/rodada.
+- **🌩️ Campos de instabilidade (CAPE/CIN/LI/K):** novas camadas derivadas do modelo.
+  **K-index** na grade nativa (vetorizado); **Lifted Index, CAPE e CIN** em grade
+  **engrossada** (stride) e interpolados de volta, em thread com progresso. Render
+  **contínuo** (níveis por percentil), **sem classes/limiares inventados**; campo
+  totalmente indefinido é omitido. Rótulo "IFS, 13 níveis — aproximado".
+- **🎈 Pseudo-sondagem do modelo (Skew-T do IFS):** a Sonda Vertical ganha a fonte
+  **Modelo (IFS)** — perfil dos 13 níveis em **qualquer ponto** (inclusive oceano e
+  steps de previsão), onde não há radiossonda; Skew-T, hodógrafa e índices com badge de
+  honestidade.
+- **💾 Projeto de análise (`.cmbr`):** salvar/abrir o **traçado manual + estado do
+  mapa** (JSON versionado). Reabrir restaura **offline** (nunca dispara rede sozinho) e
+  memoriza as camadas calculadas para reativação manual (*human-in-the-loop*).
+- Infra docada comum (`gui/analysis_panel.py` → `AnalysisDock`; `gui/analysis_engine.py`
+  → workers `QThread`) reusando os padrões da Sonda Vertical, com **exclusividade
+  mútua** entre todos os modos de clique. Camadas de dados **GUI-free e testáveis**
+  (`load_point_timeseries`, `load_cross_section`, `compute_instability_fields`); todos
+  os downloads em `config.grib_dir` (nada solto/duplicado). +21 testes puros/offscreen.
 - **🌀 Bloqueio Atmosférico (Z500):** nova Análise Pronta que calcula a **anomalia de
   altura geopotencial em 500 hPa** — `gh` do IFS (rodada + step) menos a climatologia
   diária **ERA5 1991–2020** (00Z/12Z, média anual + 4 harmônicos via FFT, setor
