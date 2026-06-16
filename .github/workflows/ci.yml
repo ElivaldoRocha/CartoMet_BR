@@ -18,7 +18,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v8.2.0  # setup-uv não publica major flutuante (@v8); tag exata
 
       - name: Install dependencies
         run: uv sync --extra dev
@@ -51,7 +51,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v8.2.0  # setup-uv não publica major flutuante (@v8); tag exata
 
       - name: Install dependencies
         run: uv sync --extra dev
