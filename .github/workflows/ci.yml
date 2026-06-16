@@ -23,19 +23,17 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
-      # Não-bloqueantes: há dívida pré-existente de lint/format/mypy (estes passos
-      # nunca rodaram enquanto o `uv sync --dev` não instalava as ferramentas).
-      # `continue-on-error` no PASSO faz o job concluir verde e mantém o output
-      # visível como aviso no log; a limpeza será feita incrementalmente. Os
-      # Testes permanecem bloqueantes.
+      # Ruff é bloqueante: a dívida de lint foi limpa e agora protege o projeto.
       - name: Ruff check
-        continue-on-error: true
         run: uv run ruff check cartomet_br/
 
       - name: Ruff format check
-        continue-on-error: true
         run: uv run ruff format --check cartomet_br/
 
+      # Mypy segue advisory (continue-on-error): há ~99 achados pré-existentes,
+      # quase todos atrito de stubs do xarray/numpy (ex.: `.sel(**kwargs)`,
+      # "Returning Any", overloads de datetime64) — não são bugs. Mantido visível
+      # como aviso; será endereçado em etapa própria. Ruff e Testes bloqueiam.
       - name: Mypy
         continue-on-error: true
         run: uv run mypy cartomet_br/ --ignore-missing-imports
