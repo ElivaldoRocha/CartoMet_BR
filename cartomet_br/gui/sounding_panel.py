@@ -196,7 +196,7 @@ class SoundingPanel(QDockWidget):
         )
         self.canvas.draw_idle()
 
-    def render(self, result) -> None:
+    def render(self, result) -> None:  # type: ignore[override]
         """Desenha o painel completo a partir de um SoundingResult."""
         self._progress.hide()
         note = getattr(result, "source_note", "")

@@ -243,6 +243,9 @@ class DataService:
                     layer_id = f"wind_{level}_{wind_type}"
                 else:
                     layer_id = f"{variable_key}_{level}"
+                # Ramo de variáveis em nível de pressão: olr/tcwv/sst saem nos
+                # ramos acima, e validate_level garante o nível para variáveis PL.
+                assert level is not None
                 data = load_pl_variable(
                     variable_key=variable_key,
                     level=level,

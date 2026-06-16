@@ -149,7 +149,7 @@ def _lisa_lowlow_mask(
     lm = Moran_Local(filled.ravel(), w, permutations=permutations, seed=seed)
     # quadrante 3 = Low-Low no esda; significativo
     ll = (lm.q == 3) & (lm.p_sim < p_thresh)
-    return ll.reshape(nlat, nlon) & finite
+    return np.asarray(ll.reshape(nlat, nlon) & finite)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -273,7 +273,7 @@ def smooth_axis(
     col_idx = np.arange(len(lons))
     nearest = np.min(np.abs(col_idx[:, None] - idx_valid[None, :]), axis=1)
     interp[nearest > max_gap] = np.nan  # encerra em vãos longos
-    return interp
+    return np.asarray(interp)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

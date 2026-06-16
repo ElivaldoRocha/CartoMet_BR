@@ -323,15 +323,15 @@ class SymbologyPanel(QWidget):
         self._current_emoji_char = WEATHER_EMOJIS[0][0]
 
         for idx, (char, tip) in enumerate(WEATHER_EMOJIS):
-            btn = QPushButton()
-            btn.setCheckable(True)
-            btn.setFixedSize(40, 40)
-            btn.setToolTip(f"{char}  {tip}")
+            ebtn = QPushButton()
+            ebtn.setCheckable(True)
+            ebtn.setFixedSize(40, 40)
+            ebtn.setToolTip(f"{char}  {tip}")
             # Render the emoji as a full-colour QIcon via Qt's native font stack
             pix = _make_emoji_pixmap(char, 28)
-            btn.setIcon(QIcon(pix))
-            btn.setIconSize(QSize(28, 28))
-            btn.setStyleSheet("""
+            ebtn.setIcon(QIcon(pix))
+            ebtn.setIconSize(QSize(28, 28))
+            ebtn.setStyleSheet("""
                 QPushButton {
                     border: 1px solid #5D6D7E;
                     border-radius: 5px; background-color: #2C3E50;
@@ -342,12 +342,14 @@ class SymbologyPanel(QWidget):
                     background-color: #3D2B00;
                 }
             """)
-            btn.clicked.connect(lambda _, c=char: self._on_emoji_btn_clicked(c))
-            self._emoji_btn_group.addButton(btn, idx)
-            emoji_grid.addWidget(btn, idx // 6, idx % 6)
+            ebtn.clicked.connect(lambda _, c=char: self._on_emoji_btn_clicked(c))
+            self._emoji_btn_group.addButton(ebtn, idx)
+            emoji_grid.addWidget(ebtn, idx // 6, idx % 6)
 
         # Seleciona o primeiro por padrão
-        self._emoji_btn_group.button(0).setChecked(True)
+        first_emoji = self._emoji_btn_group.button(0)
+        if first_emoji is not None:
+            first_emoji.setChecked(True)
         eg_layout.addLayout(emoji_grid)
 
         # Seletor de tamanho
@@ -621,7 +623,7 @@ class SymbologyPanel(QWidget):
 
     def _build_pen_group(self, layout: QVBoxLayout) -> None:
         """Grupo recolhível '✏ Caneta' — traço livre p/ mesa digitalizadora/mouse."""
-        self._pen_style_state = {
+        self._pen_style_state: dict[str, Any] = {
             "edge_color": "#E74C3C",
             "fill_color": None,
             "linewidth": 2.0,
@@ -671,7 +673,7 @@ class SymbologyPanel(QWidget):
 
     def _build_shapes_group(self, layout: QVBoxLayout) -> None:
         """Grupo recolhível '⬜ Formas' — rect/elipse/seta/linha/polígono."""
-        self._shape_style_state = {
+        self._shape_style_state: dict[str, Any] = {
             "edge_color": "#E74C3C",
             "fill_color": None,
             "linewidth": 2.0,

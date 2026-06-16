@@ -34,7 +34,7 @@ class MeteogramPanel(AnalysisDock):
     def __init__(self, title: str = "Meteograma (Ponto)", parent=None) -> None:
         super().__init__(title, parent, min_width=480, figsize=(7.0, 7.8), placeholder=_PLACEHOLDER)
 
-    def render(self, ts) -> None:
+    def render(self, ts) -> None:  # type: ignore[override]
         try:
             self._render(ts)
         except Exception as e:  # blindagem final — nunca derruba a GUI

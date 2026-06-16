@@ -372,7 +372,7 @@ def _convergence_metpy(
         )
         dudx = np.gradient(u, axis=1) / dx2d
         dvdy = np.gradient(v, dy, axis=0)
-        return -(dudx + dvdy)
+        return np.asarray(-(dudx + dvdy))
 
 
 def _nanaware_gaussian(field: np.ndarray, sigma: float) -> np.ndarray:
@@ -513,7 +513,7 @@ def couple_ockham(norm: NormalizedForcings) -> np.ndarray:
     Peso idêntico p/ ∇TSM, convergência e OLR (invertida) — sem "números mágicos".
     NaN propaga: pixel só é válido onde as três forçantes coexistem.
     """
-    return (norm.tsm_n + norm.conv_n + norm.olr_n_inv) / 3.0
+    return np.asarray((norm.tsm_n + norm.conv_n + norm.olr_n_inv) / 3.0)
 
 
 def iqr_latitude_band(izcit: np.ndarray, lats: np.ndarray) -> np.ndarray:
@@ -524,14 +524,14 @@ def iqr_latitude_band(izcit: np.ndarray, lats: np.ndarray) -> np.ndarray:
     da banda são outliers espaciais. Retorna máscara booleana [lat, lon].
     """
     nlat, nlon = izcit.shape
-    max_lats = []
+    max_lats_list: list[float] = []
     with np.errstate(invalid="ignore"):
         for j in range(nlon):
             col = izcit[:, j]
             if np.all(np.isnan(col)):
                 continue
-            max_lats.append(lats[int(np.nanargmax(col))])
-    max_lats = np.asarray(max_lats, dtype=float)
+            max_lats_list.append(lats[int(np.nanargmax(col))])
+    max_lats = np.asarray(max_lats_list, dtype=float)
     if max_lats.size < 4:  # amostra insuficiente p/ IQR
         return np.ones_like(izcit, dtype=bool)
 
@@ -809,7 +809,7 @@ def _stamp_from_valid(valid_time: str) -> str:
         return datetime.now(UTC).strftime("%Y%m%dT%H%MZ")
 
 
-def save_loczcit_netcdf(result: LoczcitResult, out_dir) -> Path:
+def save_loczcit_netcdf(result: LoczcitResult, out_dir: Path) -> Path:
     """Salva o produto LOCZCIT-PA num NetCDF CF (raster categórico + I_ZCIT).
 
     Formato portátil (QGIS, Panoply, xarray). Nome ordenável e autoexplicativo:

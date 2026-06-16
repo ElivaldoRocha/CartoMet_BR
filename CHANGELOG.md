@@ -64,6 +64,23 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   Atribuição Copernicus/C3S (ERA5, Hersbach et al. 2020) embutida no produto e na
   documentação.
 
+### Infraestrutura
+
+- **CI corrigido e endurecido:** o workflow instalava as ferramentas de dev pelo
+  grupo errado (`uv sync --dev` em vez de `--extra dev`), então `ruff`/`pytest`
+  nunca rodavam (`Failed to spawn`). Corrigido; ambiente headless do Qt provisionado
+  no runner Linux (libs `libegl1`/`libgl1`/… + `QT_QPA_PLATFORM=offscreen`) e backend
+  do Matplotlib que degrada para Agg sem display.
+- **Dívida de lint zerada:** `ruff check`/`ruff format` limpos em todo o pacote (≈450
+  achados pré-existentes resolvidos, sem mudança de comportamento) e **bloqueantes** no
+  CI.
+- **Tipos endurecidos:** `mypy` limpo e **bloqueante** na camada de dados/lógica
+  (anotações de causa-raiz em `VARIABLE_REGISTRY`/`MODOS`/dicts de `.sel`, guardas de
+  `None`, `np.asarray` em retornos). O *glue* de renderização Cartopy (`map_canvas`,
+  `charts/synoptic`, `charts/interactive`, `main_window`) é **isento** via
+  `[tool.mypy.overrides]`: ali os `attr-defined` de `GeoAxes` são atrito de stub do
+  Cartopy, não bugs.
+
 ## [3.0.0] — 2026-06-09
 
 ### Adicionado (reformulação científica — linhagem *Projeto ZCIT_AXIS*)

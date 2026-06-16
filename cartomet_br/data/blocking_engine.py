@@ -168,7 +168,8 @@ def _fetch_manifest(
             part = clim_dir / "manifest.json.part"
             part.write_bytes(resp.content)
             part.replace(local)
-            return json.loads(local.read_text(encoding="utf-8"))
+            manifest: dict = json.loads(local.read_text(encoding="utf-8"))
+            return manifest
         except requests.RequestException as e:
             last_err = e
             if attempt < HTTP_RETRIES:
@@ -178,7 +179,8 @@ def _fetch_manifest(
         if progress_callback:
             progress_callback("Sem conexão — usando manifest da climatologia em cache.")
         try:
-            return json.loads(local.read_text(encoding="utf-8"))
+            cached: dict = json.loads(local.read_text(encoding="utf-8"))
+            return cached
         except (OSError, json.JSONDecodeError) as e:
             logger.warning("Manifest local ilegível: %s", e)
     return None

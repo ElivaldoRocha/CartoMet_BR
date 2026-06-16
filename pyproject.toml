@@ -117,6 +117,23 @@ python_version = "3.12"
 warn_return_any = true
 warn_unused_ignores = true
 ignore_missing_imports = true
+# requests/markdown estão instalados mas sem stubs de tipo; "import-untyped" é
+# ruído de "biblioteca sem py.typed", no mesmo espírito de ignore_missing_imports.
+disable_error_code = ["import-untyped"]
+
+# Camada de renderização Cartopy: os eixos são GeoAxes em runtime (com
+# .add_feature/.set_extent/.gridlines), mas o stub do matplotlib tipa plt.axes()
+# como Axes — gerando centenas de falsos "attr-defined". O Cartopy não publica
+# stubs completos. Type-checagem fica restrita à camada de dados/lógica (valiosa
+# e limpa); este glue de desenho é isento. Ver CHANGELOG v3.0.
+[[tool.mypy.overrides]]
+module = [
+    "cartomet_br.gui.map_canvas",
+    "cartomet_br.gui.main_window",
+    "cartomet_br.charts.synoptic",
+    "cartomet_br.charts.interactive",
+]
+ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

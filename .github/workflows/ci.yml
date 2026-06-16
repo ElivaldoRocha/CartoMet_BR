@@ -30,12 +30,10 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check cartomet_br/
 
-      # Mypy segue advisory (continue-on-error): há ~99 achados pré-existentes,
-      # quase todos atrito de stubs do xarray/numpy (ex.: `.sel(**kwargs)`,
-      # "Returning Any", overloads de datetime64) — não são bugs. Mantido visível
-      # como aviso; será endereçado em etapa própria. Ruff e Testes bloqueiam.
+      # Mypy é bloqueante: a dívida de tipos foi limpa na camada de dados/lógica.
+      # O glue de renderização Cartopy (GeoAxes) é isento via [tool.mypy.overrides]
+      # no pyproject — ali os "attr-defined" são atrito de stub, não bugs.
       - name: Mypy
-        continue-on-error: true
         run: uv run mypy cartomet_br/ --ignore-missing-imports
 
   test:

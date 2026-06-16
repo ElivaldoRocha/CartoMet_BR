@@ -25,7 +25,7 @@ VALID_STEPS: list[int] = list(range(0, 145, 3)) + list(range(150, 241, 6))
 def get_assets_path() -> Path:
     """Retorna caminho dos assets, funciona em dev e no executável."""
     if getattr(sys, "frozen", False):
-        base: Path = Path(sys._MEIPASS)
+        base: Path = Path(sys._MEIPASS)  # type: ignore[attr-defined]  # PyInstaller (runtime frozen)
     else:
         base = Path(__file__).parent.parent
     return base / "assets"

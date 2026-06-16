@@ -107,7 +107,7 @@ class _FrenteBase(pe.AbstractPathEffect):
         """Rotaciona pontos xy pelo ângulo dado (em radianos)."""
         c, s = np.cos(angle), np.sin(angle)
         rot = np.array([[c, -s], [s, c]])
-        return xy @ rot.T
+        return np.asarray(xy @ rot.T)
 
     def _draw_line(self, renderer, gc, verts, identity):
         """Desenha a linha base do path."""

@@ -145,5 +145,5 @@ class AnalysisDock(QDockWidget):
         self._header.setText("⚠️ Análise indisponível")
         self._show_centered_message(f"⚠️ {message}", color="#B00020")
 
-    def render(self, result) -> None:  # pragma: no cover - abstrato
+    def render(self, result) -> None:  # type: ignore[override]  # pragma: no cover - abstrato
         raise NotImplementedError

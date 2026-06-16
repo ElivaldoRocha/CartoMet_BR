@@ -100,6 +100,7 @@ def download_mur_sst(
         date_label = "mais recente"
         date_tag = "latest"
     else:
+        assert target_date is not None  # use_latest == False ⇒ target_date definido
         date_tag = target_date.strftime("%Y-%m-%d")
         # MUR SST análise diária: hora fixa 09:00:00Z
         time_constraint = f"{date_tag}T09:00:00Z"

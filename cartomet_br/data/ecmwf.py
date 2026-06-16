@@ -15,6 +15,7 @@ import warnings
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import xarray as xr
@@ -509,7 +510,7 @@ def estimate_available_cycles() -> dict:
     anchor -= timedelta(hours=anchor.hour % 6)
 
     # Recolhe para trás (6/6h) até ter N rodadas publicadas
-    available = []
+    available: list[dict[str, Any]] = []
     cand = anchor
     guard = 80  # segurança (~20 dias de ciclos)
     while len(available) < N_RECENT_CYCLES and guard > 0:
@@ -562,7 +563,7 @@ PL_LEVELS = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100, 50]
 # de propósito — a série é baixada step a step (serializado, anti-429) na thread.
 METEOGRAM_STEPS = list(range(0, 73, 3))
 
-VARIABLE_REGISTRY = {
+VARIABLE_REGISTRY: dict[str, dict[str, Any]] = {
     "gh": {
         "nome": "Altura Geopotencial",
         "param": ["gh"],
@@ -1240,6 +1241,9 @@ def load_point_timeseries(
             "Verifique a rodada/conexão e tente novamente."
         )
 
+    # Invariante: rec_steps não-vazio ⇒ o grid foi amostrado (grid_lon/lat setados).
+    assert grid_lon is not None and grid_lat is not None
+
     return _assemble_point_timeseries(
         lon,
         lat,
@@ -1720,7 +1724,7 @@ def load_pl_variable(
     ds = ds.sortby("longitude")
 
     # Seleciona região e nível
-    sel_kwargs = {
+    sel_kwargs: dict[str, Any] = {
         "longitude": slice(extent[0], extent[2]),
         "latitude": slice(extent[3], extent[1]),
     }
@@ -1877,7 +1881,7 @@ def _compute_derived_variable(
     ds_t = ds_t.assign_coords(longitude=(ds_t.longitude + 180) % 360 - 180)
     ds_t = ds_t.sortby("longitude")
 
-    sel_kw = {
+    sel_kw: dict[str, Any] = {
         "longitude": slice(extent[0], extent[2]),
         "latitude": slice(extent[3], extent[1]),
     }
@@ -1958,7 +1962,7 @@ def _compute_derived_variable(
         ds_uv = ds_uv.assign_coords(longitude=(ds_uv.longitude + 180) % 360 - 180)
         ds_uv = ds_uv.sortby("longitude")
 
-        sel_kw_uv = {
+        sel_kw_uv: dict[str, Any] = {
             "longitude": slice(extent[0], extent[2]),
             "latitude": slice(extent[3], extent[1]),
         }
@@ -2093,7 +2097,7 @@ def _compute_derived_variable(
         ds_q = ds_q.assign_coords(longitude=(ds_q.longitude + 180) % 360 - 180)
         ds_q = ds_q.sortby("longitude")
 
-        sel_kw_q = {
+        sel_kw_q: dict[str, Any] = {
             "longitude": slice(extent[0], extent[2]),
             "latitude": slice(extent[3], extent[1]),
         }
@@ -2628,7 +2632,7 @@ def _gradient_magnitude_metpy(arr: np.ndarray, lons: np.ndarray, lats: np.ndarra
         gy = np.asarray(grad[0].magnitude)
         gx = np.asarray(grad[1].magnitude)
         mag = np.sqrt(gx**2 + gy**2)  # °C/m
-        return mag * 1e5  # °C/m → °C/100km
+        return np.asarray(mag * 1e5)  # °C/m → °C/100km
     except Exception as exc:  # pragma: no cover — fallback robusto
         logger.warning("MetPy falhou no gradiente (%s); usando diferenças finitas.", exc)
         lat_rad = np.deg2rad(lats)
@@ -2642,7 +2646,7 @@ def _gradient_magnitude_metpy(arr: np.ndarray, lons: np.ndarray, lats: np.ndarra
         )
         dfdy = np.gradient(arr, dy, axis=0)
         dfdx = np.gradient(arr, axis=1) / dx2d
-        return np.sqrt(dfdx**2 + dfdy**2) * 1e5
+        return np.asarray(np.sqrt(dfdx**2 + dfdy**2) * 1e5)
 
 
 def load_tcwv(
@@ -3046,7 +3050,8 @@ def load_goes_netcdf(
         time_str = ""
         try:
             t_val = ds["t"].values
-            time_dt = np.datetime64(t_val, "s").astype("datetime64[s]")
+            # t_val é escalar 0-d em runtime; stub do numpy não cobre esse overload.
+            time_dt = np.datetime64(t_val, "s").astype("datetime64[s]")  # type: ignore[call-overload]
             time_py = time_dt.astype(datetime)
             time_str = time_py.strftime("%Y-%m-%d %H:%M UTC")
         except (KeyError, IndexError, ValueError, TypeError) as e:
@@ -3201,7 +3206,7 @@ def download_goes16_ir(
     # Seleciona o arquivo mais PRÓXIMO da hora cheia solicitada
     # Nome: ...G19_s20260791250205_e...  → s = start time: YYYYDDDHHMMSS.s
     best_key = None
-    best_diff_sec = 999999999
+    best_diff_sec = float("inf")
 
     for key in band13_files:
         try:

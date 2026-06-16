@@ -38,7 +38,7 @@ class _CompoundArtist:
 def _symbol_size(ax, frac: float = 0.035) -> float:
     """Calcula tamanho do símbolo baseado na extensão horizontal do mapa."""
     xlim = ax.get_xlim()
-    return abs(xlim[1] - xlim[0]) * frac
+    return float(abs(xlim[1] - xlim[0]) * frac)
 
 
 def _make_circle_path(cx: float, cy: float, radius: float, n_pts: int = 24) -> Path:

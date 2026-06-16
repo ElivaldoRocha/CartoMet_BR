@@ -178,9 +178,9 @@ def _metar_record_from_json(obj: dict) -> dict:
     clouds = obj.get("clouds")
     if isinstance(clouds, list):
         oktas = [_CLOUD_OKTAS.get(str(c.get("cover", "")).upper()) for c in clouds]
-        oktas = [o for o in oktas if o is not None]
-        if oktas:
-            okta = max(oktas)
+        oktas_validos = [o for o in oktas if o is not None]
+        if oktas_validos:
+            okta = float(max(oktas_validos))
 
     # Tempo presente → código WMO numérico (via MetPy, defensivo)
     wx_symbol = np.nan

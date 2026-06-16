@@ -5,6 +5,8 @@ Inclui todas as classes de frentes e efeitos meteorológicos,
 além do dicionário MODOS para uso interativo.
 """
 
+from typing import Any
+
 from cartomet_br.symbols.base import (
     _FrenteBase,
     draw_filled,
@@ -41,7 +43,7 @@ from cartomet_br.symbols.point_symbols import (
 #  TABELA DE MODOS (para interface interativa)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-MODOS = {
+MODOS: dict[str, dict[str, Any]] = {
     # ── Frentes (traçar linha) ──
     "1": {
         "nome": "Frente Fria",
