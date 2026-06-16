@@ -13,15 +13,22 @@ import logging
 import re
 import sys
 
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QThread
 
 from cartomet_br.core.config import Config
 from cartomet_br.data.ecmwf import VARIABLE_REGISTRY
 from cartomet_br.services.data_service import (
-    DataService, ValidationError, DownloadError,
+    DataService,
+    DownloadError,
+    ValidationError,
 )
 
 logger = logging.getLogger(__name__)

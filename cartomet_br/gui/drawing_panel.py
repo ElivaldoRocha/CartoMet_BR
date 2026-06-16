@@ -9,20 +9,38 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
-    QGroupBox, QCheckBox, QFrame, QButtonGroup, QComboBox,
-    QSpinBox, QSlider, QColorDialog,
-)
-from PyQt6.QtCore import Qt, QSize, QPointF, pyqtSignal
+from PyQt6.QtCore import QPointF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import (
-    QKeySequence, QShortcut, QPixmap,
-    QFont, QColor, QPainter, QIcon, QPen, QBrush, QPolygonF,
+    QBrush,
+    QColor,
+    QFont,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPen,
+    QPixmap,
+    QPolygonF,
+    QShortcut,
+)
+from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QCheckBox,
+    QColorDialog,
+    QComboBox,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
 )
 
-from cartomet_br.symbols import MODOS
 from cartomet_br.gui._constants import APP_AUTHOR, APP_VERSION, get_logo_path
-
+from cartomet_br.symbols import MODOS
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  BOTÃO DE SIMBOLOGIA

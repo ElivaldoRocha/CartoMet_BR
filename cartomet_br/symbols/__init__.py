@@ -7,33 +7,30 @@ além do dicionário MODOS para uso interativo.
 
 from cartomet_br.symbols.base import (
     _FrenteBase,
-    make_triangle,
-    make_semicircle,
-    make_circle,
-    make_arrowhead,
     draw_filled,
     draw_open,
+    make_arrowhead,
+    make_circle,
+    make_semicircle,
+    make_triangle,
 )
-
-from cartomet_br.symbols.fronts import (
-    FrenteFria,
-    FrenteQuente,
-    FrenteEstacionaria,
-    FrenteOclusa,
-    Frontogenese,
-    Frontolise,
-)
-
 from cartomet_br.symbols.effects import (
-    ZCASEffect,
-    ZCITEffect,
     CavadoEffect,
+    CorrenteDeJato,
     Crista,
     LinhaInstabilidade,
     LinhaSeca,
-    CorrenteDeJato,
+    ZCASEffect,
+    ZCITEffect,
 )
-
+from cartomet_br.symbols.fronts import (
+    FrenteEstacionaria,
+    FrenteFria,
+    FrenteOclusa,
+    FrenteQuente,
+    Frontogenese,
+    Frontolise,
+)
 from cartomet_br.symbols.point_symbols import (
     draw_hurricane,
     draw_tropical_storm,

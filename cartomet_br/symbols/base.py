@@ -7,12 +7,11 @@ Este módulo contém:
 - Funções para desenhar formas preenchidas e abertas
 """
 
-import numpy as np
 import matplotlib.patheffects as pe
-from matplotlib.path import Path
+import numpy as np
 from matplotlib.colors import to_rgba
+from matplotlib.path import Path
 from matplotlib.transforms import IdentityTransform
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CLASSE BASE PARA FRENTES

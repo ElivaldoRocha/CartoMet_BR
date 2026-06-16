@@ -21,22 +21,22 @@ __author__ = "Elivaldo C. Rocha"
 __email__ = "carvalhovaldo09@gmail.com"
 
 # Imports convenientes no nível do pacote
-from cartomet_br.core.config import Config, EXTENT_BRASIL, EXTENT_AMSUL, validate_extent
+from cartomet_br.charts.interactive import run_interactive
+from cartomet_br.charts.synoptic import create_synoptic_chart
+from cartomet_br.core.config import EXTENT_AMSUL, EXTENT_BRASIL, Config, validate_extent
 from cartomet_br.symbols import (
-    FrenteFria,
-    FrenteQuente,
-    FrenteEstacionaria,
-    FrenteOclusa,
-    ZCASEffect,
-    ZCITEffect,
+    MODOS,
     CavadoEffect,
     Crista,
+    FrenteEstacionaria,
+    FrenteFria,
+    FrenteOclusa,
+    FrenteQuente,
     LinhaInstabilidade,
     LinhaSeca,
-    MODOS,
+    ZCASEffect,
+    ZCITEffect,
 )
-from cartomet_br.charts.synoptic import create_synoptic_chart
-from cartomet_br.charts.interactive import run_interactive
 
 __all__ = [
     # Config

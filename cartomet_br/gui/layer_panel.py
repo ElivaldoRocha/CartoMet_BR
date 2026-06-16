@@ -6,23 +6,38 @@ FieldLayerPanel (campos em altitude / OLR), SatellitePanel (GOES)
 e SSTPanel (TSM MUR SST 1km).
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
+from PyQt6.QtCore import QDate, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
-    QComboBox, QSpinBox, QCheckBox, QSlider, QGroupBox, QDateEdit,
+    QCheckBox,
+    QComboBox,
+    QDateEdit,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
     QMessageBox,
+    QPushButton,
+    QSlider,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QDate
 
 from cartomet_br.core.config import (
-    EXTENT_BRASIL, EXTENT_AMSUL, EXTENT_NORDESTE, EXTENT_SUDESTE, EXTENT_SUL,
+    EXTENT_AMSUL,
+    EXTENT_BRASIL,
+    EXTENT_NORDESTE,
+    EXTENT_SUDESTE,
+    EXTENT_SUL,
 )
 from cartomet_br.data.ecmwf import (
-    estimate_available_cycles, VARIABLE_REGISTRY, PL_LEVELS,
+    PL_LEVELS,
+    VARIABLE_REGISTRY,
+    estimate_available_cycles,
 )
 from cartomet_br.gui._constants import VALID_STEPS
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  PAINEL DE SATÉLITE (esquerda, abaixo das simbologias)
@@ -67,7 +82,7 @@ class SatellitePanel(QWidget):
         self.hora_combo = QComboBox()
         for h in range(24):
             self.hora_combo.addItem(f"{h:02d}Z", h)
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
         self.hora_combo.setCurrentIndex(now_utc.hour)
         hora_row.addWidget(self.hora_combo)
         layout.addLayout(hora_row)
@@ -118,10 +133,10 @@ class SatellitePanel(QWidget):
 
         target = datetime(
             qdate.year(), qdate.month(), qdate.day(),
-            hora, minuto, 0, tzinfo=timezone.utc
+            hora, minuto, 0, tzinfo=UTC
         )
 
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
         if target > now_utc:
             QMessageBox.warning(
                 self,
@@ -184,7 +199,7 @@ class SSTPanel(QWidget):
         self.date_edit = QDateEdit()
         self.date_edit.setCalendarPopup(True)
         # MUR SST tem ~2 dias de latência
-        default_date = datetime.now(timezone.utc) - timedelta(days=2)
+        default_date = datetime.now(UTC) - timedelta(days=2)
         self.date_edit.setDate(QDate(default_date.year, default_date.month, default_date.day))
         self.date_edit.setDisplayFormat("dd/MM/yyyy")
         date_row.addWidget(self.date_edit)
@@ -223,7 +238,7 @@ class SSTPanel(QWidget):
         qdate = self.date_edit.date()
         target = datetime(
             qdate.year(), qdate.month(), qdate.day(),
-            0, 0, 0, tzinfo=timezone.utc,
+            0, 0, 0, tzinfo=UTC,
         )
         self.status_label.setText("")
         self.download_requested.emit(target)

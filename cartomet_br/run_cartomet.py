@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 CartoMet BR — Ponto de entrada para executável PyInstaller
 
@@ -7,10 +6,10 @@ Configura caminhos e variáveis de ambiente necessárias para o executável func
 O diretório de dados é configurado pelo usuário na primeira execução via GUI.
 """
 
-import sys
-import os
 import io
 import logging
+import os
+import sys
 from pathlib import Path
 
 # ═══════════════════════════════════════════════════════════════════════════════

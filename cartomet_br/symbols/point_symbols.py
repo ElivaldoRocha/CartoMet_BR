@@ -7,11 +7,10 @@ Contém:
 - draw_vortex: Vórtice ciclônico (triskele de três braços)
 """
 
-import numpy as np
-from matplotlib.path import Path
-from matplotlib.patches import PathPatch
 import cartopy.crs as ccrs
-
+import numpy as np
+from matplotlib.patches import PathPatch
+from matplotlib.path import Path
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  UTILIDADES

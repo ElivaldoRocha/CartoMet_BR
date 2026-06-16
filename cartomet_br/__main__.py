@@ -12,9 +12,9 @@ import argparse
 import sys
 
 from cartomet_br import __version__
-from cartomet_br.core.config import Config, EXTENT_AMSUL, EXTENT_BRASIL
-from cartomet_br.charts.synoptic import create_synoptic_chart
 from cartomet_br.charts.interactive import run_interactive
+from cartomet_br.charts.synoptic import create_synoptic_chart
+from cartomet_br.core.config import EXTENT_AMSUL, EXTENT_BRASIL, Config
 
 
 def main():
@@ -40,21 +40,21 @@ Exemplos:
   python -m cartomet_br interactive --with-synoptic
         """,
     )
-    
+
     parser.add_argument(
         "--version", "-v",
         action="version",
         version=f"CartoMet_BR {__version__}",
     )
-    
+
     subparsers = parser.add_subparsers(dest="command", help="Comandos disponíveis")
-    
+
     # ─── Comando: gui ───────────────────────────────────────────────────
     gui_parser = subparsers.add_parser(
         "gui",
         help="Abre interface gráfica PyQt6 (recomendado)",
     )
-    
+
     # ─── Comando: synoptic ───────────────────────────────────────────────
     synoptic_parser = subparsers.add_parser(
         "synoptic",
@@ -96,7 +96,7 @@ Exemplos:
         action="store_true",
         help="Não exibe a figura (apenas salva)",
     )
-    
+
     # ─── Comando: interactive ────────────────────────────────────────────
     interactive_parser = subparsers.add_parser(
         "interactive",
@@ -126,30 +126,30 @@ Exemplos:
         action="store_true",
         help="Usa extensão predefinida para o Brasil",
     )
-    
+
     # Parse args
     args = parser.parse_args()
-    
+
     if args.command is None:
         parser.print_help()
         sys.exit(0)
-    
+
     # Configura extent
     extent = EXTENT_AMSUL
     if hasattr(args, "brasil") and args.brasil:
         extent = EXTENT_BRASIL
     if hasattr(args, "extent") and args.extent is not None:
         extent = args.extent
-    
+
     config = Config(extent=extent)
     if hasattr(args, "dpi"):
         config.dpi = args.dpi
-    
+
     # Executa comando
     if args.command == "gui":
         from cartomet_br.gui import run_gui
         run_gui()
-    
+
     elif args.command == "synoptic":
         create_synoptic_chart(
             config=config,
@@ -157,7 +157,7 @@ Exemplos:
             output_filename=args.output,
             show=not args.no_show,
         )
-    
+
     elif args.command == "interactive":
         run_interactive(
             config=config,

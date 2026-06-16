@@ -9,12 +9,11 @@ O ECMWF Open Data disponibiliza previsões do modelo IFS:
 
 import contextlib
 import logging
-import os
 import tempfile
 import threading
 import warnings
-from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -120,9 +119,9 @@ def download_ecmwf(
     if data_dir is None:
         data_dir = Path(tempfile.gettempdir()) / "cartomet_br_data"
         logger.warning("data_dir era None, usando: %s", data_dir)
-    
+
     data_dir = Path(data_dir)
-    
+
     # Cria diretório com tratamento de erro
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -133,7 +132,7 @@ def download_ecmwf(
         ) from e
     except Exception as e:
         raise RuntimeError(f"Erro ao criar diretório {data_dir}: {e}") from e
-    
+
     # Verifica se podemos escrever no diretório
     test_file = data_dir / ".write_test"
     try:
@@ -145,14 +144,14 @@ def download_ecmwf(
             f"Vá em Arquivo → Configurar Diretório de Dados e escolha outro local.\n"
             f"Erro: {e}"
         )
-    
+
     if output_path is None:
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d")
         var_str = "_".join(variables)
         output_path = data_dir / f"ecmwf_{var_str}_f{step:03d}.grib2"
     else:
         output_path = Path(output_path)
-    
+
     # Modo somente-cache (abrir projeto): reusa se existe, senão FALHA sem rede.
     if _cache_only_active():
         if output_path.exists():
@@ -172,7 +171,7 @@ def download_ecmwf(
         client = Client(source=source)
     except Exception as e:
         raise ConnectionError(f"Erro ao conectar ao ECMWF: {e}") from e
-    
+
     # IFS Cycle 50r1 (13/05/2026): 06Z/18Z migraram de 'scda' para 'oper'. NÃO
     # forçamos stream="oper" aqui — a ecmwf-opendata >= 0.3.29 já infere o stream
     # correto. Forçá-lo quebrava o filtro de alguns params em nível de pressão
@@ -212,7 +211,7 @@ def download_ecmwf(
     logger.info("  Rodada: %s", cycle_str)
     logger.info("  Step: %sh", step)
     logger.info("  Destino: %s", output_path)
-    
+
     try:
         # client.retrieve() faz SELEÇÃO DE CAMPO por param/levtype (arquivo pequeno e
         # correto, inclui 10u/10v); client.download() baixa o arquivo inteiro (~130 MB)
@@ -227,14 +226,14 @@ def download_ecmwf(
             raise FileNotFoundError(
                 f"Download não criou o arquivo esperado: {output_path}"
             )
-        
+
         if output_path.stat().st_size == 0:
             output_path.unlink()  # Remove arquivo vazio
             raise RuntimeError("Download criou arquivo vazio")
-            
+
     except Exception as e:
         error_msg = str(e)
-        
+
         # Trata erros específicos
         if "Cannot establish latest" in error_msg:
             cycle_hint = f" {cycle:02d}Z" if cycle is not None else ""
@@ -256,18 +255,18 @@ def download_ecmwf(
             ) from e
         elif "429" in error_msg or "Too Many Requests" in error_msg:
             raise ConnectionError(
-                f"Servidor ECMWF sobrecarregado (erro 429).\n\n"
-                f"O servidor limita conexões simultâneas.\n"
-                f"Aguarde 2-3 minutos e tente novamente.\n\n"
-                f"Dica: os dados também estão disponíveis via AWS, Azure e Google Cloud."
+                "Servidor ECMWF sobrecarregado (erro 429).\n\n"
+                "O servidor limita conexões simultâneas.\n"
+                "Aguarde 2-3 minutos e tente novamente.\n\n"
+                "Dica: os dados também estão disponíveis via AWS, Azure e Google Cloud."
             ) from e
         elif "SSL" in error_msg or "certificate" in error_msg.lower():
             raise ConnectionError(
-                f"Erro de conexão SSL. Verifique sua internet."
+                "Erro de conexão SSL. Verifique sua internet."
             ) from e
         else:
             raise RuntimeError(f"Erro no download ECMWF: {error_msg}") from e
-    
+
     logger.info("  Arquivo salvo: %s", output_path)
     return output_path
 
@@ -279,17 +278,17 @@ def download_ecmwf(
 @dataclass
 class SynopticData:
     """Container para dados sinóticos processados."""
-    
+
     # Campos 2D
     pnmm: np.ndarray           # Pressão ao nível do mar (hPa)
     thickness: np.ndarray      # Espessura 1000-500 hPa (m)
-    
+
     # Coordenadas
     lons: np.ndarray
     lats: np.ndarray
     lon2d: np.ndarray
     lat2d: np.ndarray
-    
+
     # Metadados
     valid_time: str
     extent: list[float]
@@ -338,22 +337,22 @@ def load_synoptic_data(
     # Validação de entrada
     if data_dir is None:
         raise ValueError("data_dir não pode ser None")
-    
+
     data_dir = Path(data_dir)
-    
+
     cycle_str = f"{cycle:02d}Z" if cycle is not None else "auto"
     logger.info("Carregando dados sinóticos")
     logger.info("  Diretório: %s", data_dir)
     logger.info("  Rodada: %s", cycle_str)
     logger.info("  Step: +%sh", step)
     logger.info("  Extent: %s", extent)
-    
+
     # Nome inclui data + rodada para evitar reutilizar dados errados.
     # cycle_date vem do combo (data real da rodada selecionada),
     # ou fallback para hoje se auto.
-    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+    date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
-    
+
     msl_file = download_ecmwf(
         variables=["msl"],
         step=step,
@@ -363,7 +362,7 @@ def load_synoptic_data(
         source=source,
         force_download=force_download,
     )
-    
+
     gh_file = download_ecmwf(
         variables=["gh"],
         levels=[500, 1000],
@@ -374,66 +373,66 @@ def load_synoptic_data(
         source=source,
         force_download=force_download,
     )
-    
+
     # Leitura com xarray
     logger.info("Carregando dados com xarray...")
-    
+
     ds_msl = xr.open_dataset(
-        msl_file, 
+        msl_file,
         engine="cfgrib",
         backend_kwargs={
             "filter_by_keys": {"typeOfLevel": "meanSea"},
             "errors": "ignore",
         }
     )
-    
+
     ds_gh = xr.open_dataset(
-        gh_file, 
+        gh_file,
         engine="cfgrib",
         backend_kwargs={
             "filter_by_keys": {"typeOfLevel": "isobaricInhPa"},
             "errors": "ignore",
         }
     )
-    
+
     # Ajusta longitude de 0-360 para -180 a 180
     ds_msl = ds_msl.assign_coords(longitude=(ds_msl.longitude + 180) % 360 - 180)
     ds_msl = ds_msl.sortby("longitude")
-    
+
     ds_gh = ds_gh.assign_coords(longitude=(ds_gh.longitude + 180) % 360 - 180)
     ds_gh = ds_gh.sortby("longitude")
-    
+
     # Seleciona região
     msl = ds_msl["msl"].sel(
         longitude=slice(extent[0], extent[2]),
         latitude=slice(extent[3], extent[1])  # lat decrescente no ECMWF
     )
-    
+
     gh = ds_gh["gh"].sel(
         longitude=slice(extent[0], extent[2]),
         latitude=slice(extent[3], extent[1])
     )
-    
+
     # Processa campos
     pnmm = msl.values / 100.0  # Pa → hPa
     hght_500 = gh.sel(isobaricInhPa=500).values
     hght_1000 = gh.sel(isobaricInhPa=1000).values
     thickness = hght_500 - hght_1000
-    
+
     # Suavização gaussiana
     if smoothing_sigma > 0:
         pnmm = gaussian_filter(pnmm, sigma=smoothing_sigma)
         thickness = gaussian_filter(thickness, sigma=smoothing_sigma)
-    
+
     # Coordenadas
     lons = msl.longitude.values
     lats = msl.latitude.values
     lon2d, lat2d = np.meshgrid(lons, lats)
-    
+
     # Tempo
     valid_time = ds_msl.valid_time.values
     valid_time_str = np.datetime_as_string(valid_time, unit="m")
-    
+
     # Rodada base (hora de inicialização do modelo)
     base_time_str = ""
     try:
@@ -446,15 +445,15 @@ def load_synoptic_data(
     except (KeyError, IndexError, ValueError, TypeError) as e:
         logger.warning("Não foi possível extrair base_time do dataset MSL: %s", e)
         base_time_str = "(não identificada)"
-    
+
     # Fecha datasets
     ds_msl.close()
     ds_gh.close()
-    
+
     logger.info("  Dados carregados com sucesso!")
     logger.info("  Rodada base: %s", base_time_str)
     logger.info("  Válido: %s UTC", valid_time_str)
-    
+
     return SynopticData(
         pnmm=pnmm,
         thickness=thickness,
@@ -509,7 +508,7 @@ def estimate_available_cycles() -> dict:
         - "next": próxima rodada esperada e horário estimado
         - "utc_now": hora UTC atual
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     by_cycle = {c["cycle"]: c for c in CYCLE_SCHEDULE}
 
     # Ancora no horário sinótico atual (piso para 0/6/12/18)
@@ -824,16 +823,16 @@ VARIABLE_REGISTRY = {
 @dataclass
 class PLFieldData:
     """Container para dados de variável em nível de pressão."""
-    
+
     values: np.ndarray
     lons: np.ndarray
     lats: np.ndarray
-    
+
     # Para vento: componentes separados
     u_values: np.ndarray | None = None
     v_values: np.ndarray | None = None
     wind_speed: np.ndarray | None = None
-    
+
     # Metadados
     variable: str = ""
     level: int = 0
@@ -943,7 +942,7 @@ def load_model_profile(
         raise ValueError("data_dir não pode ser None")
     data_dir = Path(data_dir)
 
-    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+    date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
 
     grib_file = download_ecmwf(
@@ -1131,7 +1130,7 @@ def load_point_timeseries(
         raise ValueError("data_dir não pode ser None")
     data_dir = Path(data_dir)
     steps = list(steps) if steps is not None else list(METEOGRAM_STEPS)
-    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+    date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
 
     import cfgrib
@@ -1315,7 +1314,7 @@ def load_cross_section(
         raise ValueError("data_dir não pode ser None")
     data_dir = Path(data_dir)
 
-    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+    date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
 
     grib_file = download_ecmwf(
@@ -1496,7 +1495,7 @@ def compute_instability_fields(
     if data_dir is None:
         raise ValueError("data_dir não pode ser None")
     data_dir = Path(data_dir)
-    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+    date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
 
     if progress_cb:
@@ -1572,20 +1571,20 @@ def load_pl_variable(
     """
     if variable_key not in VARIABLE_REGISTRY:
         raise ValueError(f"Variável '{variable_key}' não encontrada no registro.")
-    
+
     var_info = VARIABLE_REGISTRY[variable_key]
     params = var_info["param"]
-    
+
     if data_dir is None:
         raise ValueError("data_dir não pode ser None")
     data_dir = Path(data_dir)
-    
-    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+
+    date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
     param_str = "_".join(params)
-    
+
     logger.info("Carregando %s em %s hPa", var_info['nome'], level)
-    
+
     # Variáveis derivadas fazem seus próprios downloads
     if var_info["category"] == "derived":
         return _compute_derived_variable(
@@ -1601,7 +1600,7 @@ def load_pl_variable(
             valid_time_str="",
             base_time_str="",
         )
-    
+
     # Download
     grib_file = download_ecmwf(
         variables=params,
@@ -1613,7 +1612,7 @@ def load_pl_variable(
         source=source,
         force_download=force_download,
     )
-    
+
     # Leitura com xarray
     ds = xr.open_dataset(
         grib_file,
@@ -1623,11 +1622,11 @@ def load_pl_variable(
             "errors": "ignore",
         }
     )
-    
+
     # Ajusta longitude de 0-360 para -180 a 180
     ds = ds.assign_coords(longitude=(ds.longitude + 180) % 360 - 180)
     ds = ds.sortby("longitude")
-    
+
     # Seleciona região e nível
     sel_kwargs = {
         "longitude": slice(extent[0], extent[2]),
@@ -1635,7 +1634,7 @@ def load_pl_variable(
     }
     if "isobaricInhPa" in ds.dims:   # só seleciona se for DIMENSÃO (nível único = escalar)
         sel_kwargs["isobaricInhPa"] = level
-    
+
     # Extrai metadados de tempo
     valid_time_str = ""
     base_time_str = ""
@@ -1654,22 +1653,22 @@ def load_pl_variable(
     if var_info["category"] == "wind":
         u_data = ds["u"].sel(**sel_kwargs).values
         v_data = ds["v"].sel(**sel_kwargs).values
-        
+
         if smoothing_sigma > 0:
             u_data = gaussian_filter(u_data, sigma=smoothing_sigma)
             v_data = gaussian_filter(v_data, sigma=smoothing_sigma)
-        
+
         ws = np.sqrt(u_data**2 + v_data**2)
-        
+
         lons_arr = ds["u"].sel(**sel_kwargs).longitude.values
         lats_arr = ds["u"].sel(**sel_kwargs).latitude.values
-        
+
         # Conversão para kt (speed display)
         conv = var_info["conversion"]
         ws_display = conv(ws) if conv else ws
-        
+
         ds.close()
-        
+
         return PLFieldData(
             values=ws_display,
             lons=lons_arr,
@@ -1684,25 +1683,25 @@ def load_pl_variable(
             base_time=base_time_str,
             step=step,
         )
-    
+
     elif var_info["category"] == "wind_speed":
         # Isotacas: baixa u+v, calcula magnitude, retorna como campo escalar
         u_data = ds["u"].sel(**sel_kwargs).values
         v_data = ds["v"].sel(**sel_kwargs).values
-        
+
         if smoothing_sigma > 0:
             u_data = gaussian_filter(u_data, sigma=smoothing_sigma)
             v_data = gaussian_filter(v_data, sigma=smoothing_sigma)
-        
+
         ws = np.sqrt(u_data**2 + v_data**2)
         lons_arr = ds["u"].sel(**sel_kwargs).longitude.values
         lats_arr = ds["u"].sel(**sel_kwargs).latitude.values
-        
+
         conv = var_info["conversion"]
         ws_display = conv(ws) if conv else ws
-        
+
         ds.close()
-        
+
         return PLFieldData(
             values=ws_display,
             lons=lons_arr,
@@ -1714,24 +1713,24 @@ def load_pl_variable(
             base_time=base_time_str,
             step=step,
         )
-    
+
     else:
         # Escalar (t, gh, w, q, r, d, vo)
         param_name = params[0]
         data_var = ds[param_name].sel(**sel_kwargs).values
         lons_arr = ds[param_name].sel(**sel_kwargs).longitude.values
         lats_arr = ds[param_name].sel(**sel_kwargs).latitude.values
-        
+
         if smoothing_sigma > 0:
             data_var = gaussian_filter(data_var, sigma=smoothing_sigma)
-        
+
         # Conversão de unidade
         conv = var_info["conversion"]
         if conv is not None:
             data_var = conv(data_var)
-        
+
         ds.close()
-        
+
         return PLFieldData(
             values=data_var,
             lons=lons_arr,
@@ -1764,9 +1763,9 @@ def _compute_derived_variable(
     Baixa t e u,v separadamente (reutiliza cache) e combina.
     """
     var_info = VARIABLE_REGISTRY[variable_key]
-    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+    date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
-    
+
     # ─── Baixa temperatura ───
     t_file = download_ecmwf(
         variables=["t"],
@@ -1777,25 +1776,25 @@ def _compute_derived_variable(
         data_dir=data_dir,
         source=source,
     )
-    
+
     ds_t = xr.open_dataset(
         t_file, engine="cfgrib",
         backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"}, "errors": "ignore"}
     )
     ds_t = ds_t.assign_coords(longitude=(ds_t.longitude + 180) % 360 - 180)
     ds_t = ds_t.sortby("longitude")
-    
+
     sel_kw = {
         "longitude": slice(extent[0], extent[2]),
         "latitude": slice(extent[3], extent[1]),
     }
     if "isobaricInhPa" in ds_t.dims:
         sel_kw["isobaricInhPa"] = level
-    
+
     t_data = ds_t["t"].sel(**sel_kw).values  # Kelvin
     lons = ds_t["t"].sel(**sel_kw).longitude.values
     lats = ds_t["t"].sel(**sel_kw).latitude.values
-    
+
     # Extrai metadados de tempo do dataset de temperatura
     try:
         if "valid_time" in ds_t.coords:
@@ -1806,34 +1805,34 @@ def _compute_derived_variable(
             base_time_str = f"{bt_dt.strftime('%HZ %d/%m/%Y')}"
     except (KeyError, IndexError, ValueError, TypeError) as e:
         logger.warning("Não foi possível extrair metadados de tempo (derivada): %s", e)
-    
+
     ds_t.close()
-    
+
     # Converte lat/lon para metros (aproximação esférica)
     # dy e dx em metros para diferenças finitas
     lat_rad = np.deg2rad(lats)
     R = 6.371e6  # Raio da Terra em metros
-    
+
     dlat = np.deg2rad(np.diff(lats).mean())  # espaçamento em radianos
     dlon = np.deg2rad(np.diff(lons).mean())
-    
+
     dy = dlat * R  # metros por ponto em y
     # dx varia com a latitude
     dx_2d = dlon * R * np.cos(lat_rad)[:, np.newaxis] * np.ones((1, len(lons)))
-    
+
     if smoothing_sigma > 0:
         t_data = gaussian_filter(t_data, sigma=smoothing_sigma)
-    
+
     # ─── Gradiente de temperatura ───
     # dT/dy, dT/dx usando diferenças finitas centrais
     dTdy = np.gradient(t_data, dy, axis=0)       # ∂T/∂y
     dTdx = np.gradient(t_data, axis=1) / dx_2d   # ∂T/∂x
-    
+
     if variable_key == "temp_grad":
         # |∇T| em °C/100km
         grad_mag = np.sqrt(dTdx**2 + dTdy**2)
         grad_display = grad_mag * 1e5  # K/m → °C/100km
-        
+
         return PLFieldData(
             values=grad_display,
             lons=lons,
@@ -1845,7 +1844,7 @@ def _compute_derived_variable(
             base_time=base_time_str,
             step=step,
         )
-    
+
     elif variable_key == "temp_adv":
         # ─── Baixa vento ───
         uv_file = download_ecmwf(
@@ -1857,36 +1856,36 @@ def _compute_derived_variable(
             data_dir=data_dir,
             source=source,
         )
-        
+
         ds_uv = xr.open_dataset(
             uv_file, engine="cfgrib",
             backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"}, "errors": "ignore"}
         )
         ds_uv = ds_uv.assign_coords(longitude=(ds_uv.longitude + 180) % 360 - 180)
         ds_uv = ds_uv.sortby("longitude")
-        
+
         sel_kw_uv = {
             "longitude": slice(extent[0], extent[2]),
             "latitude": slice(extent[3], extent[1]),
         }
         if "isobaricInhPa" in ds_uv.dims:
             sel_kw_uv["isobaricInhPa"] = level
-        
+
         u_data = ds_uv["u"].sel(**sel_kw_uv).values
         v_data = ds_uv["v"].sel(**sel_kw_uv).values
         ds_uv.close()
-        
+
         if smoothing_sigma > 0:
             u_data = gaussian_filter(u_data, sigma=smoothing_sigma)
             v_data = gaussian_filter(v_data, sigma=smoothing_sigma)
-        
+
         # Advecção: -V · ∇T = -(u * ∂T/∂x + v * ∂T/∂y)
         # Sinal negativo: advecção positiva = aquecimento
         adv = -(u_data * dTdx + v_data * dTdy)
-        
+
         # Converte K/s → °C/h (× 3600, K=°C para diferenças)
         adv_display = adv * 3600.0
-        
+
         return PLFieldData(
             values=adv_display,
             lons=lons,
@@ -1898,7 +1897,7 @@ def _compute_derived_variable(
             base_time=base_time_str,
             step=step,
         )
-    
+
     elif variable_key == "frontogenesis":
         # ─── Frontogênese de Petterssen (2D horizontal) ───
         #
@@ -1907,7 +1906,7 @@ def _compute_derived_variable(
         #
         # F > 0 → frontogênese (gradiente se intensifica)
         # F < 0 → frontólise (gradiente se enfraquece)
-        
+
         # ─── Baixa vento ───
         uv_file = download_ecmwf(
             variables=["u", "v"],
@@ -1918,50 +1917,50 @@ def _compute_derived_variable(
             data_dir=data_dir,
             source=source,
         )
-        
+
         ds_uv = xr.open_dataset(
             uv_file, engine="cfgrib",
             backend_kwargs={"filter_by_keys": {"typeOfLevel": "isobaricInhPa"}, "errors": "ignore"}
         )
         ds_uv = ds_uv.assign_coords(longitude=(ds_uv.longitude + 180) % 360 - 180)
         ds_uv = ds_uv.sortby("longitude")
-        
+
         sel_kw_uv = {
             "longitude": slice(extent[0], extent[2]),
             "latitude": slice(extent[3], extent[1]),
         }
         if "isobaricInhPa" in ds_uv.dims:
             sel_kw_uv["isobaricInhPa"] = level
-        
+
         u_data = ds_uv["u"].sel(**sel_kw_uv).values
         v_data = ds_uv["v"].sel(**sel_kw_uv).values
         ds_uv.close()
-        
+
         if smoothing_sigma > 0:
             u_data = gaussian_filter(u_data, sigma=smoothing_sigma)
             v_data = gaussian_filter(v_data, sigma=smoothing_sigma)
-        
+
         # Derivadas do vento
         dudx = np.gradient(u_data, axis=1) / dx_2d
         dudy = np.gradient(u_data, dy, axis=0)
         dvdx = np.gradient(v_data, axis=1) / dx_2d
         dvdy = np.gradient(v_data, dy, axis=0)
-        
+
         # Magnitude do gradiente de T (evita divisão por zero)
         grad_mag = np.sqrt(dTdx**2 + dTdy**2)
         grad_mag = np.where(grad_mag < 1e-12, 1e-12, grad_mag)
-        
+
         # Fórmula de Petterssen
         F = -(1.0 / (2.0 * grad_mag)) * (
             dTdx**2 * dudx +
             dTdy**2 * dvdy +
             dTdx * dTdy * (dvdx + dudy)
         )
-        
+
         # Converte K/m/s → °C/100km/3h
         # × 1e5 (m→100km) × 10800 (s→3h) = × 1.08e9
         F_display = F * 1.08e9
-        
+
         return PLFieldData(
             values=F_display,
             lons=lons,
@@ -1973,7 +1972,7 @@ def _compute_derived_variable(
             base_time=base_time_str,
             step=step,
         )
-    
+
     elif variable_key == "mfc":
         # ─── Convergência do Fluxo de Umidade (MFC) ───
         #
@@ -2163,7 +2162,7 @@ def _resolve_accum_window(
     technique: str, cycle: int | None, cycle_date: str | None, step: int,
 ) -> tuple:
     """Resolve (run_cycle, run_date, step_hi, step_lo, rótulo) para a desacumulação."""
-    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+    date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
 
     if technique == "stabilized":
         # Técnica B DINÂMICA (mitiga spin-up): DELEGA à fonte única
@@ -2339,7 +2338,7 @@ def _read_skt_ocean(
     data_dir: Path, source: str, smoothing_sigma: float, force_download: bool,
 ) -> tuple:
     """Lê skt (°C) mascarada ao oceano via lsm. Retorna (skt_c, lons, lats, vt, bt)."""
-    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+    date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
 
     skt_file = download_ecmwf(
@@ -2498,12 +2497,12 @@ def load_tcwv(
     if data_dir is None:
         raise ValueError("data_dir não pode ser None")
     data_dir = Path(data_dir)
-    
-    date_str = cycle_date if cycle_date else datetime.now(timezone.utc).strftime("%Y%m%d")
+
+    date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
-    
+
     logger.info("Carregando Água Precipitável (tcwv)")
-    
+
     grib_file = download_ecmwf(
         variables=["tcwv"],
         levels=None,
@@ -2514,28 +2513,28 @@ def load_tcwv(
         source=source,
         force_download=force_download,
     )
-    
+
     ds = xr.open_dataset(
         grib_file,
         engine="cfgrib",
         backend_kwargs={"errors": "ignore"}
     )
-    
+
     ds = ds.assign_coords(longitude=(ds.longitude + 180) % 360 - 180)
     ds = ds.sortby("longitude")
-    
+
     tcwv = ds["tcwv"].sel(
         longitude=slice(extent[0], extent[2]),
         latitude=slice(extent[3], extent[1]),
     )
-    
+
     values = tcwv.values  # kg/m² = mm
     lons_arr = tcwv.longitude.values
     lats_arr = tcwv.latitude.values
-    
+
     if smoothing_sigma > 0:
         values = gaussian_filter(values, sigma=smoothing_sigma)
-    
+
     valid_time_str = ""
     base_time_str = ""
     try:
@@ -2551,7 +2550,7 @@ def load_tcwv(
     ds.close()
 
     logger.info("  TCWV range: %.1f – %.1f mm", np.nanmin(values), np.nanmax(values))
-    
+
     return PLFieldData(
         values=values,
         lons=lons_arr,
@@ -2629,7 +2628,7 @@ _IR_AVHRR_COLORS = [
 def get_ir_colormap():
     """Retorna o colormap IR AVHRR clássico para imagens de satélite."""
     from matplotlib.colors import LinearSegmentedColormap
-    
+
     colors_norm = [(r / 255.0, g / 255.0, b / 255.0) for r, g, b in _IR_AVHRR_COLORS]
     return LinearSegmentedColormap.from_list("ir_avhrr", colors_norm, N=256)
 
@@ -2716,34 +2715,35 @@ def download_goes16_ir(
     SatelliteData
         Dados da imagem para plotagem
     """
-    import requests
     import re
-    
+
+    import requests
+
     if data_dir is None:
         raise ValueError("data_dir não pode ser None")
     data_dir = Path(data_dir)
-    
+
     if target_time is None:
-        target_time = datetime.now(timezone.utc)
-    
+        target_time = datetime.now(UTC)
+
     logger.info("Baixando GOES-East Banda 13 (IR)")
     logger.info("  Horário alvo: %s", target_time.strftime('%Y-%m-%d %H:%M UTC'))
-    
+
     # Tenta GOES-19 (atual) e GOES-16 (legado) como fallback
     satellites = [
         ("noaa-goes19", "G19", "GOES-19"),
         ("noaa-goes16", "G16", "GOES-16"),
     ]
-    
+
     band13_files = []
     used_bucket = ""
     used_sat_name = ""
-    
+
     for bucket_name, sat_id, sat_label in satellites:
         bucket_url = f"https://{bucket_name}.s3.amazonaws.com"
-        
+
         logger.info("  Tentando %s (%s)...", sat_label, bucket_name)
-        
+
         # Busca na hora alvo E na hora anterior (para pegar arquivos como XX:50
         # que são mais próximos da hora cheia seguinte)
         for hour_offset in [0, 1]:
@@ -2751,75 +2751,75 @@ def download_goes16_ir(
             year = search_time.strftime("%Y")
             doy = search_time.strftime("%j")
             hour = search_time.strftime("%H")
-            
+
             prefix = f"ABI-L2-CMIPF/{year}/{doy}/{hour}/"
             list_url = f"{bucket_url}?list-type=2&prefix={prefix}&max-keys=1000"
-            
+
             logger.debug("  Buscando em %s...", prefix)
-            
+
             try:
                 resp = requests.get(list_url, timeout=30)
                 resp.raise_for_status()
             except (requests.RequestException, OSError) as e:
                 logger.warning("  Erro ao listar: %s", e)
                 continue
-            
+
             keys = re.findall(r"<Key>([^<]+)</Key>", resp.text)
-            
+
             for key in keys:
                 if "C13" in key and sat_id in key and key.endswith(".nc"):
                     band13_files.append(key)
-        
+
         if band13_files:
             used_bucket = bucket_url
             used_sat_name = sat_label
             logger.info("  Total candidatos: %d arquivos", len(band13_files))
             break
-        
+
         # Se não encontrou na hora alvo e anterior, busca até 4h antes
         for hour_offset in range(2, 5):
             search_time = target_time - timedelta(hours=hour_offset)
             year = search_time.strftime("%Y")
             doy = search_time.strftime("%j")
             hour = search_time.strftime("%H")
-            
+
             prefix = f"ABI-L2-CMIPF/{year}/{doy}/{hour}/"
             list_url = f"{bucket_url}?list-type=2&prefix={prefix}&max-keys=1000"
-            
+
             logger.debug("  Buscando fallback em %s...", prefix)
-            
+
             try:
                 resp = requests.get(list_url, timeout=30)
                 resp.raise_for_status()
             except (requests.RequestException, OSError):
                 continue
-            
+
             keys = re.findall(r"<Key>([^<]+)</Key>", resp.text)
             for key in keys:
                 if "C13" in key and sat_id in key and key.endswith(".nc"):
                     band13_files.append(key)
-            
+
             if band13_files:
                 used_bucket = bucket_url
                 used_sat_name = sat_label
                 logger.info("  Total candidatos (fallback): %d arquivos", len(band13_files))
                 break
-        
+
         if band13_files:
             break
-    
+
     if not band13_files:
         raise FileNotFoundError(
             f"Nenhuma imagem GOES-East Banda 13 encontrada para "
             f"{target_time.strftime('%d/%m/%Y %HZ')} (±4h).\n"
             "Verifique sua conexão com a internet e a data selecionada."
         )
-    
+
     # Seleciona o arquivo mais PRÓXIMO da hora cheia solicitada
     # Nome: ...G19_s20260791250205_e...  → s = start time: YYYYDDDHHMMSS.s
     best_key = None
     best_diff_sec = 999999999
-    
+
     for key in band13_files:
         try:
             fname = key.split("/")[-1]
@@ -2828,42 +2828,42 @@ def download_goes16_ir(
             file_doy = int(s_field[4:7])
             file_hh = int(s_field[7:9])
             file_mm = int(s_field[9:11])
-            
+
             # Reconstrói datetime do arquivo
             file_dt = datetime(file_year, 1, 1, file_hh, file_mm, 0,
-                               tzinfo=timezone.utc) + timedelta(days=file_doy - 1)
-            
+                               tzinfo=UTC) + timedelta(days=file_doy - 1)
+
             diff = abs((file_dt - target_time).total_seconds())
             if diff < best_diff_sec:
                 best_diff_sec = diff
                 best_key = key
         except (IndexError, ValueError):
             continue
-    
+
     if best_key is None:
         best_key = sorted(band13_files)[0]
-    
+
     best_diff_min = int(best_diff_sec / 60)
     filename = best_key.split("/")[-1]
     local_path = data_dir / filename
-    
+
     logger.info("  Satélite: %s", used_sat_name)
     logger.info("  Arquivo: %s", filename)
     logger.info("  Diferença do alvo: %d minutos", best_diff_min)
-    
+
     # Download se não existe localmente
     if not local_path.exists():
         download_url = f"{used_bucket}/{best_key}"
         logger.info("  Baixando (~25 MB)...")
         if progress_callback:
             progress_callback("status", "Baixando imagem de satélite...")
-        
+
         resp = requests.get(download_url, timeout=120, stream=True)
         resp.raise_for_status()
-        
+
         total_size = int(resp.headers.get("content-length", 0))
         downloaded = 0
-        
+
         with open(local_path, "wb") as f:
             for chunk in resp.iter_content(chunk_size=65536):
                 f.write(chunk)
@@ -2873,7 +2873,7 @@ def download_goes16_ir(
                     logger.debug("  Download: %d%%", pct)
                     if progress_callback:
                         progress_callback("percent", pct)
-        
+
         logger.info("  Download completo: %s", local_path.name)
         if progress_callback:
             progress_callback("status", "Download completo! Processando...")
@@ -2881,7 +2881,7 @@ def download_goes16_ir(
         logger.info("  Usando cache: %s", filename)
         if progress_callback:
             progress_callback("cache", filename)
-    
+
     # Lê o .nc em disco → SatelliteData (mesma rotina usada na restauração).
     logger.info("  Lendo dados...")
     if progress_callback:

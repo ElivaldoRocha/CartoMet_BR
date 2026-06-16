@@ -11,7 +11,6 @@ Layout profissional:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
 
 import cartopy.crs as ccrs
@@ -22,15 +21,13 @@ import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.backend_bases import KeyEvent, MouseEvent
 from matplotlib.figure import Figure
-from matplotlib.lines import Line2D
-from matplotlib.patches import FancyBboxPatch
 from matplotlib.text import Text
 from scipy.interpolate import make_interp_spline
 
-from cartomet_br.core.config import Config, COLORS, EXTENT_AMSUL
+from cartomet_br.charts.synoptic import create_synoptic_chart
+from cartomet_br.core.config import Config
 from cartomet_br.data.ecmwf import SynopticData
 from cartomet_br.symbols import MODOS
-from cartomet_br.charts.synoptic import create_synoptic_chart
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +83,7 @@ class InteractiveChart:
     │              LEGENDA SINÓTICA (PNMM, espessura, H/L)  │
     └───────────────────────────────────────────────────────┘
     """
-    
+
     def __init__(
         self,
         config: Config | None = None,
@@ -137,15 +134,15 @@ class InteractiveChart:
 
         # Atualiza status inicial
         self._atualizar_status()
-    
+
     def _setup_figure(self) -> None:
         """Configura figura com layout profissional."""
-        
+
         if self.use_synoptic_background:
             # ═══════════════════════════════════════════════════════════════
             # MODO COM CARTA SINÓTICA
             # ═══════════════════════════════════════════════════════════════
-            
+
             # Gera carta sinótica e obtém fig/ax
             self.fig, self.ax, self.synoptic_data = create_synoptic_chart(
                 config=self.config,
@@ -153,15 +150,15 @@ class InteractiveChart:
                 show=False,
                 return_fig=True,
             )
-            
+
             # Ajusta layout para adicionar painel lateral
             # A carta sinótica já tem a legenda na parte inferior
             # Vamos adicionar painel de controles à direita
-            
+
             # Redimensiona o axes do mapa para dar espaço ao painel lateral
             pos = self.ax.get_position()
             self.ax.set_position([pos.x0, pos.y0, pos.width * 0.85, pos.height])
-            
+
             # Cria painel lateral direito para controles e legenda de simbologias
             self.ax_panel = self.fig.add_axes([0.86, pos.y0, 0.13, pos.height])
             self.ax_panel.set_facecolor("#F8F8F8")
@@ -170,23 +167,23 @@ class InteractiveChart:
             for spine in self.ax_panel.spines.values():
                 spine.set_color("#CCCCCC")
                 spine.set_linewidth(0.5)
-            
+
             self._criar_painel_lateral()
-            
+
         else:
             # ═══════════════════════════════════════════════════════════════
             # MODO MAPA EM BRANCO
             # ═══════════════════════════════════════════════════════════════
-            
+
             self.fig = plt.figure(figsize=(16, 10), facecolor="white")
-            
+
             # GridSpec: mapa ocupa 85% da largura, painel lateral 15%
             gs = gridspec.GridSpec(
-                1, 2, 
+                1, 2,
                 width_ratios=[6, 1],
                 wspace=0.02,
             )
-            
+
             # Axes do mapa
             crs_mapa = ccrs.PlateCarree()
             self.ax = self.fig.add_subplot(gs[0], projection=crs_mapa)
@@ -195,7 +192,7 @@ class InteractiveChart:
                  self.config.extent[1], self.config.extent[3]],
                 crs=crs_mapa
             )
-            
+
             # Features do mapa
             self.ax.add_feature(cfeature.LAND, facecolor="#fafafa", zorder=1)
             self.ax.add_feature(cfeature.OCEAN, facecolor="#d4e6f1", zorder=1)
@@ -210,7 +207,7 @@ class InteractiveChart:
                 ),
                 linewidth=0.3, zorder=3,
             )
-            
+
             # Gridlines
             gl = self.ax.gridlines(
                 crs=crs_mapa, draw_labels=True,
@@ -222,13 +219,13 @@ class InteractiveChart:
             gl.xlabel_style = {"size": 8, "color": "#333333"}
             gl.ylabel_style = {"size": 8, "color": "#333333"}
             self.ax.set_facecolor("#d4e6f1")
-            
+
             # Título do mapa
             self.ax.set_title(
                 "CartoMet_BR — Ferramenta de Análise Sinótica",
                 fontsize=12, fontweight="bold", color="#1A1A1A", pad=10,
             )
-            
+
             # Painel lateral
             self.ax_panel = self.fig.add_subplot(gs[1])
             self.ax_panel.set_facecolor("#F8F8F8")
@@ -237,43 +234,43 @@ class InteractiveChart:
             for spine in self.ax_panel.spines.values():
                 spine.set_color("#CCCCCC")
                 spine.set_linewidth(0.5)
-            
+
             self._criar_painel_lateral()
-            
+
             self.synoptic_data = None
-    
+
     def _criar_painel_lateral(self) -> None:
         """Cria painel lateral com controles e legenda de simbologias."""
-        
+
         ax = self.ax_panel
-        
+
         # ─── SEÇÃO: STATUS ATUAL ───────────────────────────────────────────
         y_pos = 0.97
-        
+
         ax.text(0.5, y_pos, "STATUS", fontsize=9, fontweight="bold",
                 ha="center", va="top", color="#333333",
                 transform=ax.transAxes)
         y_pos -= 0.04
-        
+
         # Texto de status (será atualizado dinamicamente)
         self.status_text = ax.text(
             0.5, y_pos, "", fontsize=8, ha="center", va="top",
             color="#1a6faf", fontweight="bold", transform=ax.transAxes,
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", 
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
                      edgecolor="#1a6faf", linewidth=0.5),
         )
         y_pos -= 0.08
-        
+
         # ─── SEÇÃO: CONTROLES ──────────────────────────────────────────────
-        ax.plot([0.1, 0.9], [y_pos + 0.02, y_pos + 0.02], color="#CCCCCC", 
+        ax.plot([0.1, 0.9], [y_pos + 0.02, y_pos + 0.02], color="#CCCCCC",
                 linewidth=0.5, transform=ax.transAxes, clip_on=False)
         y_pos -= 0.02
-        
+
         ax.text(0.5, y_pos, "CONTROLES", fontsize=9, fontweight="bold",
                 ha="center", va="top", color="#333333",
                 transform=ax.transAxes)
         y_pos -= 0.04
-        
+
         controles = [
             ("Botão Esq.", "adicionar ponto"),
             ("Enter", "finalizar linha"),
@@ -282,7 +279,7 @@ class InteractiveChart:
             ("C", "limpar tudo"),
             ("S", "salvar imagem"),
         ]
-        
+
         for tecla, acao in controles:
             ax.text(0.08, y_pos, f"[{tecla}]", fontsize=7, fontweight="bold",
                     ha="left", va="top", color="#555555", family="monospace",
@@ -290,18 +287,18 @@ class InteractiveChart:
             ax.text(0.92, y_pos, acao, fontsize=7, ha="right", va="top",
                     color="#666666", transform=ax.transAxes)
             y_pos -= 0.035
-        
+
         # ─── SEÇÃO: SIMBOLOGIAS ────────────────────────────────────────────
         y_pos -= 0.02
         ax.plot([0.1, 0.9], [y_pos + 0.02, y_pos + 0.02], color="#CCCCCC",
                 linewidth=0.5, transform=ax.transAxes, clip_on=False)
         y_pos -= 0.02
-        
+
         ax.text(0.5, y_pos, "SIMBOLOGIAS", fontsize=9, fontweight="bold",
                 ha="center", va="top", color="#333333",
                 transform=ax.transAxes)
         y_pos -= 0.04
-        
+
         for tecla, modo in MODOS.items():
             # Tecla
             ax.text(0.08, y_pos, f"[{tecla}]", fontsize=7, fontweight="bold",
@@ -312,11 +309,11 @@ class InteractiveChart:
             ax.text(0.92, y_pos, nome_curto, fontsize=7, ha="right", va="top",
                     color=modo["cor"], transform=ax.transAxes)
             y_pos -= 0.035
-        
+
         # ─── RODAPÉ ────────────────────────────────────────────────────────
         ax.text(0.5, 0.02, "CartoMet_BR v1.0", fontsize=6, ha="center", va="bottom",
                 color="#999999", style="italic", transform=ax.transAxes)
-    
+
     def _kwargs_plot(self, modo_key: str, flip: bool = False) -> dict[str, Any]:
         """Retorna kwargs para plotagem de linha."""
         m = MODOS[modo_key]
@@ -327,18 +324,18 @@ class InteractiveChart:
             transform=ccrs.PlateCarree(),
             zorder=15,
         )
-    
+
     def _atualizar_status(self) -> None:
         """Atualiza texto de status no painel lateral."""
         m = MODOS[self.estado["modo"]]
         npts = len(self.estado["pts_x"])
-        
+
         flip_tag = ""
         if m["tem_flip"] and self.estado["flip"]:
             flip_tag = " ⟲"
-        
+
         status = f"{m['nome']}{flip_tag}\nPontos: {npts}"
-        
+
         if self.status_text is not None:
             self.status_text.set_text(status)
             self.status_text.set_color(m["cor"])
@@ -347,9 +344,9 @@ class InteractiveChart:
                 boxstyle="round,pad=0.3", facecolor="white",
                 edgecolor=m["cor"], linewidth=1.0,
             ))
-        
+
         self.fig.canvas.draw_idle()
-    
+
     def _redesenhar_preview(self) -> None:
         """Redesenha preview da linha atual."""
         if self.estado["preview"] is not None:
@@ -358,7 +355,7 @@ class InteractiveChart:
             except ValueError:
                 pass
             self.estado["preview"] = None
-        
+
         if len(self.estado["pts_x"]) >= 2:
             xi, yi = interpolar_pontos(self.estado["pts_x"], self.estado["pts_y"])
             linha, = self.ax.plot(
@@ -366,9 +363,9 @@ class InteractiveChart:
                 **self._kwargs_plot(self.estado["modo"], flip=self.estado["flip"])
             )
             self.estado["preview"] = linha
-        
+
         self._atualizar_status()
-    
+
     def _ao_clicar(self, event: MouseEvent) -> None:
         """Handler de clique do mouse."""
         if event.inaxes != self.ax or event.xdata is None:
@@ -403,11 +400,11 @@ class InteractiveChart:
 
         self.estado["linhas"].append(artist)
         self.fig.canvas.draw_idle()
-    
+
     def _ao_pressionar_tecla(self, event: KeyEvent) -> None:
         """Handler de teclas."""
         tecla = event.key
-        
+
         # Trocar modo
         if tecla in MODOS:
             self.estado["modo"] = tecla
@@ -417,7 +414,7 @@ class InteractiveChart:
             else:
                 self._atualizar_status()
             return
-        
+
         # Flip
         if tecla == "f":
             m = MODOS[self.estado["modo"]]
@@ -428,7 +425,7 @@ class InteractiveChart:
                 else:
                     self._atualizar_status()
             return
-        
+
         # Finalizar linha
         if tecla == "enter":
             if len(self.estado["pts_x"]) >= 2:
@@ -438,20 +435,20 @@ class InteractiveChart:
                     except ValueError:
                         pass
                     self.estado["preview"] = None
-                
+
                 xi, yi = interpolar_pontos(self.estado["pts_x"], self.estado["pts_y"])
                 linha, = self.ax.plot(
                     xi, yi,
                     **self._kwargs_plot(self.estado["modo"], flip=self.estado["flip"])
                 )
                 self.estado["linhas"].append(linha)
-            
+
             self.estado["pts_x"].clear()
             self.estado["pts_y"].clear()
             self.estado["flip"] = False
             self._atualizar_status()
             return
-        
+
         # Desfazer
         if tecla == "z":
             if self.estado["pts_x"]:
@@ -459,7 +456,7 @@ class InteractiveChart:
                 self.estado["pts_y"].pop()
                 self._redesenhar_preview()
             return
-        
+
         # Limpar tudo
         if tecla == "c":
             for l in self.estado["linhas"]:
@@ -479,12 +476,12 @@ class InteractiveChart:
             self.estado["flip"] = False
             self._atualizar_status()
             return
-        
+
         # Salvar
         if tecla == "s":
             self._salvar()
             return
-    
+
     def _salvar(self) -> None:
         """Salva a imagem atual."""
         from datetime import datetime
@@ -498,7 +495,7 @@ class InteractiveChart:
             facecolor="white",
         )
         logger.info("Imagem salva em: %s", output_path)
-    
+
     def show(self) -> None:
         """Exibe a ferramenta interativa."""
         plt.tight_layout()

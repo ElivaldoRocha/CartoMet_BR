@@ -11,18 +11,17 @@ Contém:
 """
 
 import numpy as np
+from matplotlib.colors import to_rgba
 from matplotlib.path import Path
 from matplotlib.transforms import IdentityTransform
-from matplotlib.colors import to_rgba
 
 from cartomet_br.symbols.base import (
     _FrenteBase,
-    make_triangle,
-    make_semicircle,
-    make_circle,
     draw_filled,
+    make_circle,
+    make_semicircle,
+    make_triangle,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  FRENTE FRIA

@@ -6,19 +6,29 @@ Contém WelcomeDialog (boas-vindas) e FirstRunDialog (configuração inicial).
 
 from pathlib import Path
 
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QGroupBox, QLineEdit, QFileDialog, QMessageBox,
-)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
+from PyQt6.QtWidgets import (
+    QDialog,
+    QFileDialog,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+)
 
 from cartomet_br.gui._constants import (
-    APP_NAME, APP_VERSION, APP_DESCRIPTION,
-    get_logo_path, get_institutional_logos_path,
+    APP_DESCRIPTION,
+    APP_NAME,
+    APP_VERSION,
+    get_institutional_logos_path,
+    get_logo_path,
 )
 from cartomet_br.gui.themes import DARK_STYLE
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  JANELA DE BOAS-VINDAS

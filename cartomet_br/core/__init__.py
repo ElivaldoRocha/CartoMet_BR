@@ -1,14 +1,14 @@
 """Módulo core — Configurações e utilidades base."""
 
 from cartomet_br.core.config import (
-    Config,
-    EXTENT_BRASIL,
+    COLORS,
     EXTENT_AMSUL,
+    EXTENT_BRASIL,
     EXTENT_NORDESTE,
     EXTENT_SUDESTE,
     EXTENT_SUL,
-    COLORS,
     LEVELS,
+    Config,
 )
 
 __all__ = [

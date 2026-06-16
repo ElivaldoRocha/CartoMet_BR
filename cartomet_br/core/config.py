@@ -86,43 +86,43 @@ class Config:
     >>> config = Config(extent=EXTENT_BRASIL, dpi=200)
     >>> config.output_dir.mkdir(exist_ok=True)
     """
-    
+
     # Extensão geográfica
     extent: list[float] = field(default_factory=lambda: EXTENT_AMSUL.copy())
-    
+
     # Diretórios
     data_dir: Path = field(default_factory=_get_default_data_dir)
     output_dir: Path = field(default_factory=_get_default_output_dir)
-    
+
     # Parâmetros de plotagem
     dpi: int = 200
     figsize: tuple[int, int] = (16, 12)
-    
+
     # Parâmetros de processamento
     smoothing_sigma: float = 1.5
-    
+
     # ECMWF
     ecmwf_source: str = "ecmwf"  # ou "aws", "azure", "google"
-    
+
     def __post_init__(self) -> None:
         """Valida parâmetros e garante que diretórios existam."""
         validate_extent(self.extent)
 
         self.data_dir = Path(self.data_dir) if self.data_dir else Path("data")
         self.output_dir = Path(self.output_dir) if self.output_dir else Path("output")
-        
+
         # Tenta criar diretórios, mas não falha se não conseguir
         # (o erro será tratado no momento do download)
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
         except (PermissionError, OSError):
             pass  # Será tratado no download
-        
+
         try:
             self.output_dir.mkdir(parents=True, exist_ok=True)
         except (PermissionError, OSError):
             pass  # Será tratado na exportação
-    
+
     # ─── Subdiretórios organizados (criados sob demanda) ──────────────────
     #
     # Cada tipo de arquivo vai para sua própria subpasta dentro de data_dir,
@@ -209,28 +209,28 @@ COLORS: dict[str, str] = {
     "pnmm_contour": "#1A1A1A",
     "high_pressure": "#0066CC",
     "low_pressure": "#CC0000",
-    
+
     # Espessura
     "thickness_warm": "#B2182B",
     "thickness_cold": "#2166AC",
     "thickness_5400": "#0571B0",
-    
+
     # Frentes
     "cold_front": "#1a6faf",
     "warm_front": "#c0392b",
     "stationary_front": "#6a0dad",
     "occluded_front": "#8e44ad",
-    
+
     # Zonas de convergência
     "zcas": "#008000",
     "zcit": "darkorange",
-    
+
     # Outros
     "trough": "saddlebrown",
     "ridge": "#005500",
     "instability_line": "#8B0000",
     "dryline": "#b5651d",
-    
+
     # Mapa base
     "ocean": "#E6F3FF",
     "land": "#F5F5F5",

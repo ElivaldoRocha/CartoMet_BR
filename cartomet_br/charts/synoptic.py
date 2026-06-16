@@ -8,7 +8,6 @@ Campos plotados:
 """
 
 import logging
-from pathlib import Path
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -18,8 +17,8 @@ import numpy as np
 from matplotlib.lines import Line2D
 from scipy.ndimage import maximum_filter, minimum_filter
 
-from cartomet_br.core.config import Config, COLORS, LEVELS
-from cartomet_br.data.ecmwf import load_synoptic_data, SynopticData
+from cartomet_br.core.config import COLORS, LEVELS, Config
+from cartomet_br.data.ecmwf import load_synoptic_data
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +80,7 @@ def plot_maxmin_points(
 
     # Encontra candidatos
     mxy, mxx = np.where(data_ext == data)
-    
+
     if len(mxy) == 0:
         return
 
@@ -89,14 +88,14 @@ def plot_maxmin_points(
     candidates = []
     for i in range(len(mxy)):
         value = data[mxy[i], mxx[i]]
-        
+
         # Aplica threshold se especificado
         if threshold is not None:
             if extrema == "max" and value < threshold:
                 continue
             if extrema == "min" and value > threshold:
                 continue
-        
+
         candidates.append({
             "y": mxy[i],
             "x": mxx[i],
@@ -105,10 +104,10 @@ def plot_maxmin_points(
             "value": value,
             "intensity": abs(value - 1013.25),
         })
-    
+
     # Ordena por intensidade
     candidates.sort(key=lambda c: c["intensity"], reverse=True)
-    
+
     # Filtra por distância mínima
     selected = []
     for cand in candidates:
@@ -118,16 +117,16 @@ def plot_maxmin_points(
             if dist < min_distance:
                 too_close = True
                 break
-        
+
         if not too_close:
             selected.append(cand)
-            
+
         if len(selected) >= max_points:
             break
-    
+
     # Plota com efeito de contorno
     path_effects = [pe.withStroke(linewidth=3, foreground="white")]
-    
+
     for cand in selected:
         ax.text(
             cand["lon"], cand["lat"],
@@ -195,7 +194,7 @@ def create_synoptic_chart(
         config = Config()
     if extent is not None:
         config.extent = extent
-    
+
     # Carrega dados
     data = load_synoptic_data(
         extent=config.extent,
@@ -203,17 +202,17 @@ def create_synoptic_chart(
         data_dir=config.data_dir,
         smoothing_sigma=config.smoothing_sigma,
     )
-    
+
     # Cria figura
     logger.info("Gerando figura...")
-    
+
     fig = plt.figure(figsize=config.figsize, facecolor="white")
     ax = plt.axes(projection=ccrs.PlateCarree())
     ax.set_extent(
         [config.extent[0], config.extent[2], config.extent[1], config.extent[3]],
         crs=ccrs.PlateCarree()
     )
-    
+
     # Fundo geográfico
     ax.add_feature(cfeature.OCEAN, facecolor=COLORS["ocean"], zorder=0)
     ax.add_feature(cfeature.LAND, facecolor=COLORS["land"], zorder=1)
@@ -221,7 +220,7 @@ def create_synoptic_chart(
     ax.add_feature(cfeature.COASTLINE, linewidth=0.6, edgecolor=COLORS["coastline"], zorder=5)
     ax.add_feature(cfeature.BORDERS, linewidth=0.4, edgecolor=COLORS["borders"], linestyle="--", zorder=5)
     ax.add_feature(cfeature.STATES, linewidth=0.2, edgecolor=COLORS["states"], zorder=4)
-    
+
     # Espessura 1000-500 hPa
     thickness_levels = np.arange(
         LEVELS["thickness"]["min"],
@@ -229,7 +228,7 @@ def create_synoptic_chart(
         LEVELS["thickness"]["step"]
     )
     thickness_levels_no_5400 = thickness_levels[thickness_levels != 5400]
-    
+
     cs_thickness = ax.contour(
         data.lons, data.lats, data.thickness,
         levels=thickness_levels_no_5400,
@@ -242,11 +241,11 @@ def create_synoptic_chart(
         transform=ccrs.PlateCarree(),
         zorder=3,
     )
-    
+
     clabels_thick = ax.clabel(cs_thickness, inline=True, fontsize=8, fmt="%1.0f")
     for txt in clabels_thick:
         txt.set_path_effects([pe.withStroke(linewidth=2, foreground="white")])
-    
+
     # Linha de 5400m em destaque
     cs_5400 = ax.contour(
         data.lons, data.lats, data.thickness,
@@ -260,14 +259,14 @@ def create_synoptic_chart(
     clabels_5400 = ax.clabel(cs_5400, inline=True, fontsize=9, fmt="%1.0f")
     for txt in clabels_5400:
         txt.set_path_effects([pe.withStroke(linewidth=3, foreground="white")])
-    
+
     # PNMM
     pnmm_levels = np.arange(
         LEVELS["pnmm"]["min"],
         LEVELS["pnmm"]["max"],
         LEVELS["pnmm"]["step"]
     )
-    
+
     cs_pnmm = ax.contour(
         data.lons, data.lats, data.pnmm,
         levels=pnmm_levels,
@@ -276,11 +275,11 @@ def create_synoptic_chart(
         transform=ccrs.PlateCarree(),
         zorder=6,
     )
-    
+
     clabels_pnmm = ax.clabel(cs_pnmm, inline=True, fontsize=9, fmt="%1.0f")
     for txt in clabels_pnmm:
         txt.set_path_effects([pe.withStroke(linewidth=2.5, foreground="white")])
-    
+
     # Centros H/L
     plot_maxmin_points(
         ax, data.lon2d, data.lat2d, data.pnmm,
@@ -288,14 +287,14 @@ def create_synoptic_chart(
         color=COLORS["high_pressure"],
         min_distance=25, threshold=1018, max_points=8,
     )
-    
+
     plot_maxmin_points(
         ax, data.lon2d, data.lat2d, data.pnmm,
         extrema="min", nsize=60, symbol="L",
         color=COLORS["low_pressure"],
         min_distance=20, threshold=1008, max_points=10,
     )
-    
+
     # Gridlines
     gl = ax.gridlines(
         crs=ccrs.PlateCarree(),
@@ -311,7 +310,7 @@ def create_synoptic_chart(
     gl.right_labels = False
     gl.xlabel_style = {"size": 9, "color": "#333333"}
     gl.ylabel_style = {"size": 9, "color": "#333333"}
-    
+
     # Títulos
     ax.set_title(
         f"ECMWF IFS — PNMM (hPa) + Espessura 1000-500 hPa (m)\n"
@@ -327,7 +326,7 @@ def create_synoptic_chart(
         loc="right",
         color="#666666",
     )
-    
+
     # Legenda fora do mapa
     legend_elements = [
         Line2D([0], [0], color=COLORS["pnmm_contour"], linewidth=1.5, label="PNMM (hPa)"),
@@ -342,7 +341,7 @@ def create_synoptic_chart(
         Line2D([0], [0], marker="$L$", color=COLORS["low_pressure"], linestyle="None",
                markersize=12, label="Centro de baixa pressão"),
     ]
-    
+
     legend = ax.legend(
         handles=legend_elements,
         loc="upper center",
@@ -355,7 +354,7 @@ def create_synoptic_chart(
         edgecolor="#CCCCCC",
     )
     legend.get_frame().set_linewidth(0.5)
-    
+
     # Créditos
     fig.text(
         0.98, 0.01,
@@ -366,18 +365,18 @@ def create_synoptic_chart(
         color="#888888",
         style="italic",
     )
-    
+
     # Layout
     plt.tight_layout(rect=[0, 0.06, 1, 1])
-    
+
     # Retorna fig/ax para modo interativo
     if return_fig:
         return fig, ax, data
-    
+
     # Salva
     if output_filename is None:
         output_filename = f"synoptic_ecmwf_{data.valid_time.replace(':', '')}_f{step:03d}.png"
-    
+
     output_path = config.output_dir / output_filename
     plt.savefig(
         output_path,
@@ -388,10 +387,10 @@ def create_synoptic_chart(
         edgecolor="none",
     )
     logger.info("Figura salva em: %s", output_path)
-    
+
     if show:
         plt.show()
     else:
         plt.close()
-    
+
     return output_path

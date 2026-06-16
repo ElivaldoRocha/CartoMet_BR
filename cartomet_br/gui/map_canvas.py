@@ -12,34 +12,34 @@ import contextlib
 import logging
 from pathlib import Path
 
-import numpy as np
 import matplotlib
+import numpy as np
 
 # Backend interativo Qt para a GUI. Em ambiente headless (CI, testes, servidor
 # sem display) o Matplotlib recusa carregar um backend interativo; nesse caso
 # mantém-se o backend não-interativo atual (Agg) sem quebrar o import do módulo.
 with contextlib.suppress(ImportError):
     matplotlib.use('QtAgg')
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-import matplotlib.patheffects as pe
-import matplotlib.ticker as mticker
-
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-
-from PyQt6.QtWidgets import QSizePolicy
-from PyQt6.QtCore import pyqtSignal, Qt
+import matplotlib.patheffects as pe
+import matplotlib.ticker as mticker
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor
+from PyQt6.QtWidgets import QSizePolicy
 
-from cartomet_br.core.config import Config, COLORS, LEVELS
-from cartomet_br.symbols import MODOS
-from cartomet_br.data.ecmwf import (
-    VARIABLE_REGISTRY, PLFieldData, SatelliteData, get_ir_colormap,
-)
-from cartomet_br.data.sst import SSTData
 from cartomet_br.charts.interactive import interpolar_pontos
 from cartomet_br.charts.synoptic import plot_maxmin_points
+from cartomet_br.core.config import COLORS, LEVELS, Config
+from cartomet_br.data.ecmwf import (
+    VARIABLE_REGISTRY,
+    PLFieldData,
+    SatelliteData,
+    get_ir_colormap,
+)
+from cartomet_br.data.sst import SSTData
 from cartomet_br.gui._constants import APP_VERSION
 from cartomet_br.gui.draw_tools import (
     PEN_MIN_PIXEL_DIST,
@@ -58,6 +58,7 @@ from cartomet_br.gui.draw_tools import (
     default_arrow_head_size,
 )
 from cartomet_br.gui.themes import MAP_THEMES
+from cartomet_br.symbols import MODOS
 
 logger = logging.getLogger(__name__)
 
@@ -2001,7 +2002,7 @@ class MapCanvas(FigureCanvas):
     # ── helpers ─────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _render_emoji_image(emoji: str, fontsize: int) -> "np.ndarray | None":
+    def _render_emoji_image(emoji: str, fontsize: int) -> np.ndarray | None:
         """Renders an emoji to an RGBA numpy array using Qt's native text renderer.
 
         Qt uses the OS colour-emoji font (Segoe UI Emoji / Apple Color Emoji /
@@ -2010,8 +2011,9 @@ class MapCanvas(FigureCanvas):
         """
         try:
             import platform
-            from PyQt6.QtCore import Qt as _Qt, QSize as _QSize
-            from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap, QImage
+
+            from PyQt6.QtCore import Qt as _Qt
+            from PyQt6.QtGui import QFont, QImage, QPainter, QPixmap
 
             px = max(fontsize * 2, 32)          # oversample for crisp rendering
             pixmap = QPixmap(px, px)
@@ -2255,7 +2257,6 @@ class MapCanvas(FigureCanvas):
         self.remove_sst()
         self._sst_data = sst_data
 
-        import matplotlib.colors as mcolors
         import matplotlib.pyplot as plt
 
         # Colormap tipo "thermal" para SST — jet funciona bem para oceanografia
@@ -2670,7 +2671,7 @@ class MapCanvas(FigureCanvas):
 
         # Cobertura de nuvens (centro) e tempo presente (W)
         try:
-            from metpy.plots import sky_cover, current_weather
+            from metpy.plots import current_weather, sky_cover
             if sub["cloud_coverage"].notna().any():
                 _track(sp.plot_symbol("C", sub["cloud_coverage"].values, sky_cover,
                                       color=colors["main"]))

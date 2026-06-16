@@ -21,44 +21,73 @@ import gc
 import logging
 import subprocess
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QToolBar, QStatusBar, QDockWidget, QLabel, QPushButton,
-    QFrame, QSizePolicy, QMessageBox, QFileDialog,
-    QProgressBar, QScrollArea, QDialog, QInputDialog,
-)
-from PyQt6.QtCore import Qt, QSize, QSettings, QTimer, QEvent
+from PyQt6.QtCore import QEvent, QSettings, QSize, Qt, QTimer
 from PyQt6.QtGui import QAction, QIcon, QKeySequence, QPixmap
+from PyQt6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QDockWidget,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QStatusBar,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from cartomet_br.core.config import Config
 from cartomet_br.data.ecmwf import (
-    VARIABLE_REGISTRY, PLFieldData, SatelliteData,
-    load_synoptic_data, load_pl_variable, load_olr, load_tcwv,
+    VARIABLE_REGISTRY,
+    PLFieldData,
+    SatelliteData,
+    load_olr,
+    load_pl_variable,
+    load_synoptic_data,
+    load_tcwv,
 )
-
 from cartomet_br.gui._constants import (
-    APP_NAME, APP_VERSION, APP_AUTHOR, APP_DESCRIPTION,
-    get_icon_path, get_logo_path,
+    APP_AUTHOR,
+    APP_DESCRIPTION,
+    APP_NAME,
+    APP_VERSION,
+    get_icon_path,
+    get_logo_path,
 )
-from cartomet_br.gui.themes import DARK_STYLE
-from cartomet_br.gui.download_dialog import (
-    DownloadThread, PLDownloadThread, SatDownloadThread, SSTDownloadThread,
-    StationDownloadThread, LoczcitThread, BlockingThread, DownloadProgressDialog,
-)
-from cartomet_br.gui.dialogs import WelcomeDialog, FirstRunDialog
-from cartomet_br.gui.drawing_panel import SymbologyPanel
-from cartomet_br.gui.layer_panel import SettingsPanel, FieldLayerPanel, SatellitePanel, SSTPanel
-from cartomet_br.gui.map_canvas import MapCanvas
-from cartomet_br.gui.sounding_panel import SoundingPanel
-from cartomet_br.gui.sounding_engine import ModelSoundingWorker, SoundingWorker
 from cartomet_br.gui.analysis_engine import (
-    CrossSectionWorker, InstabilityWorker, MeteogramWorker,
+    CrossSectionWorker,
+    InstabilityWorker,
+    MeteogramWorker,
 )
 from cartomet_br.gui.cross_section_panel import CrossSectionPanel
+from cartomet_br.gui.dialogs import FirstRunDialog, WelcomeDialog
+from cartomet_br.gui.download_dialog import (
+    BlockingThread,
+    DownloadProgressDialog,
+    DownloadThread,
+    LoczcitThread,
+    PLDownloadThread,
+    SatDownloadThread,
+    SSTDownloadThread,
+    StationDownloadThread,
+)
+from cartomet_br.gui.drawing_panel import SymbologyPanel
+from cartomet_br.gui.layer_panel import FieldLayerPanel, SatellitePanel, SettingsPanel, SSTPanel
+from cartomet_br.gui.map_canvas import MapCanvas
 from cartomet_br.gui.meteogram_panel import MeteogramPanel
+from cartomet_br.gui.sounding_engine import ModelSoundingWorker, SoundingWorker
+from cartomet_br.gui.sounding_panel import SoundingPanel
+from cartomet_br.gui.themes import DARK_STYLE
 
 logger = logging.getLogger(__name__)
 
@@ -899,21 +928,21 @@ class MainWindow(QMainWindow):
 
     def _launch_sounding(self) -> None:
         """Calcula o horário-alvo, blinda o caso futuro e dispara o SoundingWorker."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         station = self._active_sounding_station
         if station is None:
             return
 
         # Sem rodada carregada ainda: usa o sinótico mais próximo de "agora".
-        base_time = self._last_valid_time or datetime.now(timezone.utc)
+        base_time = self._last_valid_time or datetime.now(UTC)
         target = self._nearest_synoptic(base_time)
         station_label = f"{station.get('name', station['wmo'])} ({station['wmo']})"
         time_label = target.strftime("%d/%m/%Y %H:%MZ")
 
         # Fail-state "viagem ao futuro": o balão ainda não foi lançado.
         # NÃO toca no servidor de Wyoming.
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if target > now:
             self.sounding_panel.show_future(time_label)
             return
@@ -965,7 +994,7 @@ class MainWindow(QMainWindow):
         Diferente do Wyoming, usa o STEP EXATO (modo previsão) e qualquer ponto.
         Baixa a coluna do IFS em thread (cache-first) — a GUI nunca trava.
         """
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         if self._active_model_point is None:
             return
@@ -974,7 +1003,7 @@ class MainWindow(QMainWindow):
         cycle_date = self.settings_panel.get_cycle_date()
         step = self.settings_panel.get_step() or 0
 
-        target = self._last_valid_time or datetime.now(timezone.utc)
+        target = self._last_valid_time or datetime.now(UTC)
         ns = "N" if lat >= 0 else "S"
         ew = "E" if lon >= 0 else "W"
         label = f"Modelo IFS — {abs(lat):.1f}°{ns} {abs(lon):.1f}°{ew}"
@@ -1456,13 +1485,13 @@ class MainWindow(QMainWindow):
 
     def _store_valid_time(self, data) -> None:
         """Guarda o valid_time do modelo (datetime UTC) para sincronizar obs."""
-        from datetime import datetime, timezone
+        from datetime import datetime
         vt = getattr(data, "valid_time", None)
         self._last_valid_time = None
         if vt:
             for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"):
                 try:
-                    self._last_valid_time = datetime.strptime(vt, fmt).replace(tzinfo=timezone.utc)
+                    self._last_valid_time = datetime.strptime(vt, fmt).replace(tzinfo=UTC)
                     break
                 except (ValueError, TypeError):
                     continue
@@ -3155,7 +3184,6 @@ class MainWindow(QMainWindow):
     def _import_netcdf(self, file_path: Path):
         """Importa arquivo NetCDF local (satélite ou campo genérico)."""
         import xarray as xr
-        import numpy as np
 
         ds = xr.open_dataset(file_path)
 

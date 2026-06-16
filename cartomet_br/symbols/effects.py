@@ -11,19 +11,18 @@ Contém:
 """
 
 import numpy as np
+from matplotlib.colors import to_rgba
 from matplotlib.path import Path
 from matplotlib.transforms import IdentityTransform
-from matplotlib.colors import to_rgba
 
 from cartomet_br.symbols.base import (
     _FrenteBase,
-    make_semicircle,
-    make_circle,
-    make_arrowhead,
     draw_filled,
     draw_open,
+    make_arrowhead,
+    make_circle,
+    make_semicircle,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ZONAS DE CONVERGÊNCIA (ZCAS / ZCIT)

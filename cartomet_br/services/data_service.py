@@ -14,20 +14,20 @@ from pathlib import Path
 
 from cartomet_br.core.config import Config
 from cartomet_br.data.ecmwf import (
-    SynopticData,
+    PL_LEVELS,
+    VARIABLE_REGISTRY,
     PLFieldData,
     SatelliteData,
-    VARIABLE_REGISTRY,
-    PL_LEVELS,
-    load_synoptic_data,
-    load_pl_variable,
-    load_olr,
-    load_precip,
-    load_tcwv,
-    load_model_sst,
-    load_sst_gradient,
+    SynopticData,
     download_goes16_ir,
     estimate_available_cycles,
+    load_model_sst,
+    load_olr,
+    load_pl_variable,
+    load_precip,
+    load_sst_gradient,
+    load_synoptic_data,
+    load_tcwv,
 )
 
 logger = logging.getLogger(__name__)
