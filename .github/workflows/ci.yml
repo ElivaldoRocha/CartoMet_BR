@@ -10,11 +10,6 @@ jobs:
   lint:
     name: Lint & Type Check
     runs-on: ubuntu-latest
-    # Não-bloqueante: há dívida pré-existente de lint/format/mypy (o passo nunca
-    # rodou enquanto o `uv sync --dev` não instalava as ferramentas). Mantido
-    # visível como aviso; a limpeza será feita incrementalmente. Os Testes
-    # permanecem bloqueantes.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -28,13 +23,21 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      # Não-bloqueantes: há dívida pré-existente de lint/format/mypy (estes passos
+      # nunca rodaram enquanto o `uv sync --dev` não instalava as ferramentas).
+      # `continue-on-error` no PASSO faz o job concluir verde e mantém o output
+      # visível como aviso no log; a limpeza será feita incrementalmente. Os
+      # Testes permanecem bloqueantes.
       - name: Ruff check
+        continue-on-error: true
         run: uv run ruff check cartomet_br/
 
       - name: Ruff format check
+        continue-on-error: true
         run: uv run ruff format --check cartomet_br/
 
       - name: Mypy
+        continue-on-error: true
         run: uv run mypy cartomet_br/ --ignore-missing-imports
 
   test:
