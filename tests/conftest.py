@@ -1,5 +1,14 @@
 """Fixtures compartilhadas para testes do CartoMet BR."""
 
+# Ambiente headless (CI Linux sem display): força a plataforma Qt "offscreen" e o
+# backend "Agg" do Matplotlib ANTES de qualquer import de PyQt6/GUI. Sem isso, os
+# testes que importam `cartomet_br.gui.*` quebram na coleta no runner do GitHub.
+# `setdefault` preserva uma escolha explícita do desenvolvedor (ex.: rodar com tela).
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("MPLBACKEND", "Agg")
+
 import pytest
 import tempfile
 from pathlib import Path
