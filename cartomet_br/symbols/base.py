@@ -149,15 +149,13 @@ class _FrenteBase(pe.AbstractPathEffect):
             f = self._flip_sign()
             nx, ny = nx * f, ny * f
 
-            idx_sym = 0
-            for pos in np.arange(self.spacing / 2, total, self.spacing):
+            for idx_sym, pos in enumerate(np.arange(self.spacing / 2, total, self.spacing)):
                 pt, i = self._interp_at(verts, cum_dist, pos)
                 # Ângulo da tangente determina orientação
                 angle = np.arctan2(ty[i], tx[i])
                 # Ajusta ângulo se flip está ativo
                 angle_sym = angle + (np.pi if self.flip else 0)
                 self._draw_symbol(renderer, gc0, pt, angle_sym, idx_sym, identity)
-                idx_sym += 1
 
             gc0.restore()
         finally:

@@ -437,7 +437,7 @@ class SymbologyPanel(QWidget):
         self.buttons["1"].setChecked(True)
 
     def _setup_shortcuts(self) -> None:
-        for key in MODOS.keys():
+        for key in MODOS:
             QShortcut(QKeySequence(key), self).activated.connect(
                 lambda k=key: self._select_symbol(k)
             )

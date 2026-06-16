@@ -26,16 +26,16 @@ def main():
 Exemplos:
   # Gera carta sinótica (análise)
   python -m cartomet_br synoptic
-  
+
   # Gera carta sinótica (previsão de 24h)
   python -m cartomet_br synoptic --step 24
-  
+
   # Gera carta sinótica para região específica
   python -m cartomet_br synoptic --extent -75 -35 -30 6
-  
+
   # Abre ferramenta interativa (mapa em branco)
   python -m cartomet_br interactive
-  
+
   # Abre ferramenta interativa sobre carta sinótica
   python -m cartomet_br interactive --with-synoptic
         """,
@@ -51,7 +51,7 @@ Exemplos:
     subparsers = parser.add_subparsers(dest="command", help="Comandos disponíveis")
 
     # ─── Comando: gui ───────────────────────────────────────────────────
-    gui_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "gui",
         help="Abre interface gráfica PyQt6 (recomendado)",
     )

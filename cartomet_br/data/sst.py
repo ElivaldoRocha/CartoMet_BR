@@ -18,6 +18,7 @@ dimensão temporal (~24 anos de dados diários) antes de qualquer operação.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import shutil
@@ -147,10 +148,10 @@ def download_mur_sst(
         raise RuntimeError(
             "Não foi possível conectar ao ERDDAP.\nVerifique sua conexão com a internet."
         ) from e
-    except requests.Timeout:
+    except requests.Timeout as e:
         raise RuntimeError(
             "Timeout ao conectar ao ERDDAP (300s).\nO servidor pode estar lento — tente novamente."
-        )
+        ) from e
 
     total_size = int(resp.headers.get("content-length", 0))
     downloaded = 0
@@ -214,10 +215,8 @@ def download_mur_sst(
                     logger.warning("Falha ao salvar cache SST: %s", e)
 
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
 
     _emit("status", f"TSM carregada — {actual_date_str}")
     _emit("percent", 100)

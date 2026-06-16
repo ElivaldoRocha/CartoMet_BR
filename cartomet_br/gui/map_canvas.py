@@ -454,10 +454,8 @@ class MapCanvas(FigureCanvas):
         """Remove APENAS os artists de camadas sinóticas."""
         for layer_name, artists in self._synoptic_artists.items():
             for artist in artists:
-                try:
+                with contextlib.suppress(ValueError, AttributeError, NotImplementedError):
                     artist.remove()
-                except (ValueError, AttributeError, NotImplementedError):
-                    pass
             self._synoptic_artists[layer_name] = []
         self.ax.set_title("", loc="left")
 
@@ -465,10 +463,8 @@ class MapCanvas(FigureCanvas):
         """Remove artists de UMA camada sinótica específica."""
         if layer_name in self._synoptic_artists:
             for artist in self._synoptic_artists[layer_name]:
-                try:
+                with contextlib.suppress(ValueError, AttributeError, NotImplementedError):
                     artist.remove()
-                except (ValueError, AttributeError, NotImplementedError):
-                    pass
             self._synoptic_artists[layer_name] = []
 
     def toggle_layer(self, layer_name: str, visible: bool) -> None:
@@ -570,7 +566,7 @@ class MapCanvas(FigureCanvas):
 
     def _plot_centers_layer(self, data: object) -> None:
         """Plota camada de centros H/L."""
-        existing_texts = set(id(t) for t in self.ax.texts)
+        existing_texts = {id(t) for t in self.ax.texts}
 
         plot_maxmin_points(
             self.ax,
@@ -629,12 +625,10 @@ class MapCanvas(FigureCanvas):
         has_synoptic = self.synoptic_data is not None and self.plot_options.get("pnmm", True)
 
         # ── Descobre a camada PL visível mais recente ──
-        top_layer_id = None
         top_data = None
         for lid in reversed(list(self._pl_data)):
             # Camada existe e tem artists renderizados → visível
             if lid in self._pl_artists and self._pl_artists[lid]:
-                top_layer_id = lid
                 top_data = self._pl_data[lid]
                 break
 
@@ -844,10 +838,8 @@ class MapCanvas(FigureCanvas):
             or bool(self._shape_draft_x)
         )
         if self._draft_preview is not None:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 self._draft_preview.remove()
-            except (ValueError, AttributeError):
-                pass
             self._draft_preview = None
         self._pen_active = False
         self._pen_draft_x.clear()
@@ -932,13 +924,13 @@ class MapCanvas(FigureCanvas):
                     minspany=1,
                     spancoords="data",
                     interactive=False,
-                    props=dict(
-                        facecolor="none",
-                        edgecolor="#E74C3C",
-                        linewidth=1.5,
-                        linestyle="--",
-                        zorder=60,
-                    ),
+                    props={
+                        "facecolor": "none",
+                        "edgecolor": "#E74C3C",
+                        "linewidth": 1.5,
+                        "linestyle": "--",
+                        "zorder": 60,
+                    },
                 )
             self._rect_selector.set_active(True)
         elif self._rect_selector is not None:
@@ -1086,7 +1078,7 @@ class MapCanvas(FigureCanvas):
             dx = (1.0 - (x1 - x0)) / 2.0 - x0
             if abs(dx) < 1e-3:
                 return
-            for a, p in zip(axes, positions):
+            for a, p in zip(axes, positions, strict=False):
                 a.set_position([p.x0 + dx, p.y0, p.width, p.height])
         except Exception as e:
             logger.debug("Aviso ao centralizar o layout horizontalmente: %s", e)
@@ -1214,10 +1206,8 @@ class MapCanvas(FigureCanvas):
     def _clear_xsec_overlay(self) -> None:
         """Remove a sobreposição A→B do corte vertical e zera o ponto pendente."""
         for art in self._xsec_overlay:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 art.remove()
-            except (ValueError, AttributeError):
-                pass
         self._xsec_overlay = []
         self._xsec_anchor = None
         self.draw()
@@ -1261,10 +1251,8 @@ class MapCanvas(FigureCanvas):
     def clear_sounding_marker(self) -> None:
         """Remove o marcador temporário da estação ancorada."""
         if self._sounding_marker is not None:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 self._sounding_marker.remove()
-            except (ValueError, AttributeError):
-                pass
             self._sounding_marker = None
             self.draw()
 
@@ -1316,10 +1304,8 @@ class MapCanvas(FigureCanvas):
 
     def _update_preview(self) -> None:
         if self.preview_line:
-            try:
+            with contextlib.suppress(ValueError):
                 self.preview_line.remove()
-            except ValueError:
-                pass
             self.preview_line = None
 
         m = MODOS[self.current_symbol]
@@ -1415,10 +1401,8 @@ class MapCanvas(FigureCanvas):
         if artist is None:
             return
         if len(self._pen_draft_x) < 2:  # clique sem arraste → descarte
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 artist.remove()
-            except (ValueError, AttributeError):
-                pass
             self._pen_draft_x.clear()
             self._pen_draft_y.clear()
             self._pen_last_px = None
@@ -1492,10 +1476,8 @@ class MapCanvas(FigureCanvas):
         self._shape_last_px = None
         self._draft_preview = None
         if preview is not None:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 preview.remove()
-            except (ValueError, AttributeError):
-                pass
         if anchor is None or current is None:
             self.draw_idle()
             return
@@ -1575,10 +1557,8 @@ class MapCanvas(FigureCanvas):
         xs = list(self._shape_draft_x)
         ys = list(self._shape_draft_y)
         if self._draft_preview is not None:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 self._draft_preview.remove()
-            except (ValueError, AttributeError):
-                pass
             self._draft_preview = None
         self._shape_draft_x.clear()
         self._shape_draft_y.clear()
@@ -1607,10 +1587,8 @@ class MapCanvas(FigureCanvas):
         cmd = self.history.remove_last_of(types)
         if cmd is None or cmd.artist is None:
             return
-        try:
+        with contextlib.suppress(ValueError, AttributeError):
             cmd.artist.remove()
-        except (ValueError, AttributeError):
-            pass
         if cmd.artist in self.lines:
             self.lines.remove(cmd.artist)
         cmd.artist = None
@@ -1644,18 +1622,14 @@ class MapCanvas(FigureCanvas):
             isinstance(cmd, (DrawCommand, PointCommand, PenCommand, ShapeCommand))
             and cmd.artist is not None
         ):
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 cmd.artist.remove()
-            except (ValueError, AttributeError):
-                pass
             if cmd.artist in self.lines:
                 self.lines.remove(cmd.artist)
             cmd.artist = None
         elif isinstance(cmd, AnnotationCommand) and cmd.artist is not None:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 cmd.artist.remove()
-            except (ValueError, AttributeError):
-                pass
             if cmd.artist in self._annotations:
                 self._annotations.remove(cmd.artist)
             cmd.artist = None
@@ -1844,16 +1818,12 @@ class MapCanvas(FigureCanvas):
         # Cancela rascunhos de caneta/forma antes de varrer os artistas finais
         self.cancel_active_draft()
         for line in self.lines:
-            try:
+            with contextlib.suppress(ValueError):
                 line.remove()
-            except ValueError:
-                pass
         self.lines.clear()
         if self.preview_line:
-            try:
+            with contextlib.suppress(ValueError):
                 self.preview_line.remove()
-            except ValueError:
-                pass
             self.preview_line = None
         self.points_x.clear()
         self.points_y.clear()
@@ -2248,12 +2218,12 @@ class MapCanvas(FigureCanvas):
             va="center",
             transform=ccrs.PlateCarree(),
             zorder=25,
-            bbox=dict(
-                boxstyle="round,pad=0.3",
-                facecolor="black",
-                alpha=0.6,
-                edgecolor="none",
-            ),
+            bbox={
+                "boxstyle": "round,pad=0.3",
+                "facecolor": "black",
+                "alpha": 0.6,
+                "edgecolor": "none",
+            },
             path_effects=[pe.withStroke(linewidth=2, foreground="black")],
         )
         self._annotations.append(txt)
@@ -2273,19 +2243,15 @@ class MapCanvas(FigureCanvas):
         """Remove a última anotação adicionada."""
         if self._annotations:
             txt = self._annotations.pop()
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 txt.remove()
-            except (ValueError, AttributeError):
-                pass
             self.draw()
 
     def clear_annotations(self) -> None:
         """Remove todas as anotações."""
         for txt in self._annotations:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 txt.remove()
-            except (ValueError, AttributeError):
-                pass
         self._annotations.clear()
         self.draw()
 
@@ -2389,10 +2355,8 @@ class MapCanvas(FigureCanvas):
         try:
             artist.remove()  # type: ignore[union-attr]
         except NotImplementedError:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 self.ax._children.remove(artist)
-            except (ValueError, AttributeError):
-                pass
         except (ValueError, AttributeError):
             pass
 
@@ -2475,10 +2439,7 @@ class MapCanvas(FigureCanvas):
             mid_x = (p1[0] + p2[0]) / 2
             mid_y = (p1[1] + p2[1]) / 2
 
-            if dist >= 1000:
-                dist_str = f"{dist:,.0f} km"
-            else:
-                dist_str = f"{dist:.1f} km"
+            dist_str = f"{dist:,.0f} km" if dist >= 1000 else f"{dist:.1f} km"
 
             txt = self.ax.text(
                 mid_x,
@@ -2491,13 +2452,13 @@ class MapCanvas(FigureCanvas):
                 va="bottom",
                 transform=ccrs.PlateCarree(),
                 zorder=25,
-                bbox=dict(
-                    boxstyle="round,pad=0.2",
-                    facecolor="white",
-                    alpha=0.85,
-                    edgecolor="#FF4444",
-                    linewidth=1,
-                ),
+                bbox={
+                    "boxstyle": "round,pad=0.2",
+                    "facecolor": "white",
+                    "alpha": 0.85,
+                    "edgecolor": "#FF4444",
+                    "linewidth": 1,
+                },
             )
             self._ruler_artists.append(txt)
             self.draw()
@@ -2505,10 +2466,8 @@ class MapCanvas(FigureCanvas):
     def _clear_ruler(self) -> None:
         """Remove todas as marcações da régua."""
         for artist in self._ruler_artists:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 artist.remove()
-            except (ValueError, AttributeError):
-                pass
         self._ruler_artists.clear()
         self._ruler_points.clear()
         self.draw()
@@ -2565,10 +2524,8 @@ class MapCanvas(FigureCanvas):
     def remove_satellite(self) -> None:
         """Remove imagem de satélite do mapa."""
         if self._sat_artist is not None:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 self._sat_artist.remove()
-            except (ValueError, AttributeError):
-                pass
             self._sat_artist = None
         self._sat_data = None
 
@@ -2632,16 +2589,12 @@ class MapCanvas(FigureCanvas):
     def remove_sst(self) -> None:
         """Remove a camada de TSM do mapa."""
         if self._sst_colorbar is not None:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 self._sst_colorbar.remove()
-            except (ValueError, AttributeError):
-                pass
             self._sst_colorbar = None
         if self._sst_artist is not None:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 self._sst_artist.remove()
-            except (ValueError, AttributeError):
-                pass
             self._sst_artist = None
         self._sst_data = None
 
@@ -2823,25 +2776,19 @@ class MapCanvas(FigureCanvas):
     def remove_loczcit_axis(self) -> None:
         """Remove os artistas do overlay do eixo da ZCIT."""
         for art in self._loczcit_axis_artists:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 art.remove()
-            except (ValueError, AttributeError):
-                pass
         self._loczcit_axis_artists = []
 
     def remove_loczcit(self) -> None:
         """Remove o raster do LOCZCIT-PA, sua colorbar e o overlay de eixo."""
         if self._loczcit_colorbar is not None:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 self._loczcit_colorbar.remove()
-            except (ValueError, AttributeError):
-                pass
             self._loczcit_colorbar = None
         if self._loczcit_artist is not None:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 self._loczcit_artist.remove()
-            except (ValueError, AttributeError):
-                pass
             self._loczcit_artist = None
         self.remove_loczcit_axis()
 
@@ -2929,16 +2876,12 @@ class MapCanvas(FigureCanvas):
     def remove_blocking(self) -> None:
         """Remove o campo de anomalia de Z500 e sua colorbar."""
         if self._blocking_colorbar is not None:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 self._blocking_colorbar.remove()
-            except (ValueError, AttributeError):
-                pass
             self._blocking_colorbar = None
         for art in self._blocking_artists:
-            try:
+            with contextlib.suppress(ValueError, AttributeError, NotImplementedError):
                 art.remove()
-            except (ValueError, AttributeError, NotImplementedError):
-                pass
         self._blocking_artists = []
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -3073,10 +3016,8 @@ class MapCanvas(FigureCanvas):
                 try:
                     artist.remove()
                 except (ValueError, AttributeError, NotImplementedError):
-                    try:
+                    with contextlib.suppress(ValueError, AttributeError):
                         self.ax._children.remove(artist)
-                    except (ValueError, AttributeError):
-                        pass
             self._station_artists[k] = []
             self._station_data[k] = None
         self._update_map_title()
@@ -3084,10 +3025,8 @@ class MapCanvas(FigureCanvas):
     def toggle_stations(self, kind: str, visible: bool) -> None:
         """Mostra ou oculta uma camada de observação."""
         for artist in self._station_artists.get(kind, []):
-            try:
+            with contextlib.suppress(AttributeError):
                 artist.set_visible(visible)
-            except AttributeError:
-                pass
         self.draw()
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -3372,7 +3311,7 @@ class MapCanvas(FigureCanvas):
                 u_kt[::skip, ::skip],
                 v_kt[::skip, ::skip],
                 length=5.0,
-                sizes=dict(emptybarb=0.0, spacing=0.2, height=0.5),
+                sizes={"emptybarb": 0.0, "spacing": 0.2, "height": 0.5},
                 linewidth=0.8,
                 pivot="middle",
                 barbcolor="gray",
@@ -3414,9 +3353,9 @@ class MapCanvas(FigureCanvas):
                 u_stream = u_stream[::-1, :]
                 v_stream = v_stream[::-1, :]
 
-            patches_before = set(id(p) for p in self.ax.patches)
-            lines_before = set(id(l) for l in self.ax.lines)
-            collections_before = set(id(c) for c in self.ax.collections)
+            patches_before = {id(p) for p in self.ax.patches}
+            lines_before = {id(ln) for ln in self.ax.lines}
+            collections_before = {id(c) for c in self.ax.collections}
 
             sp = self.ax.streamplot(
                 lons_1d,
@@ -3438,13 +3377,12 @@ class MapCanvas(FigureCanvas):
             for p in self.ax.patches:
                 if id(p) not in patches_before:
                     artists.append(p)
-            for l in self.ax.lines:
-                if id(l) not in lines_before:
-                    artists.append(l)
+            for ln in self.ax.lines:
+                if id(ln) not in lines_before:
+                    artists.append(ln)
             for c in self.ax.collections:
-                if id(c) not in collections_before:
-                    if c not in artists:
-                        artists.append(c)
+                if id(c) not in collections_before and c not in artists:
+                    artists.append(c)
 
         return artists
 
@@ -3462,10 +3400,8 @@ class MapCanvas(FigureCanvas):
         """Remove completamente uma camada PL."""
         if layer_id in self._pl_artists:
             for artist in self._pl_artists[layer_id]:
-                try:
+                with contextlib.suppress(ValueError, AttributeError, NotImplementedError):
                     artist.remove()
-                except (ValueError, AttributeError, NotImplementedError):
-                    pass
             del self._pl_artists[layer_id]
 
         self._remove_pl_colorbar(layer_id)
@@ -3490,10 +3426,8 @@ class MapCanvas(FigureCanvas):
         if not visible:
             if layer_id in self._pl_artists:
                 for artist in self._pl_artists[layer_id]:
-                    try:
+                    with contextlib.suppress(ValueError, AttributeError, NotImplementedError):
                         artist.remove()
-                    except (ValueError, AttributeError, NotImplementedError):
-                        pass
                 self._pl_artists[layer_id] = []
             self._remove_pl_colorbar(layer_id)
         else:

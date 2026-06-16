@@ -183,7 +183,7 @@ class DataService:
         """
         self.validate_step(step)
         self.validate_cycle(cycle, step)
-        var_info = self.validate_variable(variable_key)
+        self.validate_variable(variable_key)
         self.validate_level(variable_key, level)
 
         logger.info(

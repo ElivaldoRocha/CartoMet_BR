@@ -136,7 +136,7 @@ def main():
         try:
             from PyQt6.QtWidgets import QApplication, QMessageBox
 
-            app = QApplication(sys.argv)
+            QApplication(sys.argv)
             QMessageBox.critical(None, "Erro Crítico", error_msg)
         except (ImportError, RuntimeError):
             pass

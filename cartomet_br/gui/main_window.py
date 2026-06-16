@@ -1944,10 +1944,7 @@ class MainWindow(QMainWindow):
         var_info = VARIABLE_REGISTRY.get(data.variable, {})
         nome = var_info.get("nome", data.variable)
 
-        if data.level > 0:
-            label = f"{nome} {data.level} hPa"
-        else:
-            label = nome
+        label = f"{nome} {data.level} hPa" if data.level > 0 else nome
 
         detail = data.unit
         if data.variable == "wind":
@@ -2903,10 +2900,8 @@ class MainWindow(QMainWindow):
         self.canvas.clear_map()
 
         # 2) Reseta o estado dos painéis para refletir o mapa vazio
-        try:
+        with contextlib.suppress(Exception):
             self.field_panel.clear_all_layers()
-        except Exception:
-            pass
 
         # Observações: desmarca sem disparar novo download
         for chk in (
@@ -2967,10 +2962,8 @@ class MainWindow(QMainWindow):
             if d.exists():
                 for f in d.rglob("*"):
                     if f.is_file():
-                        try:
+                        with contextlib.suppress(OSError):
                             total += f.stat().st_size
-                        except OSError:
-                            pass
         return total
 
     def _open_folder(self, path: Path) -> None:
@@ -2978,10 +2971,8 @@ class MainWindow(QMainWindow):
         from PyQt6.QtCore import QUrl
         from PyQt6.QtGui import QDesktopServices
 
-        try:
+        with contextlib.suppress(OSError):
             path.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            pass
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def _open_data_folder(self):
@@ -3269,10 +3260,7 @@ class MainWindow(QMainWindow):
                 force_download=False,
             )
 
-            if reg_key == "wind":
-                layer_id = f"wind_{level}_barbs"
-            else:
-                layer_id = f"{reg_key}_{level}"
+            layer_id = f"wind_{level}_barbs" if reg_key == "wind" else f"{reg_key}_{level}"
 
         # Injeta via pipeline oficial (mesmo que _on_pl_download_ok)
         self.field_panel.remove_layer_entry(layer_id)
@@ -3281,10 +3269,7 @@ class MainWindow(QMainWindow):
         var_info = VARIABLE_REGISTRY.get(data.variable, {})
         nome = var_info.get("nome", data.variable)
 
-        if data.level > 0:
-            label = f"{nome} {data.level} hPa"
-        else:
-            label = nome
+        label = f"{nome} {data.level} hPa" if data.level > 0 else nome
 
         detail = data.unit
         if data.variable == "wind":
@@ -3309,7 +3294,7 @@ class MainWindow(QMainWindow):
 
         # Campo genérico NetCDF
         var_names = list(ds.data_vars)
-        extent = self.settings_panel.get_extent()
+        self.settings_panel.get_extent()
 
         loaded = []
         for vname in var_names:

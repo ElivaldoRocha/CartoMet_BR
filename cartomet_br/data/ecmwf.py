@@ -144,10 +144,9 @@ def download_ecmwf(
             f"Sem permissão de escrita em: {data_dir}\n"
             f"Vá em Arquivo → Configurar Diretório de Dados e escolha outro local.\n"
             f"Erro: {e}"
-        )
+        ) from e
 
     if output_path is None:
-        timestamp = datetime.now(UTC).strftime("%Y%m%d")
         var_str = "_".join(variables)
         output_path = data_dir / f"ecmwf_{var_str}_f{step:03d}.grib2"
     else:
@@ -216,9 +215,9 @@ def download_ecmwf(
         # correto, inclui 10u/10v); client.download() baixa o arquivo inteiro (~130 MB)
         # e nem contém o vento 10 m. Usamos retrieve quando levtype é explícito.
         if levtype is not None:
-            result = client.retrieve(**request_params)
+            client.retrieve(**request_params)
         else:
-            result = client.download(**request_params)
+            client.download(**request_params)
 
         # Verifica se o download foi bem-sucedido
         if not output_path.exists():

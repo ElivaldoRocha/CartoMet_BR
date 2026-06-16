@@ -4,6 +4,7 @@ Configurações globais do CartoMet_BR.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from dataclasses import dataclass, field
@@ -114,15 +115,13 @@ class Config:
 
         # Tenta criar diretórios, mas não falha se não conseguir
         # (o erro será tratado no momento do download)
-        try:
+        # Será tratado no download
+        with contextlib.suppress(PermissionError, OSError):
             self.data_dir.mkdir(parents=True, exist_ok=True)
-        except (PermissionError, OSError):
-            pass  # Será tratado no download
 
-        try:
+        # Será tratado na exportação
+        with contextlib.suppress(PermissionError, OSError):
             self.output_dir.mkdir(parents=True, exist_ok=True)
-        except (PermissionError, OSError):
-            pass  # Será tratado na exportação
 
     # ─── Subdiretórios organizados (criados sob demanda) ──────────────────
     #
@@ -137,10 +136,9 @@ class Config:
     def _subdir(self, name: str) -> Path:
         """Retorna (criando, se possível) um subdiretório dentro de data_dir."""
         path = self.data_dir / name
-        try:
+        # tratado no momento da escrita
+        with contextlib.suppress(PermissionError, OSError):
             path.mkdir(parents=True, exist_ok=True)
-        except (PermissionError, OSError):
-            pass  # tratado no momento da escrita
         return path
 
     @property

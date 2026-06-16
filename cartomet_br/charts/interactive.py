@@ -10,6 +10,7 @@ Layout profissional:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 
@@ -292,9 +293,12 @@ class InteractiveChart:
             color="#1a6faf",
             fontweight="bold",
             transform=ax.transAxes,
-            bbox=dict(
-                boxstyle="round,pad=0.3", facecolor="white", edgecolor="#1a6faf", linewidth=0.5
-            ),
+            bbox={
+                "boxstyle": "round,pad=0.3",
+                "facecolor": "white",
+                "edgecolor": "#1a6faf",
+                "linewidth": 0.5,
+            },
         )
         y_pos -= 0.08
 
@@ -425,13 +429,13 @@ class InteractiveChart:
     def _kwargs_plot(self, modo_key: str, flip: bool = False) -> dict[str, Any]:
         """Retorna kwargs para plotagem de linha."""
         m = MODOS[modo_key]
-        return dict(
-            color=m["cor"],
-            linewidth=1.5,
-            path_effects=m["efeito"](flip=flip),
-            transform=ccrs.PlateCarree(),
-            zorder=15,
-        )
+        return {
+            "color": m["cor"],
+            "linewidth": 1.5,
+            "path_effects": m["efeito"](flip=flip),
+            "transform": ccrs.PlateCarree(),
+            "zorder": 15,
+        }
 
     def _atualizar_status(self) -> None:
         """Atualiza texto de status no painel lateral."""
@@ -449,12 +453,12 @@ class InteractiveChart:
             self.status_text.set_color(m["cor"])
             # Atualiza cor da borda do bbox
             self.status_text.set_bbox(
-                dict(
-                    boxstyle="round,pad=0.3",
-                    facecolor="white",
-                    edgecolor=m["cor"],
-                    linewidth=1.0,
-                )
+                {
+                    "boxstyle": "round,pad=0.3",
+                    "facecolor": "white",
+                    "edgecolor": m["cor"],
+                    "linewidth": 1.0,
+                }
             )
 
         self.fig.canvas.draw_idle()
@@ -462,10 +466,8 @@ class InteractiveChart:
     def _redesenhar_preview(self) -> None:
         """Redesenha preview da linha atual."""
         if self.estado["preview"] is not None:
-            try:
+            with contextlib.suppress(ValueError):
                 self.estado["preview"].remove()
-            except ValueError:
-                pass
             self.estado["preview"] = None
 
         if len(self.estado["pts_x"]) >= 2:
@@ -548,10 +550,8 @@ class InteractiveChart:
         if tecla == "enter":
             if len(self.estado["pts_x"]) >= 2:
                 if self.estado["preview"] is not None:
-                    try:
+                    with contextlib.suppress(ValueError):
                         self.estado["preview"].remove()
-                    except ValueError:
-                        pass
                     self.estado["preview"] = None
 
                 xi, yi = interpolar_pontos(self.estado["pts_x"], self.estado["pts_y"])
@@ -576,17 +576,13 @@ class InteractiveChart:
 
         # Limpar tudo
         if tecla == "c":
-            for l in self.estado["linhas"]:
-                try:
-                    l.remove()
-                except ValueError:
-                    pass
+            for ln in self.estado["linhas"]:
+                with contextlib.suppress(ValueError):
+                    ln.remove()
             self.estado["linhas"].clear()
             if self.estado["preview"] is not None:
-                try:
+                with contextlib.suppress(ValueError):
                     self.estado["preview"].remove()
-                except ValueError:
-                    pass
                 self.estado["preview"] = None
             self.estado["pts_x"].clear()
             self.estado["pts_y"].clear()

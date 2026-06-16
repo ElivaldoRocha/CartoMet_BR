@@ -7,6 +7,8 @@ Contém:
 - draw_vortex: Vórtice ciclônico (triskele de três braços)
 """
 
+import contextlib
+
 import cartopy.crs as ccrs
 import numpy as np
 from matplotlib.patches import PathPatch
@@ -25,10 +27,8 @@ class _CompoundArtist:
 
     def remove(self):
         for a in self._artists:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 a.remove()
-            except (ValueError, AttributeError):
-                pass
 
     def set_visible(self, visible):
         for a in self._artists:
