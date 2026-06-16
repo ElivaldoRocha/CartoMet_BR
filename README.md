@@ -67,6 +67,32 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 
 ## Novidades da v3.0
 
+### 🗂️ Carta OMM — cabeçalho institucional + legenda no export
+
+- **Arquivo → "Exportar Carta (OMM)…"** transforma o PNG/PDF numa **carta entregável**: um **cabeçalho institucional** (instituição, analista, tipo de carta, **validade/rodada/step auto-preenchidos** da carta, hora de emissão, **logo opcional**) e uma **legenda apenas dos símbolos OMM efetivamente desenhados**
+- Defaults lembrados entre sessões (`QSettings`); a mobília é composta **só no arquivo** — a edição ao vivo e o "Salvar Imagem" cru continuam intactos
+- Posicionada **fora do mapa** (não altera a geometria travada do Cartopy) e incluída no recorte do export; um espaçador garante os **rótulos de longitude** mesmo sem legenda
+
+### 📈 Meteograma — série temporal num ponto
+
+- Botão **📈 Meteograma**: clique num ponto e veja a **evolução do modelo IFS em +0…+72 h** num painel docado de 4 eixos — **temperatura** (1000 hPa) + **PNMM**, **vento de 10 m** (intensidade + barbelas), **precipitação por intervalo** e **água precipitável**
+- Download **serializado por step** (cache-first, anti-429) em **thread** — a GUI nunca trava; *badge* de honestidade (previsão **pontual** do modelo, aproximada)
+
+### 🔪 Corte Vertical — seção (cross-section) A→B
+
+- Botão **🔪 Corte Vertical**: **dois cliques** (A → B) definem a reta e o painel desenha a **seção pressão × distância** de **ω** (ascendência/subsidência), **temperatura**, **umidade específica** e **vento**, por interpolação ao longo do caminho (13 níveis)
+- Eixo de pressão logarítmico invertido; re-desenha ao mudar **step/rodada**
+
+### 🌩️ Campos de instabilidade — CAPE/CIN/LI/K
+
+- Novo grupo **Instabilidade** no painel: **K-index** na grade nativa (vetorizado, rápido); **Lifted Index, CAPE e CIN** com ascensão de parcela em **grade engrossada** (interpolada de volta), em thread com progresso
+- Render **contínuo** (níveis por percentil), **sem classes/limiares inventados** — produto do modelo (13 níveis), rotulado **"aprox."**; entram como camadas PL togglável/removíveis
+
+### 💾 Projeto de análise (`.cmbr`)
+
+- **Salvar/abrir** o **traçado manual + estado do mapa** num arquivo `.cmbr` (JSON versionado) — *handover* de turno, reedição e versionamento da carta
+- Reabrir **restaura offline** os desenhos/emojis/anotações e o enquadramento (**nunca dispara rede sozinho**); as camadas calculadas são **memorizadas para reativação manual** (*human-in-the-loop*)
+
 ### Índice ZCIT (LOCZCIT-PA) — Potencial Acoplado
 
 - Novo índice integrado que localiza a **Zona de Convergência Intertropical** fundindo **três forçantes** do ECMWF IFS Cycle 50r1 que precisam coexistir espacialmente:
@@ -119,6 +145,7 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 ### Sonda Vertical — Radiossondagem (Skew-T Log-P)
 
 - Botão **📍 Sonda Vertical** na barra principal: ative e **clique no mapa** — o sistema **ancora (*snap*) automaticamente na estação de radiossonda mais próxima** (lista RAOB curada: Belém 82193, Fortaleza, Natal, Manaus, Brasília, Galeão, Porto Alegre…) e desenha um marcador temporário
+- **Duas fontes** no seletor do painel: **Observada (Wyoming)** — a radiossonda real (só **00Z/12Z**); e **Modelo (IFS)** — **pseudo-sondagem** dos 13 níveis em **qualquer ponto clicado**, inclusive **oceano** e **steps de previsão**, onde não há radiossonda (rotulada como aproximada — *não* é observação)
 - O perfil abre num **painel lateral direito deslizante** (`QDockWidget`): o meteorologista vê o **mapa 2D à esquerda e o Skew-T à direita ao mesmo tempo** — sem pop-ups que escondam o contexto (UX *Single Page*)
 - Diagrama completo via **MetPy**: **Skew-T Log-P** (temperatura, orvalho, perfil da parcela, sombreamento de CAPE/CIN, barbelas de vento), **hodógrafo** e **tabela de índices** termodinâmicos (CAPE, CIN, LCL, LFC, EL, Água Precipitável, Showalter)
 - **Sincronia temporal mestra**: o painel é *escravo* do seletor de **Step** do mapa — avançar o horário recarrega a sondagem automaticamente. A radiossonda (lançada só às **00Z/12Z**) é buscada no horário sinótico mais próximo do `valid_time`
@@ -276,6 +303,12 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 | **Dados ECMWF** | Download automático de dados gratuitos do modelo IFS (resolução 0.25°) |
 | **Índice ZCIT (LOCZCIT-PA)** | Localização da ZCIT acoplando ∇TSM + convergência + OLR desacumulada num raster categórico de 4 classes (Forte/Moderada/Fraca/Cinemática), com máscara ativa, envelope sazonal e overlay opcional de eixo — guia para o traçado manual |
 | **Bloqueio Atmosférico (Z500)** | Anomalia de altura geopotencial em 500 hPa (`gh` − climatologia ERA5 1991–2020) com render divergente e contorno do zero — realça cordilheiras de bloqueio e o padrão ômega; climatologia baixada por dia (cache + sha256) |
+| **Sonda Vertical (Skew-T)** | Radiossondagem observada (Wyoming) **ou** pseudo-sondagem do modelo IFS em qualquer ponto (oceano/previsão) — Skew-T, hodógrafa e índices via MetPy |
+| **Meteograma** | Série temporal do IFS num ponto (+0…+72 h): T, vento, precipitação, PNMM e água precipitável |
+| **Corte Vertical (A→B)** | Seção pressão × distância de ω, temperatura, umidade e vento ao longo de uma reta desenhada |
+| **Instabilidade (CAPE/CIN/LI/K)** | Campos de instabilidade derivados do modelo — K-index nativo; LI/CAPE/CIN em grade engrossada; render contínuo (aprox.) |
+| **Carta OMM** | Export com cabeçalho institucional (instituição/analista/validade/logo) + legenda dos símbolos — PNG/PDF entregável |
+| **Projeto de análise (.cmbr)** | Salvar/abrir o traçado manual + estado do mapa; restauração offline (*human-in-the-loop*) |
 | **Observações SYNOP/METAR** | Sobreposição de observações reais de superfície (METAR via NOAA AWC; SYNOP via OGIMET) sincronizadas com o `valid_time` do modelo |
 | **Caneta e Formas** | Traço livre (mouse/mesa digitalizadora) e formas customizáveis (retângulo, elipse, seta, linha, polígono) com cor, preenchimento, espessura, estilo e opacidade — integrados ao undo/redo |
 | **Zoom no mapa** | Zoom por roda do mouse, pan, recorte por retângulo (replota e reafina estações), histórico de extents (Home/Ctrl+0) |
@@ -592,6 +625,13 @@ CartoMet_BR/
 │   │   ├── draw_tools.py        # Caneta e formas: comandos de desenho serializáveis
 │   │   ├── sounding_engine.py   # Worker da radiossondagem (Wyoming/siphon, QThread)
 │   │   ├── sounding_panel.py    # Painel lateral Skew-T Log-P (MetPy)
+│   │   ├── analysis_panel.py    # Base dos painéis docados (AnalysisDock)
+│   │   ├── analysis_engine.py   # Workers QThread: meteograma, corte vertical, instabilidade
+│   │   ├── meteogram_panel.py   # Painel do meteograma (série temporal num ponto)
+│   │   ├── cross_section_panel.py # Painel do corte vertical (cross-section A→B)
+│   │   ├── chart_export.py      # Montagem (pura) dos metadados da carta OMM
+│   │   ├── chart_header_dialog.py # Diálogo do cabeçalho da carta OMM
+│   │   ├── project_io.py        # Serialização do projeto de análise (.cmbr)
 │   │   ├── dialogs.py           # Welcome, FirstRun
 │   │   ├── themes.py            # Temas visuais e estilos
 │   │   ├── methodology.py       # Renderiza a metodologia LOCZCIT-PA (md → HTML)
@@ -604,15 +644,20 @@ CartoMet_BR/
 ├── tests/
 │   ├── conftest.py
 │   ├── test_blocking.py
+│   ├── test_chart_export.py     # Carta OMM: metadados (puro)
+│   ├── test_chart_furniture.py  # Carta OMM: cabeçalho/legenda (offscreen)
 │   ├── test_config.py
+│   ├── test_cross_section.py    # Corte vertical A→B (puro)
 │   ├── test_data_service.py
 │   ├── test_deaccumulation.py
 │   ├── test_drawing_history.py
 │   ├── test_draw_tools.py
 │   ├── test_ecmwf.py
+│   ├── test_instability.py      # Campos CAPE/CIN/LI/K (puro)
 │   ├── test_interactive.py
 │   ├── test_loczcit_pa.py
 │   ├── test_olr_deaccum_characterization.py
+│   ├── test_point_timeseries.py # Meteograma (puro)
 │   ├── test_raob_stations.py
 │   ├── test_spatial_coherence.py
 │   ├── test_stations.py
