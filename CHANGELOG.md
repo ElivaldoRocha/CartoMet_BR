@@ -102,6 +102,14 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   embarcar os **metadados de entry-point** (`copy_metadata`) de `xarray`/`cfgrib`/
   `netCDF4` para a descoberta dos backends de leitura de GRIB/NetCDF. Coberto por
   `tests/test_selftest.py` (+6 testes).
+- **Leitura de GRIB em clones Linux/macOS:** o wheel do `eccodes` só embarca a
+  biblioteca binária no **Windows**; em Linux/macOS o `gribapi` cai no `findlibs`,
+  que procura o pacote **`eccodeslib`** (e **não** o `ecmwflibs`). Sem ele, um
+  `uv sync` num clone Linux deixava a leitura de GRIB quebrada (`Cannot find the
+  ecCodes library`) — e o CI Linux falhava ao exercitar o autoteste. Adicionado
+  `eccodeslib ; sys_platform != 'win32'` às dependências (o Windows segue usando o
+  DLL embarcado no próprio `eccodes`). Com isso o autoteste roda **estrito** também
+  no CI: se ficar verde no Linux, está provado que GRIB funciona num clone limpo.
 
 ## [3.0.0] — 2026-06-09
 
