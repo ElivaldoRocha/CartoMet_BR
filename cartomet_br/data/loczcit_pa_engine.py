@@ -18,7 +18,7 @@ Referências científicas: Rocha (2022, UFPA — LOCZCIT-IQR); Ferreira et al. (
 Gadgil & Guruprasad (1990); Lindzen & Nigam (1987). Forçantes do ECMWF IFS Cycle 50r1.
 
 Este módulo é isolado e testável sem GUI. Ver docs/Metodologia_LOCZCIT-PA.md,
-docs/Blindagem_Arquitetural_LOCZCIT-PA_CartoMet_v3.md.
+docs/_internos/Blindagem_Arquitetural_LOCZCIT-PA_CartoMet_v3.md.
 """
 
 from __future__ import annotations
