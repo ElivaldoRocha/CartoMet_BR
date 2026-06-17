@@ -91,6 +91,17 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   tolerante a falha (extra ausente apenas emite `[spec] AVISO:` e gera um exe sem o
   recurso, caindo no IQR — padrão da metodologia). `BUILD_EXECUTABLE.md` documenta o
   `uv sync --extra spatial` obrigatório antes do build.
+- **Autoteste de empacotamento (`--selftest`) + gaps de dados fechados:** novo
+  `cartomet_br/_selftest.py` importa **e exercita**, dentro do `.exe` congelado, todos
+  os módulos que as features usam (backend de PDF/SVG, `metpy`/`pint`, `cfgrib`,
+  engines do `xarray`, `siphon`, `pymetdecoder`, etc.), grava relatório em `%TEMP%` e
+  mostra um diálogo de veredito — pegando "módulo não embarcado" **antes** do usuário
+  (a classe do antigo crash ao salvar PDF). Rodar com `CartoMet_BR.exe --selftest`. O
+  `.spec` passou a coletar **`pint`** (o `default_en.txt` que o `metpy.units` lê — sua
+  ausência derrubaria Skew-T/instabilidade/LOCZCIT), **`pooch`** e **`xarray`**, e a
+  embarcar os **metadados de entry-point** (`copy_metadata`) de `xarray`/`cfgrib`/
+  `netCDF4` para a descoberta dos backends de leitura de GRIB/NetCDF. Coberto por
+  `tests/test_selftest.py` (+6 testes).
 
 ## [3.0.0] — 2026-06-09
 

@@ -121,6 +121,14 @@ def main():
     try:
         setup_environment()
 
+        # Autoteste de empacotamento: importa/exercita tudo que as features usam,
+        # DENTRO do binário congelado (com os env vars de PROJ/eccodes/SSL já
+        # configurados acima). Pega "módulo não embarcado" antes do usuário.
+        if "--selftest" in sys.argv:
+            from cartomet_br._selftest import run_selftest
+
+            sys.exit(run_selftest())
+
         from cartomet_br.gui import run_gui
 
         run_gui()
