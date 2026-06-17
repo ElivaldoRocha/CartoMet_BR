@@ -337,10 +337,10 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 
 | Arquivo | Descrição | Download |
 | --- | --- | --- |
-| **Instalador_CartoMet_BR_v3.0.0.exe** | Instalador para Windows | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest) |
-| **CartoMet_BR_Manual_Usuario.pdf** | Manual do usuário ilustrado | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest/download/CartoMet_BR_Manual_Usuario.pdf) |
+| **Instalador_CartoMet_BR_v3.0.0.exe** | Instalador para Windows (recomendado) | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest) |
+| **CartoMet_BR_v3.0.0_Windows.zip** | Versão portátil — sem instalação (ideal para máquinas sem permissão de administrador) | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest) |
 
-> **Dica:** Baixe também o manual para aprender todas as funcionalidades do programa.
+> **Dica:** Sem permissão de administrador? Use o ZIP portátil — extraia a pasta e execute `CartoMet_BR\CartoMet_BR.exe` diretamente.
 
 ---
 

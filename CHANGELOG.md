@@ -5,7 +5,7 @@ Todas as mudanças notáveis do **CartoMet BR** são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [3.0.0] — 2026-06-17
 
 ### Adicionado
 
@@ -111,8 +111,6 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   DLL embarcado no próprio `eccodes`). Com isso o autoteste roda **estrito** também
   no CI: se ficar verde no Linux, está provado que GRIB funciona num clone limpo.
 
-## [3.0.0] — 2026-06-09
-
 ### Adicionado (reformulação científica — linhagem *Projeto ZCIT_AXIS*)
 
 - **Máscara ATIVA acoplada + categoria Cinemática:** o portão da banda passa a ser a
@@ -127,7 +125,7 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   **camada togglável desligada por padrão** — orienta sem substituir o traçado manual.
   Novos módulos `data/zcit_axis.py` e `data/zcit_dual.py`; dependência `statsmodels`.
 
-### Adicionado
+### Adicionado (motor ZCIT, desenho e observações)
 
 - **✏ Caneta (traço livre):** desenho à mão livre na carta sinótica — pressione e
   arraste com o mouse ou **mesa digitalizadora** (o tablet age como mouse de precisão;
