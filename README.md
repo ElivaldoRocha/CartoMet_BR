@@ -664,8 +664,6 @@ CartoMet_BR/
 │   ├── test_symbols.py
 │   ├── test_zcit_axis.py
 │   └── test_zoom.py
-├── output/
-│   └── instalador_script.iss    # Script Inno Setup para gerar instalador
 ├── .github/
 │   └── workflows/
 │       └── ci.yml               # CI: lint, type check, testes
@@ -699,9 +697,9 @@ uv run mypy cartomet_br/ --ignore-missing-imports
 
 ### Gerar executável (PyInstaller)
 
-```bash
-uv run pyinstaller cartomet_br.spec
-```
+O empacotamento para distribuição — o arquivo `.spec` do PyInstaller e o script do
+instalador Inno Setup — é mantido **fora do repositório público**. O build roda a
+partir da raiz do projeto, após `uv sync --extra spatial`.
 
 ### CI/CD
 

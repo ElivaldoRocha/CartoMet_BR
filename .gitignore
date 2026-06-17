@@ -119,10 +119,9 @@ data/**/*.nc
 data/_loczcit_test/
 data/loczcit_pa/
 
-# Output: manter apenas .gitkeep e o script do instalador
+# Output: saída do instalador (gerada localmente) — manter só o .gitkeep
 output/*
 !output/.gitkeep
-!output/instalador_script.iss
 
 # Distribuicoes e binarios gerados
 *.zip
