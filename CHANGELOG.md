@@ -80,6 +80,17 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   `charts/synoptic`, `charts/interactive`, `main_window`) é **isento** via
   `[tool.mypy.overrides]`: ali os `attr-defined` de `GeoAxes` são atrito de stub do
   Cartopy, não bugs.
+- **Empacotamento do executável blindado:** o `cartomet_br.spec` passa a coletar via
+  `collect_all` as bibliotecas de import dinâmico/lazy que a varredura estática do
+  PyInstaller perdia silenciosamente — `esda`/`libpysal` (Coerência Espacial LISA),
+  `statsmodels`/`patsy` (LOWESS do eixo da ZCIT), `siphon` (Skew-T Wyoming),
+  `pymetdecoder` (SYNOP) e `markdown` (metodologia), além de reforçar
+  `metpy`/`cfgrib`/`eccodes`. Sem isso, o `.exe` final mostrava o aviso *"Coerência
+  Espacial não disponível"* de forma **permanente** (o usuário final não tem terminal
+  para `uv sync --extra spatial`) e degradava outras features sem erro. A coleta é
+  tolerante a falha (extra ausente apenas emite `[spec] AVISO:` e gera um exe sem o
+  recurso, caindo no IQR — padrão da metodologia). `BUILD_EXECUTABLE.md` documenta o
+  `uv sync --extra spatial` obrigatório antes do build.
 
 ## [3.0.0] — 2026-06-09
 
