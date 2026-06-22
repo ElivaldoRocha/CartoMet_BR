@@ -5,6 +5,21 @@ Todas as mudanças notáveis do **CartoMet BR** são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [3.0.1] — 2026-06-21
+
+### Corrigido
+
+- **🗓️ Título e dados presos na data de hoje ao trocar de rodada.** Ao selecionar uma
+  rodada de um dia anterior (ex.: 19/06), o mapa continuava mostrando a data atual no
+  título *e* baixava os campos do dia errado. Causa: várias chamadas de `download_ecmwf()`
+  não passavam o parâmetro `date`, então o cliente do ECMWF Open Data baixava a rodada
+  **mais recente** daquela hora de ciclo e a gravava sob o nome do dia selecionado — o GRIB
+  vinha com a data errada, e o título (que lê fielmente o `valid_time`/`base_time` do GRIB)
+  refletia o dado errado. Agora **todas** as chamadas ancoram `date=cycle_date`, preservando
+  o modo automático (última rodada) quando nenhuma data é escolhida. Cobre o caminho de
+  dados sinóticos (PNMM/espessura), níveis de pressão, variáveis derivadas, `skt`/`lsm` e
+  `tcwv`. Regressão guardada por `tests/test_ecmwf.py::TestDateAnchoring`.
+
 ## [3.0.0] — 2026-06-17
 
 ### Adicionado
