@@ -356,6 +356,7 @@ def load_synoptic_data(
         data_dir=data_dir,
         source=source,
         force_download=force_download,
+        date=cycle_date,
     )
 
     gh_file = download_ecmwf(
@@ -367,6 +368,7 @@ def load_synoptic_data(
         data_dir=data_dir,
         source=source,
         force_download=force_download,
+        date=cycle_date,
     )
 
     # Leitura com xarray
@@ -1707,6 +1709,7 @@ def load_pl_variable(
         data_dir=data_dir,
         source=source,
         force_download=force_download,
+        date=cycle_date,
     )
 
     # Leitura com xarray
@@ -1871,6 +1874,7 @@ def _compute_derived_variable(
         output_path=data_dir / f"ecmwf_t_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
         data_dir=data_dir,
         source=source,
+        date=cycle_date,
     )
 
     ds_t = xr.open_dataset(
@@ -1952,6 +1956,7 @@ def _compute_derived_variable(
             output_path=data_dir / f"ecmwf_u_v_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
             data_dir=data_dir,
             source=source,
+            date=cycle_date,
         )
 
         ds_uv = xr.open_dataset(
@@ -2014,6 +2019,7 @@ def _compute_derived_variable(
             output_path=data_dir / f"ecmwf_u_v_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
             data_dir=data_dir,
             source=source,
+            date=cycle_date,
         )
 
         ds_uv = xr.open_dataset(
@@ -2087,6 +2093,7 @@ def _compute_derived_variable(
             output_path=data_dir / f"ecmwf_q_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
             data_dir=data_dir,
             source=source,
+            date=cycle_date,
         )
 
         ds_q = xr.open_dataset(
@@ -2130,6 +2137,7 @@ def _compute_derived_variable(
             output_path=data_dir / f"ecmwf_u_v_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
             data_dir=data_dir,
             source=source,
+            date=cycle_date,
         )
 
         ds_uv = xr.open_dataset(
@@ -2491,6 +2499,7 @@ def _read_skt_ocean(
         data_dir=data_dir,
         source=source,
         force_download=force_download,
+        date=cycle_date,
     )
     lsm_file = download_ecmwf(
         variables=["lsm"],
@@ -2501,6 +2510,7 @@ def _read_skt_ocean(
         data_dir=data_dir,
         source=source,
         force_download=force_download,
+        date=cycle_date,
     )
 
     def _open(fn, shortname):
@@ -2682,6 +2692,7 @@ def load_tcwv(
         data_dir=data_dir,
         source=source,
         force_download=force_download,
+        date=cycle_date,
     )
 
     ds = xr.open_dataset(grib_file, engine="cfgrib", backend_kwargs={"errors": "ignore"})

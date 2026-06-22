@@ -8,6 +8,7 @@ from unittest.mock import patch, MagicMock
 
 from cartomet_br.data.ecmwf import (
     download_ecmwf,
+    load_synoptic_data,
     estimate_available_cycles,
     SynopticData,
     PLFieldData,
@@ -404,6 +405,72 @@ class TestExceptionTranslation:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  get_ir_colormap
 # ═══════════════════════════════════════════════════════════════════════════════
+
+class TestDateAnchoring:
+    """Regressão do bug do título preso na data de hoje: a data da rodada
+    selecionada (`cycle_date`) precisa virar o parâmetro `date` do pedido ECMWF.
+    Sem isto, o cliente baixa a rodada MAIS RECENTE daquela hora de ciclo e grava
+    sob o nome do dia escolhido — GRIB com data errada → título errado."""
+
+    @patch("cartomet_br.data.ecmwf.Client")
+    def test_date_reaches_ecmwf_request(self, mock_client_cls, tmp_path):
+        """download_ecmwf(date=...) injeta `date` no pedido client.retrieve()."""
+        output = tmp_path / "ecmwf_msl_20260619_06Z_f000.grib2"
+        mock_client = MagicMock()
+        # retrieve precisa "criar" o arquivo, senão download_ecmwf levanta FileNotFound
+        mock_client.retrieve.side_effect = lambda **kw: output.write_bytes(b"fake grib")
+        mock_client_cls.return_value = mock_client
+
+        download_ecmwf(
+            variables=["msl"], step=0, cycle=6, date="20260619",
+            output_path=output, data_dir=tmp_path,
+        )
+
+        kwargs = mock_client.retrieve.call_args.kwargs
+        assert kwargs["date"] == "20260619"
+
+    @patch("cartomet_br.data.ecmwf.Client")
+    def test_no_date_keeps_auto_latest(self, mock_client_cls, tmp_path):
+        """date=None NÃO injeta `date` → cliente segue pegando a última rodada."""
+        output = tmp_path / "ecmwf_msl_auto_06Z_f000.grib2"
+        mock_client = MagicMock()
+        mock_client.retrieve.side_effect = lambda **kw: output.write_bytes(b"fake grib")
+        mock_client_cls.return_value = mock_client
+
+        download_ecmwf(
+            variables=["msl"], step=0, cycle=6, date=None,
+            output_path=output, data_dir=tmp_path,
+        )
+
+        kwargs = mock_client.retrieve.call_args.kwargs
+        assert "date" not in kwargs
+
+    def test_load_synoptic_forwards_cycle_date(self, tmp_path, monkeypatch):
+        """load_synoptic_data (a função do print) repassa cycle_date como `date`
+        nas chamadas de download — sem isto, o GRIB volta com a data de hoje."""
+        calls = []
+
+        class _Stop(Exception):
+            pass
+
+        def _recorder(*args, **kwargs):
+            calls.append(kwargs)
+            raise _Stop  # corta antes do cfgrib/GRIB real
+
+        monkeypatch.setattr("cartomet_br.data.ecmwf.download_ecmwf", _recorder)
+
+        with pytest.raises(_Stop):
+            load_synoptic_data(
+                extent=[-75, -35, -30, 6],
+                step=0,
+                cycle=6,
+                cycle_date="20260619",
+                data_dir=tmp_path,
+            )
+
+        assert calls, "download_ecmwf não foi chamado"
+        assert calls[0].get("date") == "20260619"
+
 
 class TestIRColormap:
     def test_returns_colormap(self):
