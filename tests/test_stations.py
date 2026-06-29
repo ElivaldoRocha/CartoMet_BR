@@ -6,12 +6,15 @@ import numpy as np
 import pytest
 
 from cartomet_br.data.stations import (
+    DEFAULT_OBS_DENSITY,
+    OBS_DENSITY_FACTORS,
     STATION_COLUMNS,
     _filter_extent,
     _metar_record_from_json,
     _parse_dms_coord,
     empty_stations_df,
     normalize_station_records,
+    thinning_radius,
     wind_components,
 )
 
@@ -169,3 +172,40 @@ class TestMetarRecord:
         df = normalize_station_records([_metar_record_from_json(obj)])
         assert len(df) == 1
         assert list(df.columns) == STATION_COLUMNS
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  thinning_radius (densidade ajustável do overlay)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestThinningRadius:
+    def test_higher_factor_smaller_radius(self):
+        # Mais densidade (fator maior) → raio menor → mais estações.
+        assert thinning_radius(40.0, 4.0) < thinning_radius(40.0, 1.0)
+
+    def test_monotonic_across_levels(self):
+        # Baixa > Média > Alta > Máxima em raio (densidade crescente).
+        radii = [
+            thinning_radius(40.0, OBS_DENSITY_FACTORS[name])
+            for name in ("Baixa", "Média", "Alta", "Máxima")
+        ]
+        assert radii == sorted(radii, reverse=True)
+        assert len(set(radii)) == len(radii)  # todos distintos
+
+    def test_scales_with_width(self):
+        # Domínio mais largo → raio maior (mesmo fator).
+        assert thinning_radius(80.0, 2.0) > thinning_radius(20.0, 2.0)
+
+    def test_floor_enforced(self):
+        # Zoom forte + fator alto não derruba o raio abaixo do piso de 0,10°.
+        assert thinning_radius(0.5, 4.0) == pytest.approx(0.10)
+
+    def test_default_doubles_density_vs_media(self):
+        # O padrão "Alta" tem metade do raio de "Média" (≈ 2× mais estações).
+        media = thinning_radius(40.0, OBS_DENSITY_FACTORS["Média"])
+        alta = thinning_radius(40.0, OBS_DENSITY_FACTORS[DEFAULT_OBS_DENSITY])
+        assert alta == pytest.approx(media / 2.0)
+
+    def test_negative_width_uses_magnitude(self):
+        # extent invertido (largura negativa) não quebra: usa o módulo.
+        assert thinning_radius(-40.0, 2.0) == thinning_radius(40.0, 2.0)

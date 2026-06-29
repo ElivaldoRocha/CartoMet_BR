@@ -37,6 +37,7 @@ from cartomet_br.data.ecmwf import (
     VARIABLE_REGISTRY,
     estimate_available_cycles,
 )
+from cartomet_br.data.stations import DEFAULT_OBS_DENSITY, OBS_DENSITY_FACTORS
 from cartomet_br.gui._constants import VALID_STEPS
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -275,6 +276,7 @@ class SettingsPanel(QWidget):
     update_requested = pyqtSignal()
     layers_changed = pyqtSignal(str, bool)  # (nome_camada, visível)
     observations_changed = pyqtSignal(str, bool)  # (kind: "metar"|"synop", ativo)
+    observation_density_changed = pyqtSignal(float)  # fator de densidade do overlay
 
     REGIONS = {
         "América do Sul": EXTENT_AMSUL,
@@ -512,6 +514,24 @@ class SettingsPanel(QWidget):
         )
         obs_layout.addWidget(self.metar_check)
 
+        # ── Densidade do overlay (afina SYNOP+METAR; re-renderiza sem rebaixar) ──
+        density_row = QHBoxLayout()
+        density_row.setSpacing(6)
+        density_row.addWidget(QLabel("Densidade:"))
+        self.obs_density_combo = QComboBox()
+        for name, factor in OBS_DENSITY_FACTORS.items():
+            self.obs_density_combo.addItem(name, factor)
+        self.obs_density_combo.setCurrentText(DEFAULT_OBS_DENSITY)
+        self.obs_density_combo.setToolTip(
+            "Quantidade de estações plotadas (SYNOP e METAR). Maior densidade mostra "
+            "mais observações, estilo GEMPAK. Aplica na hora, sem baixar de novo."
+        )
+        self.obs_density_combo.currentIndexChanged.connect(
+            lambda _: self.observation_density_changed.emit(self.get_observation_density())
+        )
+        density_row.addWidget(self.obs_density_combo, 1)
+        obs_layout.addLayout(density_row)
+
         self.obs_time_label = QLabel(
             "<small style='color: #95A5A6;'>Carregue um modelo para sincronizar "
             "as observações ao horário da carta.</small>"
@@ -572,6 +592,11 @@ class SettingsPanel(QWidget):
             "metar": self.metar_check.isChecked(),
             "synop": self.synop_check.isChecked(),
         }
+
+    def get_observation_density(self) -> float:
+        """Fator de densidade do overlay selecionado (ver OBS_DENSITY_FACTORS)."""
+        factor = self.obs_density_combo.currentData()
+        return float(factor) if factor is not None else OBS_DENSITY_FACTORS[DEFAULT_OBS_DENSITY]
 
     def set_obs_reference_time(self, dt):
         """Guarda o valid_time do modelo (datetime UTC ou None) e atualiza o painel.

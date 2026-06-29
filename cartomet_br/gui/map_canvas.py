@@ -40,6 +40,11 @@ from cartomet_br.data.ecmwf import (
     get_ir_colormap,
 )
 from cartomet_br.data.sst import SSTData
+from cartomet_br.data.stations import (
+    DEFAULT_OBS_DENSITY,
+    OBS_DENSITY_FACTORS,
+    thinning_radius,
+)
 from cartomet_br.gui._constants import APP_VERSION
 from cartomet_br.gui.draw_tools import (
     PEN_MIN_PIXEL_DIST,
@@ -255,6 +260,7 @@ class MapCanvas(FigureCanvas):
         # Observações de superfície (SYNOP / METAR)
         self._station_artists = {"metar": [], "synop": []}
         self._station_data = {"metar": None, "synop": None}
+        self._obs_density_factor = OBS_DENSITY_FACTORS[DEFAULT_OBS_DENSITY]
 
         # Índice LOCZCIT-PA (raster categórico da ZCIT)
         self._loczcit_artist = None
@@ -2914,10 +2920,10 @@ class MapCanvas(FigureCanvas):
         import metpy.calc as mpcalc
         from metpy.plots import StationPlot
 
-        # ── Thinning por densidade, raio proporcional ao extent ──
+        # ── Thinning por densidade, raio proporcional ao extent × fator do usuário ──
         extent = self.config.extent
         width_deg = abs(extent[2] - extent[0])
-        radius = max(width_deg / 22.0, 0.25)  # graus
+        radius = thinning_radius(width_deg, self._obs_density_factor)  # graus
 
         lons = np.asarray(df["longitude"].values, dtype=float)
         lats = np.asarray(df["latitude"].values, dtype=float)
@@ -3007,6 +3013,25 @@ class MapCanvas(FigureCanvas):
 
         self._update_map_title()
         self.draw()
+
+    def set_observation_density(self, factor: float) -> None:
+        """Ajusta a densidade do overlay e re-renderiza a partir do cache (sem rede).
+
+        `factor` segue `OBS_DENSITY_FACTORS` (maior → mais estações). As camadas
+        ativas são re-afinadas e replotadas usando os DataFrames já em memória em
+        `self._station_data` — nenhum download é disparado.
+        """
+        try:
+            factor = float(factor)
+        except (TypeError, ValueError):
+            return
+        if factor <= 0 or factor == self._obs_density_factor:
+            return
+        self._obs_density_factor = factor
+        # Re-renderiza só as camadas com dados em cache (plot_stations re-afina).
+        for kind, df in list(self._station_data.items()):
+            if df is not None and len(df) > 0:
+                self.plot_stations(df, kind=kind)
 
     def remove_stations(self, kind: str | None = None) -> None:
         """Remove os artists de observação de um tipo (ou de todos se None)."""

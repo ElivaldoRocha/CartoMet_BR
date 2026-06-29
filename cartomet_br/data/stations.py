@@ -77,6 +77,31 @@ _CLOUD_OKTAS = {
 
 _KT_TO_MS = 0.514444
 
+# ── Densidade do overlay (afinamento por reduce_point_density) ──
+# Fator multiplica o divisor-base 22 do raio: fator maior → raio menor → mais
+# estações plotadas. Controlável pelo usuário no painel "Observações de superfície"
+# (pedido do meteorologista Gustavo C. J. Escobar por densidade estilo GEMPAK).
+OBS_DENSITY_FACTORS: dict[str, float] = {
+    "Baixa": 0.5,
+    "Média": 1.0,
+    "Alta": 2.0,
+    "Máxima": 4.0,
+}
+DEFAULT_OBS_DENSITY = "Alta"
+# Divisor-base e piso (graus) do raio de afinamento.
+_OBS_RADIUS_BASE_DIVISOR = 22.0
+_OBS_RADIUS_FLOOR_DEG = 0.10
+
+
+def thinning_radius(width_deg: float, factor: float) -> float:
+    """Raio (em graus) do `reduce_point_density` para o overlay de observações.
+
+    Escala com a largura do domínio (mais detalhe ao aproximar) e com o `factor`
+    de densidade escolhido: fator maior → raio menor → mais estações na tela.
+    O piso evita raio degenerado em zoom forte / fator alto.
+    """
+    return max(abs(width_deg) / (_OBS_RADIUS_BASE_DIVISOR * factor), _OBS_RADIUS_FLOOR_DEG)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  NORMALIZAÇÃO (pura, testável — sem rede)
