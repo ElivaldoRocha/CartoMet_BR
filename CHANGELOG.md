@@ -5,6 +5,30 @@ Todas as mudanças notáveis do **CartoMet BR** são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [3.0.2] — 2026-06-29
+
+### Adicionado
+
+- **🔭 Densidade ajustável das observações de superfície (SYNOP/METAR).** Novo seletor
+  **Densidade** no painel *Observações de superfície* (Baixa / Média / Alta / **Máxima**),
+  permitindo plotar muito mais estações — densidade estilo GEMPAK. Atende ao pedido do
+  meteorologista **Gustavo C. J. Escobar**. O controle vale para SYNOP **e** METAR e
+  **re-renderiza na hora a partir do cache** (sem novo download). O padrão passa a ser
+  **Alta** (~2× mais estações que antes); o afinamento continua escalando com o zoom
+  (mais detalhe ao aproximar). Internamente, o raio do `reduce_point_density` agora é
+  modulado por um fator de densidade (`cartomet_br.data.stations.thinning_radius`), com
+  piso reduzido de 0,25° → 0,10° para liberar as densidades altas. Regressão guardada por
+  `tests/test_stations.py`.
+
+### Garantia de qualidade
+
+- **🔒 Blindagem do fix de datas (v3.0.1) nas análises prontas.** Auditoria confirmou que a
+  correção da rodada selecionada (`cycle_date` → `date` do pedido ECMWF) propaga para **todas**
+  as features que consomem dados do IFS — incluindo o **Índice ZCIT (LOCZCIT-PA)** e a **Análise
+  de Bloqueio (Z500)**, e o caminho de **OLR desacumulada** (a técnica *Estabilizada* ancora a
+  rodada-base madura derivada da selecionada, não "hoje"). Novos testes de regressão fecham a
+  lacuna em que só o caminho sinótico estava coberto: `tests/test_ecmwf.py::TestDateAnchoringFeatures`.
+
 ## [3.0.1] — 2026-06-21
 
 ### Corrigido

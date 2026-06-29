@@ -17,7 +17,7 @@ try:
 
     __version__ = _get_version("cartomet-br")
 except Exception:
-    __version__ = "3.0.0"
+    __version__ = "3.0.2"
 __author__ = "Elivaldo C. Rocha"
 __email__ = "carvalhovaldo09@gmail.com"
 

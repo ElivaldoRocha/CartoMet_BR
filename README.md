@@ -139,7 +139,7 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 - **METAR (horário)** via NOAA Aviation Weather Center e **SYNOP (6/6h)** via OGIMET
 - *Station model* completo (T, Td, PNMM, barbelas de vento, cobertura de nuvens, tempo presente) com `metpy.plots.StationPlot`
 - **Sincronização temporal**: as observações usam o `valid_time` do modelo carregado
-- **Afinamento por densidade** (`reduce_point_density`) que responde ao zoom — ao recortar para um domínio menor, mais estações aparecem
+- **Densidade ajustável** (Baixa / Média / Alta / Máxima — padrão **Alta**) via seletor no painel, com afinamento (`reduce_point_density`) que também responde ao zoom; densidade Máxima ≈ produto GEMPAK. Trocar a densidade re-renderiza na hora, sem novo download
 - Liga/desliga por checkbox no painel **Observações de superfície** (re-renderiza só o overlay; rede em thread; falhas não travam a interface)
 
 ### Sonda Vertical — Radiossondagem (Skew-T Log-P)
