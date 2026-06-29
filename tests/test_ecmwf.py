@@ -1,5 +1,7 @@
 """Testes para cartomet_br.data.ecmwf — download e processamento de dados."""
 
+import contextlib
+
 import pytest
 import numpy as np
 from datetime import datetime, timezone, timedelta
@@ -470,6 +472,68 @@ class TestDateAnchoring:
 
         assert calls, "download_ecmwf não foi chamado"
         assert calls[0].get("date") == "20260619"
+
+
+class TestDateAnchoringFeatures:
+    """Garante que as FEATURES (LOCZCIT-PA e Bloqueio Z500) também propagam a data
+    da rodada selecionada até o pedido ECMWF — o mesmo bug da v3.0.1, mas nas
+    análises prontas. `TestDateAnchoring` cobre o caminho sinótico; estes travam
+    LOCZCIT e Bloqueio para que um refactor não reintroduza o título/dados errados.
+    O monkeypatch corta ANTES de qualquer GRIB/rede/climatologia."""
+
+    def test_loczcit_forwards_cycle_date(self, tmp_path, monkeypatch):
+        """compute_loczcit_pa repassa cycle_date como `date` no 1º download (skt)."""
+        from cartomet_br.data.loczcit_pa_engine import compute_loczcit_pa
+
+        calls = []
+
+        class _Stop(Exception):
+            pass
+
+        def _recorder(*args, **kwargs):
+            calls.append(kwargs)
+            raise _Stop  # corta antes do cfgrib/GRIB real (não é FileNotFoundError)
+
+        monkeypatch.setattr("cartomet_br.data.ecmwf.download_ecmwf", _recorder)
+
+        with pytest.raises(_Stop):
+            compute_loczcit_pa(
+                cycle=12,
+                cycle_date="20260619",
+                data_dir=tmp_path,
+                step=0,
+            )
+
+        assert calls, "download_ecmwf não foi chamado pelo LOCZCIT-PA"
+        assert calls[0].get("date") == "20260619"
+
+    def test_blocking_forwards_cycle_date(self, tmp_path, monkeypatch):
+        """compute_blocking repassa cycle_date ao load_pl_variable do gh 500 hPa."""
+        from cartomet_br.data.blocking_engine import compute_blocking
+
+        calls = []
+
+        class _Stop(Exception):
+            pass
+
+        def _recorder(*args, **kwargs):
+            calls.append(kwargs)
+            raise _Stop  # corta antes do download/climatologia real
+
+        monkeypatch.setattr("cartomet_br.data.ecmwf.load_pl_variable", _recorder)
+
+        # compute_blocking pode embrulhar a falha em BlockingDataError — o que
+        # importa é que load_pl_variable foi chamado com o cycle_date certo.
+        with contextlib.suppress(Exception):
+            compute_blocking(
+                cycle=12,
+                cycle_date="20260619",
+                data_dir=tmp_path,
+                clim_dir=tmp_path,
+            )
+
+        assert calls, "load_pl_variable não foi chamado pelo Bloqueio"
+        assert calls[0].get("cycle_date") == "20260619"
 
 
 class TestIRColormap:
