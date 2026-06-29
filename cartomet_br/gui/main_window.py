@@ -601,9 +601,7 @@ class MainWindow(QMainWindow):
         self.sst_panel.toggle_requested.connect(self.canvas.toggle_sst)
 
         self.settings_panel.observations_changed.connect(self._on_observations_toggled)
-        self.settings_panel.observation_density_changed.connect(
-            self.canvas.set_observation_density
-        )
+        self.settings_panel.observation_density_changed.connect(self.canvas.set_observation_density)
         # Alinha a densidade inicial do canvas ao padrão do painel.
         self.canvas.set_observation_density(self.settings_panel.get_observation_density())
 
