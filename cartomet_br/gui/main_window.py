@@ -57,6 +57,7 @@ from cartomet_br.data.ecmwf import (
     load_synoptic_data,
     load_tcwv,
 )
+from cartomet_br.data.wind_rose import level_label
 from cartomet_br.gui._constants import (
     APP_AUTHOR,
     APP_DESCRIPTION,
@@ -90,6 +91,7 @@ from cartomet_br.gui.meteogram_panel import MeteogramPanel
 from cartomet_br.gui.sounding_engine import ModelSoundingWorker, SoundingWorker
 from cartomet_br.gui.sounding_panel import SoundingPanel
 from cartomet_br.gui.themes import DARK_STYLE
+from cartomet_br.gui.wind_rose_config_dialog import WindRoseConfigDialog, load_wind_rose_config
 from cartomet_br.gui.wind_rose_panel import WindRosePanel
 
 logger = logging.getLogger(__name__)
@@ -120,6 +122,8 @@ class MainWindow(QMainWindow):
         self._active_meteogram_point = None  # (lon, lat) do meteograma ativo
         self._wind_rose_worker = None  # worker da rosa dos ventos
         self._active_wind_rose_point = None  # (lon, lat) da rosa ativa
+        # Config da rosa (nível/faixas/calmaria/stats) — defaults do QSettings.
+        self._wind_rose_config = load_wind_rose_config()
         self._xsec_worker = None  # worker do corte vertical (F4)
         self._active_xsec = None  # (lon_a, lat_a, lon_b, lat_b) ativo
         self._instability_worker = None  # worker dos campos de instabilidade (F9)
@@ -245,6 +249,7 @@ class MainWindow(QMainWindow):
         # Rosa dos Ventos — dock direito deslizante, oculto até o 1º clique.
         self.wind_rose_panel = WindRosePanel("Rosa dos Ventos (Ponto)", self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.wind_rose_panel)
+        self.wind_rose_panel.set_show_stats(bool(self._wind_rose_config["show_stats"]))
         self.wind_rose_panel.hide()
 
     def _setup_menu(self):
@@ -670,6 +675,7 @@ class MainWindow(QMainWindow):
         self.canvas.wind_rose_requested.connect(self._on_wind_rose_point)
         self.wind_rose_panel.pin_requested.connect(self._on_pin_wind_rose)
         self.wind_rose_panel.clear_pins_requested.connect(self.canvas.clear_wind_rose_insets)
+        self.wind_rose_panel.config_requested.connect(self._on_wind_rose_config_requested)
         self.canvas.cross_section_requested.connect(self._on_cross_section_request)
         self.settings_panel.step_combo.currentIndexChanged.connect(self._on_sounding_step_changed)
 
@@ -1207,18 +1213,20 @@ class MainWindow(QMainWindow):
     def _launch_wind_rose(self) -> None:
         """Dispara o WindRoseWorker no ponto ativo usando a rodada atual.
 
-        Reusa o mesmo download do meteograma (vento de 10 m, +0…+72h, cache-first)
-        e bina a distribuição. Como o eixo já É a distribuição de todos os steps,
-        NÃO re-dispara ao mudar o step — o usuário re-clica para outra rodada.
+        Vento de 10 m (default) reusa o download do meteograma; um nível de
+        pressão (⚙) reusa o GRIB de perfil do Skew-T — ambos +0…+72h,
+        cache-first. Como o eixo já É a distribuição de todos os steps, NÃO
+        re-dispara ao mudar o step — o usuário re-clica para outra rodada.
         """
         if self._active_wind_rose_point is None:
             return
         lon, lat = self._active_wind_rose_point
         cycle = self.settings_panel.get_cycle()
         cycle_date = self.settings_panel.get_cycle_date()
+        cfg = self._wind_rose_config
         ns = "N" if lat >= 0 else "S"
         ew = "E" if lon >= 0 else "W"
-        label = f"IFS 10 m — {abs(lat):.1f}°{ns} {abs(lon):.1f}°{ew}"
+        label = f"IFS {level_label(cfg['level_hpa'])} — {abs(lat):.1f}°{ns} {abs(lon):.1f}°{ew}"
 
         if self._wind_rose_worker is not None and self._wind_rose_worker.isRunning():
             return
@@ -1233,6 +1241,10 @@ class MainWindow(QMainWindow):
             cycle=cycle,
             cycle_date=cycle_date,
             data_dir=self.config.grib_dir,
+            n_sectors=self.wind_rose_panel.current_n_sectors(),
+            level_hpa=cfg["level_hpa"],
+            speed_bin_edges=cfg["speed_bin_edges"],
+            calm_threshold=cfg["calm_threshold"],
             parent=self,
         )
         worker.progress.connect(self._on_wind_rose_progress)
@@ -1240,6 +1252,24 @@ class MainWindow(QMainWindow):
         worker.finished_error.connect(self._on_wind_rose_error)
         self._wind_rose_worker = worker
         worker.start()
+
+    def _on_wind_rose_config_requested(self) -> None:
+        """⚙ do painel → diálogo de config; mudanças de dado re-disparam a série."""
+        dialog = WindRoseConfigDialog(self._wind_rose_config, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        old = self._wind_rose_config
+        cfg = dialog.config()
+        self._wind_rose_config = cfg
+        # Stats é só render: aplica na hora, sem rede.
+        self.wind_rose_panel.set_show_stats(bool(cfg["show_stats"]))
+        # Nível/faixas/calmaria mudam o dado binado → re-dispara no ponto ativo
+        # (cache-first: nível igual = re-binagem quase instantânea).
+        changed = any(
+            cfg[k] != old.get(k) for k in ("level_hpa", "speed_bin_edges", "calm_threshold")
+        )
+        if changed and self._active_wind_rose_point is not None:
+            self._launch_wind_rose()
 
     def _on_wind_rose_progress(self, msg: str) -> None:
         self.status_label.setText(f"● {msg}")
