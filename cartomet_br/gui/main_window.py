@@ -668,6 +668,8 @@ class MainWindow(QMainWindow):
         self.sounding_panel.source_changed.connect(self._on_sounding_source_changed)
         self.canvas.meteogram_requested.connect(self._on_meteogram_point)
         self.canvas.wind_rose_requested.connect(self._on_wind_rose_point)
+        self.wind_rose_panel.pin_requested.connect(self._on_pin_wind_rose)
+        self.wind_rose_panel.clear_pins_requested.connect(self.canvas.clear_wind_rose_insets)
         self.canvas.cross_section_requested.connect(self._on_cross_section_request)
         self.settings_panel.step_combo.currentIndexChanged.connect(self._on_sounding_step_changed)
 
@@ -1252,6 +1254,24 @@ class MainWindow(QMainWindow):
         self.wind_rose_panel.show_error(msg)
         self.status_label.setText("● Rosa dos Ventos indisponível")
         self.status_label.setStyleSheet("color: #E74C3C;")
+
+    def _on_pin_wind_rose(self, payload: dict) -> None:
+        """Fixa a rosa atual como inset ancorado no mapa (georreferenciado)."""
+        ok = self.canvas.add_wind_rose_inset(
+            payload["lon"],
+            payload["lat"],
+            payload["rose"],
+            level=payload.get("level", "10 m"),
+            base_time=payload.get("base_time", ""),
+            grid_lon=payload.get("grid_lon"),
+            grid_lat=payload.get("grid_lat"),
+        )
+        if ok:
+            self.status_label.setText("● Rosa dos ventos fixada no mapa")
+            self.status_label.setStyleSheet("color: #27AE60;")
+        else:
+            self.status_label.setText("● Limite de rosas fixadas atingido (use 🗑 para limpar)")
+            self.status_label.setStyleSheet("color: #E67E22;")
 
     # ── Corte Vertical (cross-section A→B) — F4 ──────────────────────────────
     def _on_cross_section_request(
@@ -2974,6 +2994,8 @@ class MainWindow(QMainWindow):
             # memorizadas p/ reativação manual — nunca disparam rede.
             layers=layers,
             drawings=drawings,
+            # Rosas dos ventos fixadas: dado já binado (abrir não dispara rede).
+            wind_roses=self.canvas.export_wind_roses(),
             app_version=APP_VERSION,
         )
         try:
@@ -3033,6 +3055,8 @@ class MainWindow(QMainWindow):
         )
 
         self.canvas.import_drawings_state(records)
+        # Rosas dos ventos fixadas (dado já binado — nunca dispara rede).
+        self.canvas.import_wind_roses(data.get("wind_roses", []))
 
         self._show_project_context(
             ctx,

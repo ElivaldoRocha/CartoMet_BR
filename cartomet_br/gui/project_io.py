@@ -28,7 +28,7 @@ from cartomet_br.gui.draw_tools import (
     ShapeCommand,
 )
 
-PROJECT_SCHEMA_VERSION = 1
+PROJECT_SCHEMA_VERSION = 2  # v2: chave "wind_roses" (rosas fixadas). v1 abre normal.
 PROJECT_EXTENSION = ".cmbr"
 
 
@@ -178,9 +178,14 @@ def build_project(
     data_context: dict | None,
     layers: list | None,
     drawings: list[dict],
+    wind_roses: list[dict] | None = None,
     app_version: str = "",
 ) -> dict:
-    """Monta o dict do projeto a partir das partes já prontas (records de desenho)."""
+    """Monta o dict do projeto a partir das partes já prontas (records de desenho).
+
+    ``wind_roses`` são as rosas dos ventos FIXADAS no mapa (dado já binado — abrir
+    nunca dispara rede). Ausência da chave = projeto v1 (compatível).
+    """
     return {
         "schema_version": PROJECT_SCHEMA_VERSION,
         "app_version": app_version,
@@ -192,6 +197,7 @@ def build_project(
         "data_context": dict(data_context or {}),
         "layers": list(layers or []),
         "drawings": list(drawings or []),
+        "wind_roses": list(wind_roses or []),
     }
 
 

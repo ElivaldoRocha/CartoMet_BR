@@ -89,6 +89,33 @@ def test_full_project_roundtrip():
     assert isinstance(cmds[0], DrawCommand)
 
 
+def test_wind_roses_envelope_roundtrip():
+    """As rosas fixadas (dado já binado) sobrevivem ao round-trip; ausência = []."""
+    wr = [
+        {
+            "lon": -47.0, "lat": -15.0, "grid_lon": -47.0, "grid_lat": -15.0,
+            "level": "10 m", "base_time": "00Z 10/06/2026", "size_deg": 4.0,
+            "rose": {
+                "sector_centers": [0.0, 90.0, 180.0, 270.0], "sector_width_deg": 90.0,
+                "speed_bin_edges": [0.5, 2.0, None], "freq": [[10.0, 5.0]] * 4,
+                "calm_fraction": 0.2, "calm_threshold": 0.5, "n_total": 25,
+                "mean_speed": 4.1, "prevailing_deg": 90.0,
+            },
+        }
+    ]
+    proj = build_project(
+        extent=[-55.0, -15.0, 15.0, 15.0], theme="Clássico",
+        data_context={}, layers=[], drawings=[], wind_roses=wr,
+    )
+    loaded = load_project(dump_project(proj))
+    assert loaded["wind_roses"] == wr
+    # Omissão → chave presente e vazia (compatível com projetos v1 na leitura).
+    empty = build_project(
+        extent=None, theme=None, data_context=None, layers=None, drawings=[]
+    )
+    assert empty["wind_roses"] == []
+
+
 def test_layers_manifest_roundtrips_for_cache_restore():
     """O manifesto de camadas (e a 'technique') sobrevive ao round-trip JSON —
     é o que o open-project usa para redesenhar os campos a partir do cache."""
