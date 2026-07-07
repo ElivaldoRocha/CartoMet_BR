@@ -781,6 +781,8 @@ class MapCanvas(FigureCanvas):
                 zorder=22,
             )
         except Exception:
+            # Mantém as listas paralelas (visibilidade/limpeza indexam por posição).
+            self._wind_rose_axes.append(None)
             return
         inset.set_navigate(False)  # pan/zoom da carta não navega o inset
         inset.patch.set_facecolor("white")
@@ -798,6 +800,16 @@ class MapCanvas(FigureCanvas):
                 compact=True,
                 title=tag,
             )
+        # Recorta o inset INTEIRO (barras, grade, rótulos de rumo, título) ao
+        # retângulo da carta — nada de rosa vazando na mesa branca quando a âncora
+        # fica perto da borda. findobj() alcança os rótulos aninhados nos eixos
+        # (que get_children() não cobre — deixavam o "E"/"N" escapar na margem).
+        for art in inset.findobj():
+            with contextlib.suppress(Exception):
+                art.set_clip_path(self.ax.patch)
+                # Rótulos/título nascem com clip_on=False (podem sair do eixo) —
+                # forçar True para o recorte da carta valer também neles.
+                art.set_clip_on(True)
         self._wind_rose_axes.append(inset)
 
     def _clear_wind_rose_insets_artists(self) -> None:
@@ -821,6 +833,27 @@ class MapCanvas(FigureCanvas):
 
     def has_wind_rose_insets(self) -> bool:
         return bool(self._wind_rose_data)
+
+    def _update_wind_rose_visibility(self) -> None:
+        """Esconde os insets cuja âncora saiu da vista (não flutuar na mesa branca).
+
+        Chamado em toda mudança de vista (scroll/pan/zoom-área/recorte): se o
+        ponto ancorado da rosa sai do extent visível, o inset desaparece — não
+        fica ocupando a margem da carta.
+        """
+        if not self._wind_rose_axes:
+            return
+        try:
+            x0, x1, y0, y1 = self.ax.get_extent(crs=ccrs.PlateCarree())
+        except Exception:
+            return
+        lo_x, hi_x = min(x0, x1), max(x0, x1)
+        lo_y, hi_y = min(y0, y1), max(y0, y1)
+        for entry, inset in zip(self._wind_rose_data, self._wind_rose_axes, strict=True):
+            if inset is None:
+                continue
+            lon, lat = entry["lon"], entry["lat"]
+            inset.set_visible(lo_x <= lon <= hi_x and lo_y <= lat <= hi_y)
 
     def export_wind_roses(self) -> list[dict]:
         """Serializa as rosas fixadas em records puros p/ o projeto (.cmbr)."""
@@ -1435,6 +1468,7 @@ class MapCanvas(FigureCanvas):
         new = self._clamp_extent(new)
         try:
             self.ax.set_extent([new[0], new[2], new[1], new[3]], crs=ccrs.PlateCarree())
+            self._update_wind_rose_visibility()
             self.draw()
         except Exception:
             return
@@ -1462,6 +1496,7 @@ class MapCanvas(FigureCanvas):
         new = self._clamp_extent([x0 + dx, y0 + dy, x1 + dx, y1 + dy])
         try:
             self.ax.set_extent([new[0], new[2], new[1], new[3]], crs=ccrs.PlateCarree())
+            self._update_wind_rose_visibility()
             self.draw()
         except Exception:
             return
@@ -1479,6 +1514,7 @@ class MapCanvas(FigureCanvas):
             return
         self._reflow_layout()
         self._replot_cities_for_view()
+        self._update_wind_rose_visibility()
         self.draw_idle()
 
     @staticmethod
@@ -1525,6 +1561,8 @@ class MapCanvas(FigureCanvas):
             self._plot_synoptic_fields()
         # Re-seleciona as cidades para o novo domínio (thinning por vista)
         self._replot_cities_for_view()
+        # Esconde rosas fixadas cuja âncora saiu do novo domínio
+        self._update_wind_rose_visibility()
         # Realinha o layout (colorbars/margens) para a nova proporção e centraliza
         self._reflow_layout()
         self.draw()
@@ -2561,6 +2599,9 @@ class MapCanvas(FigureCanvas):
         # Camadas sinóticas
         self._clear_synoptic_artists()
         self.synoptic_data = None
+        # Rosas dos ventos fixadas (overlay de análise georreferenciado)
+        self._clear_wind_rose_insets_artists()
+        self._wind_rose_data.clear()
         self._update_map_title()
         self.draw()
 
