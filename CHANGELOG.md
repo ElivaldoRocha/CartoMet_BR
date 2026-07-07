@@ -133,7 +133,24 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
     projeto como **dado já binado** — abrir **nunca dispara rede**. O esquema do
     `.cmbr` sobe para **v2** (aditivo: projetos v1 continuam abrindo). Entram
     também no export PNG/PDF por serem parte da figura.
-  - Níveis de pressão e rosa climatológica ERA5 ficam para uma fase seguinte.
+  - **Rosa em níveis de pressão + configuração (Fase 3).** Botão **⚙** no
+    painel abre o diálogo de configuração: **nível** (10 m ou qualquer um dos
+    13 níveis isobáricos do IFS — 1000…50 hPa), **faixas de velocidade**
+    customizáveis (CSV ascendente; a última faixa é sempre aberta), **limiar de
+    calmaria** (0–5 m/s — na Amazônia ele muda muito a leitura) e o toggle
+    **"vento médio · rumo predominante"** (linha de estatísticas sob a rosa,
+    aplicada na hora, sem rede). A série por nível
+    (`load_point_level_wind_timeseries`) reusa **o mesmo GRIB de perfil do
+    Skew-T** por step (cache-first/anti-429) — clicar rosa a 850 hPa onde já
+    houve sondagem é instantâneo; sobre relevo alto, steps sem o nível pedido
+    (tolerância `LEVEL_MATCH_TOLERANCE_HPA` = 100 hPa) são **pulados com
+    aviso**, nunca preenchidos com vento de outro nível. Config persistida
+    (QSettings) entre sessões; o diálogo sempre abre mostrando a config
+    **vigente**. *Fix* de acompanhamento: trocar o combo *Setores* preservava
+    só o nº de rumos e **resetava silenciosamente** faixas/calmaria custom aos
+    defaults — agora herda os parâmetros da rosa ativa.
+  - Rosa climatológica ERA5 (esta sim, climatologia) fica para uma fase
+    seguinte — exige um loader pontual novo no CDS.
 
 - **📤 Boletim de Análise Codificado (CODSAS) — o traçado humano vira arquivo
   compartilhável.** Nenhuma instituição brasileira publica as posições das
