@@ -23,6 +23,71 @@ EXTENT_NORDESTE: list[float] = [-50.0, -20.0, -32.0, 0.0]
 EXTENT_SUDESTE: list[float] = [-55.0, -28.0, -38.0, -14.0]
 EXTENT_SUL: list[float] = [-60.0, -35.0, -45.0, -20.0]
 
+# Recortes por estado (27 UFs). Caixas derivadas dos limites IBGE, arredondadas
+# PARA FORA em graus inteiros com ~1° de margem (os spinboxes de extent da GUI
+# são inteiros — valores fracionários dessincronizariam o combo Estado deles).
+# Ilhas oceânicas distantes (Fernando de Noronha/PE, Trindade/ES) ficam de fora
+# para não esticar o recorte continental.
+EXTENT_UFS: dict[str, list[float]] = {
+    "AC": [-75.0, -12.0, -66.0, -6.0],
+    "AL": [-39.0, -12.0, -34.0, -8.0],
+    "AM": [-75.0, -11.0, -55.0, 3.0],
+    "AP": [-56.0, -2.0, -49.0, 5.0],
+    "BA": [-48.0, -19.0, -36.0, -8.0],
+    "CE": [-42.0, -9.0, -36.0, -2.0],
+    "DF": [-49.0, -17.0, -46.0, -15.0],
+    "ES": [-43.0, -22.0, -38.0, -17.0],
+    "GO": [-54.0, -20.0, -45.0, -12.0],
+    "MA": [-50.0, -11.0, -41.0, 0.0],
+    "MG": [-52.0, -24.0, -39.0, -13.0],
+    "MS": [-59.0, -25.0, -50.0, -16.0],
+    "MT": [-63.0, -19.0, -49.0, -6.0],
+    "PA": [-60.0, -11.0, -45.0, 3.0],
+    "PB": [-40.0, -9.0, -34.0, -5.0],
+    "PE": [-42.0, -10.0, -34.0, -6.0],
+    "PI": [-47.0, -12.0, -39.0, -2.0],
+    "PR": [-56.0, -28.0, -47.0, -22.0],
+    "RJ": [-46.0, -24.0, -40.0, -20.0],
+    "RN": [-40.0, -8.0, -34.0, -4.0],
+    "RO": [-68.0, -15.0, -59.0, -7.0],
+    "RR": [-66.0, -3.0, -58.0, 6.0],
+    "RS": [-59.0, -35.0, -49.0, -26.0],
+    "SC": [-55.0, -30.0, -47.0, -25.0],
+    "SE": [-39.0, -13.0, -35.0, -9.0],
+    "SP": [-54.0, -26.0, -43.0, -19.0],
+    "TO": [-52.0, -14.0, -44.0, -4.0],
+}
+
+UF_NOMES: dict[str, str] = {
+    "AC": "Acre",
+    "AL": "Alagoas",
+    "AM": "Amazonas",
+    "AP": "Amapá",
+    "BA": "Bahia",
+    "CE": "Ceará",
+    "DF": "Distrito Federal",
+    "ES": "Espírito Santo",
+    "GO": "Goiás",
+    "MA": "Maranhão",
+    "MG": "Minas Gerais",
+    "MS": "Mato Grosso do Sul",
+    "MT": "Mato Grosso",
+    "PA": "Pará",
+    "PB": "Paraíba",
+    "PE": "Pernambuco",
+    "PI": "Piauí",
+    "PR": "Paraná",
+    "RJ": "Rio de Janeiro",
+    "RN": "Rio Grande do Norte",
+    "RO": "Rondônia",
+    "RR": "Roraima",
+    "RS": "Rio Grande do Sul",
+    "SC": "Santa Catarina",
+    "SE": "Sergipe",
+    "SP": "São Paulo",
+    "TO": "Tocantins",
+}
+
 
 def _get_default_data_dir() -> Path:
     """Retorna diretório de dados (usa variável de ambiente se disponível)."""

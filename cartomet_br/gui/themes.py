@@ -213,6 +213,11 @@ QScrollArea {
 #  TEMAS DE CORES DO MAPA BASE (Cartopy)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Além das cores do mapa base, cada tema traz o par do modo "Destacar
+# contornos": `emphasis_line` (cor forte das linhas realçadas) e
+# `emphasis_halo` (contorno de contraste desenhado POR BAIXO delas — técnica
+# de desenho duplo, ver MapCanvas.set_context_emphasis). O halo garante
+# leitura sobre satélite e campos preenchidos em qualquer tonalidade.
 MAP_THEMES = {
     "Clássico": {
         "land": "#F5F5DC",
@@ -221,6 +226,8 @@ MAP_THEMES = {
         "coastline": "#2C3E50",
         "borders": "#7F8C8D",
         "states": "#BDC3C7",
+        "emphasis_line": "#1A1A1A",
+        "emphasis_halo": "#FFFFFF",
     },
     "Branco": {
         "land": "#FFFFFF",
@@ -229,6 +236,8 @@ MAP_THEMES = {
         "coastline": "#333333",
         "borders": "#666666",
         "states": "#AAAAAA",
+        "emphasis_line": "#1A1A1A",
+        "emphasis_halo": "#FFFFFF",
     },
     "Pastel": {
         "land": "#F0E6D3",
@@ -237,6 +246,8 @@ MAP_THEMES = {
         "coastline": "#5D4037",
         "borders": "#8D6E63",
         "states": "#BCAAA4",
+        "emphasis_line": "#3E2723",
+        "emphasis_halo": "#FFFFFF",
     },
     "Tons de cinza": {
         "land": "#E0E0E0",
@@ -245,6 +256,8 @@ MAP_THEMES = {
         "coastline": "#424242",
         "borders": "#757575",
         "states": "#BDBDBD",
+        "emphasis_line": "#212121",
+        "emphasis_halo": "#FFFFFF",
     },
     "Terra": {
         "land": "#E8DCC8",
@@ -253,6 +266,8 @@ MAP_THEMES = {
         "coastline": "#3E2723",
         "borders": "#5D4037",
         "states": "#A1887F",
+        "emphasis_line": "#2B1B14",
+        "emphasis_halo": "#FFFFFF",
     },
     "Escuro": {
         "land": "#2C3E50",
@@ -261,5 +276,7 @@ MAP_THEMES = {
         "coastline": "#ECF0F1",
         "borders": "#7F8C8D",
         "states": "#5D6D7E",
+        "emphasis_line": "#F5F6FA",
+        "emphasis_halo": "#000000",
     },
 }
