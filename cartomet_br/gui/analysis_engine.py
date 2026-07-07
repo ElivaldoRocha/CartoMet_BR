@@ -71,13 +71,15 @@ class MeteogramWorker(QThread):
 
 
 class WindRoseWorker(QThread):
-    """Monta a rosa dos ventos (10 m) num ponto, fora da thread da GUI.
+    """Monta a rosa dos ventos num ponto, fora da thread da GUI.
 
-    Reusa ``load_point_timeseries`` (mesmo download cache-first/anti-429 do
-    meteograma) e bina a série de vento previsto em ``compute_wind_rose``.
-    Entrega um ``WindRoseResult`` pronto para o painel. Honestidade: é a
-    distribuição do vento PREVISTO ao longo dos steps da rodada — não uma
-    climatologia (o painel carrega o badge).
+    ``level_hpa=None`` (default) → vento de 10 m via ``load_point_timeseries``
+    (mesmo download cache-first/anti-429 do meteograma); um nível em hPa →
+    ``load_point_level_wind_timeseries`` (reusa o GRIB de perfil do Skew-T).
+    Bina a série em ``compute_wind_rose`` com as faixas/calmaria configuradas
+    e entrega um ``WindRoseResult``. Honestidade: é a distribuição do vento
+    PREVISTO ao longo dos steps da rodada — não uma climatologia (o painel
+    carrega o badge).
     """
 
     progress = pyqtSignal(str)
@@ -93,6 +95,9 @@ class WindRoseWorker(QThread):
         data_dir,
         steps=None,
         n_sectors: int = 16,
+        level_hpa: float | None = None,
+        speed_bin_edges=None,
+        calm_threshold: float | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -103,25 +108,57 @@ class WindRoseWorker(QThread):
         self.data_dir = data_dir
         self.steps = steps
         self.n_sectors = int(n_sectors)
+        self.level_hpa = None if level_hpa is None else float(level_hpa)
+        self.speed_bin_edges = speed_bin_edges  # None → DEFAULT_SPEED_BINS
+        self.calm_threshold = calm_threshold  # None → CALM_THRESHOLD
 
     def run(self) -> None:
         try:
-            from cartomet_br.data.ecmwf import load_point_timeseries
+            from cartomet_br.data.ecmwf import (
+                PointLevelWindSeries,
+                PointTimeseries,
+                load_point_level_wind_timeseries,
+                load_point_timeseries,
+            )
             from cartomet_br.data.wind_rose import (
+                CALM_THRESHOLD,
+                DEFAULT_SPEED_BINS,
                 WindRoseResult,
                 compute_wind_rose,
+                level_label,
             )
 
-            ts = load_point_timeseries(
-                self.lon,
-                self.lat,
-                steps=self.steps,
-                cycle=self.cycle,
-                cycle_date=self.cycle_date,
-                data_dir=self.data_dir,
-                progress_cb=self.progress.emit,
+            ts: PointTimeseries | PointLevelWindSeries
+            if self.level_hpa is None:
+                ts = load_point_timeseries(
+                    self.lon,
+                    self.lat,
+                    steps=self.steps,
+                    cycle=self.cycle,
+                    cycle_date=self.cycle_date,
+                    data_dir=self.data_dir,
+                    progress_cb=self.progress.emit,
+                )
+            else:
+                ts = load_point_level_wind_timeseries(
+                    self.lon,
+                    self.lat,
+                    level_hpa=self.level_hpa,
+                    steps=self.steps,
+                    cycle=self.cycle,
+                    cycle_date=self.cycle_date,
+                    data_dir=self.data_dir,
+                    progress_cb=self.progress.emit,
+                )
+            edges = self.speed_bin_edges if self.speed_bin_edges is not None else DEFAULT_SPEED_BINS
+            calm = self.calm_threshold if self.calm_threshold is not None else CALM_THRESHOLD
+            rose = compute_wind_rose(
+                ts.wind_speed,
+                ts.wind_dir,
+                n_sectors=self.n_sectors,
+                speed_bin_edges=edges,
+                calm_threshold=calm,
             )
-            rose = compute_wind_rose(ts.wind_speed, ts.wind_dir, n_sectors=self.n_sectors)
             result = WindRoseResult(
                 rose=rose,
                 speed=tuple(float(v) for v in ts.wind_speed),
@@ -130,7 +167,7 @@ class WindRoseWorker(QThread):
                 lat=self.lat,
                 grid_lon=float(ts.grid_lon),
                 grid_lat=float(ts.grid_lat),
-                level="10 m",
+                level=level_label(self.level_hpa),
                 base_time=ts.base_time,
                 steps=tuple(int(s) for s in ts.steps),
             )
