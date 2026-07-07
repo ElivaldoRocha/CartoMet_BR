@@ -39,9 +39,14 @@ dependencies = [
     "ecmwf-opendata>=0.3.29", # 0.3.29 resolve scda→oper p/ 06Z/18Z (IFS 50r1)
     # Visualização
     "matplotlib>=3.9.0",
-    "cartopy>=0.23.0",
-    # Processamento meteorológico
-    "metpy>=1.6.0",
+    # ≥0.24: FeatureArtist vira Collection — o realce de contornos
+    # (set_linewidth/set_edgecolor in-place) depende disso
+    "cartopy>=0.24.0",
+    # GIF da animação de steps (já vinha como transitiva do matplotlib;
+    # declarada porque animation_service.py a usa diretamente)
+    "pillow>=10.4",
+    # Processamento meteorológico (≥1.7: peak_persistence p/ ranking dos centros H/L)
+    "metpy>=1.7.0",
     # Suavização robusta LOWESS (overlay de eixo da ZCIT — LOCZCIT-PA)
     "statsmodels>=0.14.0",
     # Radiossondagem vertical (Skew-T) — Universidade de Wyoming
@@ -78,8 +83,18 @@ spatial = [
     "esda>=2.5",
     "libpysal>=4.9",
 ]
+# Exportação MP4 da animação de steps (GIF via Pillow é sempre disponível).
+# ffmpeg embutido (~25-30 MB) fica FORA do instalador Windows — extra opcional.
+animation = [
+    "imageio-ffmpeg>=0.5.1",
+]
+# Reanálise ERA5 via API do CDS/Copernicus (validação científica; requer
+# chave pessoal — menu Configurações → "Chave ERA5 (CDS)...").
+reanalysis = [
+    "cdsapi>=0.7.2",
+]
 all = [
-    "cartomet-br[gui,build,dev,spatial]",
+    "cartomet-br[gui,build,dev,spatial,animation,reanalysis]",
 ]
 
 [project.scripts]

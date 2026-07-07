@@ -31,6 +31,8 @@ from cartomet_br.core.config import (
     EXTENT_NORDESTE,
     EXTENT_SUDESTE,
     EXTENT_SUL,
+    EXTENT_UFS,
+    UF_NOMES,
 )
 from cartomet_br.data.ecmwf import (
     PL_LEVELS,
@@ -277,6 +279,11 @@ class SettingsPanel(QWidget):
     layers_changed = pyqtSignal(str, bool)  # (nome_camada, visível)
     observations_changed = pyqtSignal(str, bool)  # (kind: "metar"|"synop", ativo)
     observation_density_changed = pyqtSignal(float)  # fator de densidade do overlay
+    animate_requested = pyqtSignal()  # animação de steps (GIF/MP4)
+    terrain_filter_changed = pyqtSignal(bool)  # filtro orográfico dos centros H/L
+    context_emphasis_changed = pyqtSignal(bool)  # realce de costa/fronteiras/estados
+    uf_extent_requested = pyqtSignal(list)  # recorte por estado (preserva dados)
+    cities_changed = pyqtSignal(bool)  # camada de cidades rotuladas (IBGE)
 
     REGIONS = {
         "América do Sul": EXTENT_AMSUL,
@@ -304,6 +311,24 @@ class SettingsPanel(QWidget):
         self.region_combo.addItems(self.REGIONS.keys())
         self.region_combo.currentTextChanged.connect(self._on_region_changed)
         region_layout.addWidget(self.region_combo)
+
+        # Recorte por estado. Diferente do combo Região (que TROCA o domínio de
+        # trabalho e limpa os dados), selecionar uma UF apenas RECORTA a carta
+        # atual — os campos carregados são preservados e replotados.
+        uf_row = QHBoxLayout()
+        uf_row.addWidget(QLabel("Estado:"))
+        self.uf_combo = QComboBox()
+        self.uf_combo.addItem("—", None)
+        for sigla, nome in sorted(UF_NOMES.items(), key=lambda kv: kv[1]):
+            self.uf_combo.addItem(f"{nome} ({sigla})", sigla)
+        self.uf_combo.setToolTip(
+            "Recorta a carta atual para o estado escolhido, preservando os dados\n"
+            "carregados (diferente do combo Região acima, que troca o domínio e\n"
+            "limpa os dados). Zoom/pan manual desmarca a seleção."
+        )
+        self.uf_combo.currentIndexChanged.connect(self._on_uf_selected)
+        uf_row.addWidget(self.uf_combo, 1)
+        region_layout.addLayout(uf_row)
 
         extent_grid = QGridLayout()
         extent_grid.setSpacing(4)
@@ -441,6 +466,20 @@ class SettingsPanel(QWidget):
         smooth_row.addWidget(self.smooth_label)
         step_layout.addLayout(smooth_row)
 
+        self.animate_btn = QPushButton("🎬 Animar Steps...")
+        self.animate_btn.setToolTip(
+            "Gera GIF/MP4 da composição atual do mapa ao longo dos steps de previsão"
+        )
+        self.animate_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #34495E; padding: 5px;
+                font-size: 10px; border: 1px solid #5D6D7E;
+            }
+            QPushButton:hover { background-color: #4A6785; }
+        """)
+        self.animate_btn.clicked.connect(self.animate_requested.emit)
+        step_layout.addWidget(self.animate_btn)
+
         layout.addWidget(step_group)
 
         # ═══ 4. BOTÃO BAIXAR ═══
@@ -483,6 +522,45 @@ class SettingsPanel(QWidget):
             lambda state: self.layers_changed.emit("centers", state == Qt.CheckState.Checked.value)
         )
         options_layout.addWidget(self.centers_check)
+
+        # Sub-opção dos centros: filtro orográfico (ligado por padrão).
+        # Sobre o Altiplano/Andes a PNMM é extrapolação e cria H/L falsos.
+        terrain_row = QHBoxLayout()
+        terrain_row.addSpacing(18)  # indenta sob "Centros H/L"
+        self.terrain_filter_check = QCheckBox("⛰ Filtrar terreno elevado")
+        self.terrain_filter_check.setChecked(True)
+        self.terrain_filter_check.setToolTip(
+            "Ignora centros H/L sobre terreno elevado (> ~1500 m — Andes/Altiplano),\n"
+            "onde a redução da pressão ao nível do mar é extrapolação e gera\n"
+            "máximos/mínimos artefactuais. Recomendado manter ligado."
+        )
+        self.terrain_filter_check.stateChanged.connect(
+            lambda state: self.terrain_filter_changed.emit(state == Qt.CheckState.Checked.value)
+        )
+        terrain_row.addWidget(self.terrain_filter_check)
+        options_layout.addLayout(terrain_row)
+
+        self.emphasis_check = QCheckBox("🗺 Destacar contornos")
+        self.emphasis_check.setToolTip(
+            "Engrossa costa, fronteiras e divisas de estados, com halo de contraste.\n"
+            "Útil sobre imagem de satélite e campos preenchidos, onde as linhas finas\n"
+            "do mapa base somem. Liga sozinho ao ativar o satélite."
+        )
+        self.emphasis_check.stateChanged.connect(
+            lambda state: self.context_emphasis_changed.emit(state == Qt.CheckState.Checked.value)
+        )
+        options_layout.addWidget(self.emphasis_check)
+
+        self.cities_check = QCheckBox("🏙 Cidades")
+        self.cities_check.setToolTip(
+            "Plota sedes municipais (IBGE) com o nome — capitais e cidades maiores\n"
+            "primeiro, com densidade ajustada ao zoom. Ideal para mapas regionais\n"
+            "(ex.: recorte de um estado no combo acima)."
+        )
+        self.cities_check.stateChanged.connect(
+            lambda state: self.cities_changed.emit(state == Qt.CheckState.Checked.value)
+        )
+        options_layout.addWidget(self.cities_check)
 
         layout.addWidget(options_group)
 
@@ -554,10 +632,38 @@ class SettingsPanel(QWidget):
             self.lat_min.setValue(int(extent[1]))
             self.lon_max.setValue(int(extent[2]))
             self.lat_max.setValue(int(extent[3]))
+            self.reset_uf_combo()
             self.region_changed.emit(extent)
 
     def _on_apply_region(self):
+        self.reset_uf_combo()
         self.region_changed.emit(self.get_extent())
+
+    def _on_uf_selected(self, _index: int) -> None:
+        sigla = self.uf_combo.currentData()
+        if sigla:
+            self.uf_extent_requested.emit(list(EXTENT_UFS[sigla]))
+
+    def reset_uf_combo(self) -> None:
+        """Volta o combo Estado para "—" sem reemitir o recorte."""
+        if self.uf_combo.currentIndex() != 0:
+            self.uf_combo.blockSignals(True)
+            self.uf_combo.setCurrentIndex(0)
+            self.uf_combo.blockSignals(False)
+
+    def sync_uf_combo(self, extent: list[float]) -> None:
+        """Desmarca a UF quando o extent atual deixa de ser o preset dela.
+
+        Chamado pela janela principal a cada ``extent_changed`` — zoom-área,
+        reset e "anterior" desmarcam sozinhos; aplicar a própria UF não
+        desmarca (os extents coincidem após o arredondamento dos spinboxes).
+        """
+        sigla = self.uf_combo.currentData()
+        if not sigla:
+            return
+        preset = [int(v) for v in EXTENT_UFS[sigla]]
+        if [int(round(v)) for v in extent] != preset:
+            self.reset_uf_combo()
 
     def _on_smooth_changed(self, value):
         sigma = value / 10.0
@@ -748,7 +854,7 @@ class SettingsPanel(QWidget):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Variáveis de superfície/integradas (sem seletor de nível)
-SURFACE_VARS = {"olr", "tcwv"}
+SURFACE_VARS = {"olr", "tcwv", "tmax2m", "tmin2m"}
 
 
 class FieldLayerPanel(QWidget):
@@ -761,6 +867,7 @@ class FieldLayerPanel(QWidget):
     loczcit_requested = pyqtSignal()  # índice ZCIT (LOCZCIT-PA)
     blocking_requested = pyqtSignal()  # bloqueio atmosférico (anom. Z500)
     instability_requested = pyqtSignal(object)  # campos de instabilidade (lista de índices)
+    baroclinic_requested = pyqtSignal()  # preset Diagnóstico Baroclínico (θe/TFP)
 
     ANALYSIS_PRESETS = {
         "Sinótica clássica": [
@@ -804,6 +911,11 @@ class FieldLayerPanel(QWidget):
         ("temp_grad", "Gradiente de Temperatura"),
         ("frontogenesis", "Frontogênese (Petterssen)"),
         ("mfc", "Convergência de Umidade (MFC)"),
+        # Diagnóstico Baroclínico (também empilhados de uma vez pelo preset abaixo)
+        ("theta_e_grad", "Gradiente de θe"),
+        ("tfp_axis", "Eixo da Frente (TFP)"),
+        ("theta_e_adv", "Advecção de θe"),
+        ("theta_e", "θe (Temp. Pot. Equiv.)"),
     ]
 
     # Campos de superfície / integrados (sem nível)
@@ -811,6 +923,8 @@ class FieldLayerPanel(QWidget):
         ("tcwv", "Água Precipitável (mm)"),
         ("olr", "OLR (desacumulada, W/m²)"),
         ("precip", "Precipitação (3h, mm)"),
+        ("tmax2m", "Temp. Máxima 2 m (°C, janela 3h/6h)"),
+        ("tmin2m", "Temp. Mínima 2 m (°C, janela 3h/6h)"),
         ("sst_model", "TSM modelo IFS (°C)"),
         ("sst_grad", "Gradiente de TSM (°C/100km)"),
     ]
@@ -897,6 +1011,26 @@ class FieldLayerPanel(QWidget):
         )
         blocking_btn.clicked.connect(self.blocking_requested.emit)
         layout.addWidget(blocking_btn)
+
+        # ─── Diagnóstico Baroclínico (apoio ao traçado MANUAL de frentes) ───
+        baroclinic_btn = QPushButton("🌡 Diagnóstico Baroclínico")
+        baroclinic_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #16A085; padding: 7px;
+                font-size: 11px; font-weight: bold; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #1ABC9C; }
+        """)
+        baroclinic_btn.setToolTip(
+            "Empilha campos diagnósticos para o traçado MANUAL de frentes\n"
+            "(human-in-the-loop) no nível escolhido (850 hPa padrão):\n"
+            "• Gradiente de θe (sombreado) — ligado\n"
+            "• Eixo da Frente / TFP (linha neutra-guia) — ligado\n"
+            "• Advecção de θe, θe e Frontogênese de Petterssen — disponíveis (desligados)\n\n"
+            "O eixo TFP orienta, mas quem classifica (fria/quente) e traça é o previsor."
+        )
+        baroclinic_btn.clicked.connect(self.baroclinic_requested.emit)
+        layout.addWidget(baroclinic_btn)
 
         # ─── Instabilidade (CAPE/CIN/LI/K) — campos derivados do modelo (F9) ───
         instab_group = QGroupBox("Instabilidade (modelo IFS — aprox.)")
@@ -1188,6 +1322,17 @@ class FieldLayerPanel(QWidget):
         """Remove todas as entradas da lista (usado pelo 'Limpar mapa')."""
         for layer_id in list(self._layer_widgets.keys()):
             self.remove_layer_entry(layer_id)
+
+    def set_layer_checked(self, layer_id: str, checked: bool) -> None:
+        """Marca/desmarca o checkbox de uma camada já na pilha.
+
+        Alterar o estado emite ``toggle_layer_requested`` — usado pelo preset
+        Diagnóstico Baroclínico para deixar camadas de apoio (Advecção/θe/
+        Frontogênese) empilhadas porém DESLIGADAS por padrão.
+        """
+        entry = self._layer_widgets.get(layer_id)
+        if entry is not None:
+            entry["checkbox"].setChecked(checked)
 
     def _on_remove(self, layer_id: str):
         self.remove_layer_entry(layer_id)

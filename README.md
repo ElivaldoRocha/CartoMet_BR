@@ -93,6 +93,12 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 - **Salvar/abrir** o **traçado manual + estado do mapa** num arquivo `.cmbr` (JSON versionado) — *handover* de turno, reedição e versionamento da carta
 - Reabrir **restaura offline** os desenhos/emojis/anotações e o enquadramento (**nunca dispara rede sozinho**); as camadas calculadas são **memorizadas para reativação manual** (*human-in-the-loop*)
 
+### 📤 Boletim de Análise Codificado (CODSAS)
+
+- **Exporta o traçado humano** num boletim de **texto aberto e compartilhável**, no espírito do *coded surface bulletin* do WPC/NOAA — frentes, ZCAS, ZCIT, cavados, altas/baixas e anotações como sequências de coordenadas `lat,lon` (decimais assinadas: o encoding compactado do WPC não representa longitude a leste de Greenwich, onde a ZCIT chega)
+- **Importa** boletins CODSAS **e boletins WPC genuínos** (via MetPy) de forma **aditiva e offline** — as feições entram no histórico (Desfazer funciona) e o mapa **auto-enquadra** se o boletim cair fora do enquadramento
+- Preenche a lacuna institucional: permite **compartilhar, arquivar e montar um banco de análises sinóticas** da América do Sul (menu *Arquivo*)
+
 ### Índice ZCIT (LOCZCIT-PA) — Potencial Acoplado
 
 - Novo índice integrado que localiza a **Zona de Convergência Intertropical** fundindo **três forçantes** do ECMWF IFS Cycle 50r1 que precisam coexistir espacialmente:
@@ -126,6 +132,30 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 - Cálculo e download em **thread separada** (cancelável); o GRIB de `gh` 500 hPa **compartilha o cache** com a camada normal de geopotencial
 - Menu **Ajuda → "Sobre a Análise de Bloqueio (Z500)"** com resumo e a metodologia completa. Climatologia: **ERA5** (Hersbach et al., 2020) via **Copernicus Climate Change Service (C3S)**
 
+### 🌡 Diagnóstico Baroclínico (apoio ao traçado manual de frentes)
+
+- Novo botão nas **Análises Prontas** que empilha, no nível escolhido (**850 hPa** por padrão, via diálogo), um conjunto de campos diagnósticos objetivos para o **traçado manual** de frentes — *human-in-the-loop*: o software **orienta**, o meteorologista **classifica e traça**
+- **Ligados por padrão:** **Gradiente de θe** (sombreado — intensidade do contraste entre massas de ar) e **Eixo da Frente — TFP** (*Thermal Front Parameter* = 0, Hewson 1998; **linha neutra-guia**, mascarada por `|∇θe|` mínimo). **Disponíveis, desligados:** **Advecção de θe** (auxilia a classificação fria/quente), **θe** e **Frontogênese de Petterssen**
+- **Máscara de terreno elevado** nos campos de θe: onde a pressão de superfície é menor que o nível, o θe a 850 hPa é subterrâneo/fictício — mascarado para o eixo TFP **não desenhar frentes-fantasma sobre os Andes**
+- Os quatro campos de θe também ficam **avulsos** em *Campos em Altitude*. Substitui a abordagem de detecção/traçado **automático** de frentes (abandonada por não convergir com a análise sinótica humana — cartas da Marinha do Brasil)
+
+### 🎬 Animação de Steps (GIF/MP4)
+
+- **Arquivo → "Exportar Animação (GIF/MP4)…"** (`Ctrl+Shift+A`) ou botão **"🎬 Animar Steps…"** no painel *Previsão*: a **composição atual do mapa** (sinótica, campos em altitude/presets, **Bloqueio Z500**, **ZCIT LOCZCIT-PA**) é re-renderizada para cada *step* do intervalo escolhido e exportada como **GIF** (sempre disponível) ou **MP4 H.264** (extra `animation`)
+- O diálogo **só oferta steps válidos para a rodada** (06Z/18Z ≤ +144h; 00Z/12Z ≤ +240h) — impossível pedir um alcance inexistente. Passo nativo (3h; 6h após +144h) ou 6/12/24h; velocidade 1–6 quadros/s; 100 ou 150 DPI
+- **Escala congelada**: níveis de contorno/colorbar fixados pelas estatísticas do intervalo inteiro — a carta não "respira" entre quadros; título com rodada/step/validade atualiza a cada quadro
+- Pipeline em 3 fases com **preview ao vivo** no canvas, progresso unificado (inclui retries HTTP 429) e **cancelamento**; download **cache-first** (steps já baixados não vão à rede); ao final a composição original é **restaurada**
+- Com o filtro **LISA** do LOCZCIT-PA ativo, o diálogo avisa o custo (Monte Carlo por quadro) e sugere IQR — LISA disponível por opt-in (semente fixa = quadros consistentes)
+- **Leitura sinótica em movimento:** deslocamento de frentes e da espessura, a **persistência** de um bloqueio (critério temporal!) num loop de 5–10 dias, e a migração da banda da ZCIT ao longo da rodada
+
+### 🗺 Mapa regional de um clique — recorte por estado, cidades e contornos destacados
+
+- **Combo "Estado:"** no painel *Região* com as **27 UFs**: recorta a carta atual para o estado escolhido **preservando os dados carregados** (diferente do combo Região, que troca o domínio e limpa tudo); zoom/pan manual desmarca a seleção sozinho
+- **Camada "Cidades"** (checkbox em *Camadas sinóticas*): sedes municipais **IBGE** com nome — capitais em negrito e cidades maiores primeiro, densidade ajustada ao zoom (máx. 14 rótulos, com halo legível sobre satélite). Base empacotada (`assets/cidades_br.csv`, 2 678 municípios) — **sem rede e sem dependências novas**
+- **"Destacar contornos"** (checkbox): engrossa costa, fronteiras e divisas de estados com **halo de contraste** — essencial sobre **imagem de satélite** e campos preenchidos, onde as linhas finas do mapa base somem; **liga sozinho ao ativar o satélite**
+- Fluxo típico (inspirado no editor de cartas do SIPAM): escolher o estado → ligar *Cidades* e *Destacar contornos* → carimbar **emojis meteorológicos** e simbologia OMM → **📤 Exportar** PNG/PDF
+- O título da carta agora **sobrevive ao zoom por scroll e ao pan** (o layout se re-assenta ao fim do gesto), e a marca d'água ganhou halo — legível em qualquer fundo
+
 ### ✏ Caneta e ⬜ Formas customizáveis
 
 - **Caneta (traço livre)** — pressione e arraste para rabiscar a carta com o **mouse ou mesa digitalizadora** (o tablet funciona como mouse de precisão). Cor (8 presets meteorológicos + cor personalizada via diálogo), espessura (1–10 pt) e opacidade ajustáveis no painel **Simbologias**. Decimação de pontos mantém o traço fluido mesmo em tablets de alta taxa
@@ -149,7 +179,7 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 - O perfil abre num **painel lateral direito deslizante** (`QDockWidget`): o meteorologista vê o **mapa 2D à esquerda e o Skew-T à direita ao mesmo tempo** — sem pop-ups que escondam o contexto (UX *Single Page*)
 - Diagrama completo via **MetPy**: **Skew-T Log-P** (temperatura, orvalho, perfil da parcela, sombreamento de CAPE/CIN, barbelas de vento), **hodógrafo** e **tabela de índices** termodinâmicos (CAPE, CIN, LCL, LFC, EL, Água Precipitável, Showalter)
 - **Sincronia temporal mestra**: o painel é *escravo* do seletor de **Step** do mapa — avançar o horário recarrega a sondagem automaticamente. A radiossonda (lançada só às **00Z/12Z**) é buscada no horário sinótico mais próximo do `valid_time`
-- **Fail-states elegantes**: dados baixados da **Universidade de Wyoming** (via `siphon`) em **`QThread`** — a GUI nunca congela; instabilidade de rede vira mensagem amigável; horário **futuro** ("o balão ainda não foi lançado") é bloqueado **sem** tocar no servidor
+- **Fail-states elegantes**: dados baixados da **Universidade de Wyoming** (interface WSGI atual via cliente próprio `data/wyoming.py` — FM35 com fallback BUFR; `siphon` fica só como reserva de rede) em **`QThread`** — a GUI nunca congela; "balão não lançado" e instabilidade de rede viram mensagens amigáveis distintas; horário **futuro** é bloqueado **sem** tocar no servidor
 - Robustez de sensor: cada índice e o hodógrafo são calculados isoladamente — uma sonda com vento defeituoso em altitude **não derruba** o resto do diagrama
 
 ### Zoom no mapa
@@ -267,6 +297,8 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 | `vo` | Vorticidade Relativa | ×10⁻⁵ s⁻¹ |
 | `olr` | Radiação de Onda Longa (OLR) | W/m² |
 | `tcwv` | Água Precipitável | mm |
+| `tmax2m` | Temperatura Máxima 2 m (janela 3h/6h) | °C |
+| `tmin2m` | Temperatura Mínima 2 m (janela 3h/6h) | °C |
 | `temp_adv` | Advecção de Temperatura | °C/h |
 | `temp_grad` | Gradiente de Temperatura | °C/100km |
 | `frontogenesis` | Frontogênese de Petterssen | °C/100km/3h |
@@ -303,20 +335,22 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 | **Dados ECMWF** | Download automático de dados gratuitos do modelo IFS (resolução 0.25°) |
 | **Índice ZCIT (LOCZCIT-PA)** | Localização da ZCIT acoplando ∇TSM + convergência + OLR desacumulada num raster categórico de 4 classes (Forte/Moderada/Fraca/Cinemática), com máscara ativa, envelope sazonal e overlay opcional de eixo — guia para o traçado manual |
 | **Bloqueio Atmosférico (Z500)** | Anomalia de altura geopotencial em 500 hPa (`gh` − climatologia ERA5 1991–2020) com render divergente e contorno do zero — realça cordilheiras de bloqueio e o padrão ômega; climatologia baixada por dia (cache + sha256) |
+| **Diagnóstico Baroclínico** | Empilha campos de apoio ao traçado **manual** de frentes no nível escolhido: Gradiente de θe + Eixo TFP (linha-guia) ligados; Advecção de θe, θe e Frontogênese disponíveis — máscara de terreno (Andes); *human-in-the-loop* |
 | **Sonda Vertical (Skew-T)** | Radiossondagem observada (Wyoming) **ou** pseudo-sondagem do modelo IFS em qualquer ponto (oceano/previsão) — Skew-T, hodógrafa e índices via MetPy |
 | **Meteograma** | Série temporal do IFS num ponto (+0…+72 h): T, vento, precipitação, PNMM e água precipitável |
 | **Corte Vertical (A→B)** | Seção pressão × distância de ω, temperatura, umidade e vento ao longo de uma reta desenhada |
 | **Instabilidade (CAPE/CIN/LI/K)** | Campos de instabilidade derivados do modelo — K-index nativo; LI/CAPE/CIN em grade engrossada; render contínuo (aprox.) |
 | **Carta OMM** | Export com cabeçalho institucional (instituição/analista/validade/logo) + legenda dos símbolos — PNG/PDF entregável |
 | **Projeto de análise (.cmbr)** | Salvar/abrir o traçado manual + estado do mapa; restauração offline (*human-in-the-loop*) |
+| **Boletim Codificado (CODSAS)** | Exporta/importa as feições traçadas como boletim de texto estilo WPC adaptado à América do Sul (`lat,lon` decimais); importa boletins WPC genuínos (MetPy) com auto-enquadre |
 | **Observações SYNOP/METAR** | Sobreposição de observações reais de superfície (METAR via NOAA AWC; SYNOP via OGIMET) sincronizadas com o `valid_time` do modelo |
 | **Caneta e Formas** | Traço livre (mouse/mesa digitalizadora) e formas customizáveis (retângulo, elipse, seta, linha, polígono) com cor, preenchimento, espessura, estilo e opacidade — integrados ao undo/redo |
 | **Zoom no mapa** | Zoom por roda do mouse, pan, recorte por retângulo (replota e reafina estações), histórico de extents (Home/Ctrl+0) |
 | **Satélite GOES-East** | Imagem IR Banda 13 com paleta clássica, seleção por data/hora/minuto |
 | **TSM — MUR SST 1km** | Temperatura da Superfície do Mar operacional (NASA/NOAA via ERDDAP) |
-| **Carta de Superfície** | PNMM, Espessura 1000-500 hPa, Centros H/L automáticos |
+| **Carta de Superfície** | PNMM, Espessura 1000-500 hPa, Centros H/L automáticos (máscara orográfica dos Andes + ranqueamento por proeminência) |
 | **Campos em Altitude** | 15 variáveis em qualquer nível de pressão (925, 850, 700, 500, 300, 250, 200 hPa) |
-| **Variáveis Derivadas** | Advecção de T, Gradiente de T, Frontogênese, MFC |
+| **Variáveis Derivadas** | Advecção de T, Gradiente de T, Frontogênese, MFC, θe, Gradiente de θe, Advecção de θe, Eixo TFP |
 | **Variáveis de Superfície** | OLR (paleta clássica), Água Precipitável |
 | **Camadas Independentes** | Empilhe campos livremente com toggle liga/desliga |
 | **Presets de Análise** | 5 combinações prontas para sala de aula, incluindo ZCAS (Escobar/CPTEC) |
@@ -478,6 +512,11 @@ uv run python -m cartomet_br gui
 > **Opcional — Coerência Espacial (LISA):** o método avançado de delimitação da ZCIT
 > requer dependências extras. Instale com `uv sync --extra spatial` (adiciona `esda` e
 > `libpysal`). Sem elas, o índice usa o filtro **IQR** (padrão) — nada quebra.
+>
+> **Opcional — Exportação MP4:** a animação de steps sempre exporta **GIF**; para
+> **MP4 (H.264)** instale com `uv sync --extra animation` (adiciona `imageio-ffmpeg`,
+> ~30 MB com o binário do ffmpeg). Sem o extra, a opção MP4 aparece desabilitada com
+> a instrução no tooltip — o GIF continua funcionando normalmente.
 
 ### Primeira Execução
 
@@ -531,7 +570,7 @@ Na primeira execução, o programa exibirá uma **janela de boas-vindas** e soli
 - **SciPy** — Suavização gaussiana e processamento numérico
 - **MetPy** — Processamento meteorológico
 - **statsmodels** — Suavização robusta LOWESS (overlay de eixo da ZCIT)
-- **siphon** — Radiossondagem da Universidade de Wyoming (Skew-T Log-P)
+- **Universidade de Wyoming (WSGI)** — Radiossondagem observada (Skew-T Log-P; `siphon` como fallback)
 - **ECMWF Open Data** — Fonte de dados meteorológicos
 - **NOAA GOES-East (AWS S3)** — Imagens de satélite
 - **NASA/NOAA MUR SST (ERDDAP)** — Temperatura da Superfície do Mar (1 km)
@@ -605,6 +644,7 @@ CartoMet_BR/
 │   │   ├── spatial_coherence.py # Filtro de Coerência Espacial (LISA / Moran Local)
 │   │   ├── blocking_engine.py   # Bloqueio: anomalia de Z500 vs. climatologia ERA5
 │   │   ├── raob_stations.py     # Estações RAOB (snap da Sonda Vertical)
+│   │   ├── wyoming.py           # Radiossondagem UWyo (interface WSGI nova, CSV)
 │   │   └── stations.py          # Observações SYNOP (OGIMET) e METAR (NOAA AWC)
 │   ├── symbols/
 │   │   ├── base.py              # Classe base e helpers
@@ -615,15 +655,18 @@ CartoMet_BR/
 │   │   ├── synoptic.py          # Geração de carta sinótica
 │   │   └── interactive.py       # Ferramenta interativa matplotlib
 │   ├── services/
-│   │   └── data_service.py      # Camada de serviço (validação, logging)
+│   │   ├── data_service.py      # Camada de serviço (validação, logging)
+│   │   └── animation_service.py # Animação: steps válidos, escala congelada, GIF/MP4
 │   ├── gui/
 │   │   ├── main_window.py       # Janela principal (orquestrador)
 │   │   ├── map_canvas.py        # Canvas Matplotlib/Cartopy
 │   │   ├── drawing_panel.py     # Painel de simbologias
 │   │   ├── layer_panel.py       # Painéis de camadas e configurações
 │   │   ├── download_dialog.py   # Threads de download e diálogo de progresso
+│   │   ├── animation_engine.py  # Animação de steps: workers + orquestrador (3 fases)
+│   │   ├── animation_dialog.py  # Animação de steps: diálogo de config/progresso
 │   │   ├── draw_tools.py        # Caneta e formas: comandos de desenho serializáveis
-│   │   ├── sounding_engine.py   # Worker da radiossondagem (Wyoming/siphon, QThread)
+│   │   ├── sounding_engine.py   # Worker da radiossondagem (Wyoming WSGI, QThread)
 │   │   ├── sounding_panel.py    # Painel lateral Skew-T Log-P (MetPy)
 │   │   ├── analysis_panel.py    # Base dos painéis docados (AnalysisDock)
 │   │   ├── analysis_engine.py   # Workers QThread: meteograma, corte vertical, instabilidade
@@ -632,6 +675,7 @@ CartoMet_BR/
 │   │   ├── chart_export.py      # Montagem (pura) dos metadados da carta OMM
 │   │   ├── chart_header_dialog.py # Diálogo do cabeçalho da carta OMM
 │   │   ├── project_io.py        # Serialização do projeto de análise (.cmbr)
+│   │   ├── bulletin_io.py       # Boletim de análise codificado (CODSAS/WPC)
 │   │   ├── dialogs.py           # Welcome, FirstRun
 │   │   ├── themes.py            # Temas visuais e estilos
 │   │   ├── methodology.py       # Renderiza a metodologia LOCZCIT-PA (md → HTML)

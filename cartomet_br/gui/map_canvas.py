@@ -26,13 +26,14 @@ import matplotlib.patheffects as pe
 import matplotlib.ticker as mticker
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import QSizePolicy
 
 from cartomet_br.charts.interactive import interpolar_pontos
-from cartomet_br.charts.synoptic import plot_maxmin_points
+from cartomet_br.charts.synoptic import compute_persistence_maps, plot_maxmin_points
 from cartomet_br.core.config import COLORS, LEVELS, Config
+from cartomet_br.data.cities import load_cities, select_cities
 from cartomet_br.data.ecmwf import (
     VARIABLE_REGISTRY,
     PLFieldData,
@@ -66,6 +67,19 @@ from cartomet_br.gui.themes import MAP_THEMES
 from cartomet_br.symbols import MODOS
 
 logger = logging.getLogger(__name__)
+
+# Larguras dos contornos de contexto (costa, países, estados): (normal, realçada).
+# O modo "Destacar contornos" (set_context_emphasis) engrossa as linhas e acende
+# um halo de contraste por baixo — pedido operacional: sobre satélite ou campo
+# preenchido, a linha fina de estados (0.2) some e o previsor perde a referência.
+CONTEXT_LINEWIDTHS: dict[str, tuple[float, float]] = {
+    "coastline": (0.6, 1.1),
+    "borders": (0.4, 0.9),
+    "states": (0.2, 0.8),
+}
+# Espessura EXTRA do halo em relação à linha realçada (desenho duplo:
+# linha larga de contraste por baixo + linha forte do tema por cima).
+CONTEXT_HALO_EXTRA: float = 1.8
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -245,8 +259,31 @@ class MapCanvas(FigureCanvas):
         self._pl_colorbars = {}
         self._pl_zorder_counter = 7
 
+        # Níveis congelados por camada (animação de steps): quando presentes,
+        # _plot_scalar_* usa estes níveis em vez de derivá-los do quadro —
+        # a colorbar não "respira" entre frames. Vazio fora da animação.
+        self._frozen_levels: dict = {}
+
         # Opções de plotagem
-        self.plot_options = {"pnmm": True, "thickness": True, "centers": True}
+        self.plot_options = {
+            "pnmm": True,
+            "thickness": True,
+            "centers": True,
+            # Filtro orográfico dos centros H/L (Andes/Altiplano: PNMM artefactual)
+            "centers_terrain_filter": True,
+        }
+
+        # Contornos de contexto (costa/fronteiras/estados) e o modo "Destacar
+        # contornos". A flag sobrevive a trocas de tema/região (_setup_base_map
+        # reconstrói os artistas e re-aplica o realce se estava ativo).
+        self._context_artists: dict[str, object] = {}
+        self._context_halo_artists: dict[str, object] = {}
+        self._context_emphasis: bool = False
+
+        # Camada "Cidades" (sedes municipais IBGE rotuladas). Como o realce,
+        # a flag sobrevive à reconstrução do mapa base.
+        self._cities_artists: list = []
+        self._cities_enabled: bool = False
 
         # Imagem de satélite
         self._sat_artist = None
@@ -271,6 +308,14 @@ class MapCanvas(FigureCanvas):
         self._blocking_artists: list = []
         self._blocking_colorbar = None
 
+        # Motor da mesa suspenso? (animação impõe geometria congelada por quadro)
+        self._layout_suspended = False
+        # Draws intermediários suprimidos? (operações em lote — batch_layout)
+        self._draw_suspended = False
+        # Cache do ranking topológico dos centros H/L (peak_persistence é caro;
+        # o campo não muda entre replots por extent — invalida em set_synoptic_data)
+        self._centers_persistence: dict = {}
+
         # Sonda Vertical (marcador temporário da estação RAOB ancorada)
         self._sounding_marker = None
         # Fonte da sonda: "observed" (Wyoming, ancora na estação) ou "model"
@@ -286,6 +331,16 @@ class MapCanvas(FigureCanvas):
         self._pan_active = False
         self._pan_start: tuple[float, float] | None = None
         self._rect_selector = None
+
+        # Assentamento da vista após scroll/pan: o reflow do layout (que mede
+        # bboxes com o renderer) é caro demais por tick de roda/arraste — um
+        # timer single-shot re-arma a cada gesto e dispara só no repouso.
+        # Sem isso o título fica cortado após zoom de scroll (apply_extent já
+        # faz o reflow, mas scroll/pan não passam por ele).
+        self._view_settle_timer = QTimer(self)
+        self._view_settle_timer.setSingleShot(True)
+        self._view_settle_timer.setInterval(180)
+        self._view_settle_timer.timeout.connect(self._deferred_view_settle)
 
         # Conecta eventos
         self.mpl_connect("button_press_event", self._on_click)
@@ -336,6 +391,8 @@ class MapCanvas(FigureCanvas):
         self._sst_artist = None
         self._sst_data = None
         self._sst_colorbar = None
+        # ax.clear() abaixo remove os artistas de cidades — só esvazia a lista
+        self._cities_artists.clear()
         self._station_artists = {"metar": [], "synop": []}
         self._station_data = {"metar": None, "synop": None}
         self._loczcit_artist = None
@@ -375,36 +432,58 @@ class MapCanvas(FigureCanvas):
         # campos preenchidos em altitude (PL contourf vai até zorder 14) para
         # que o usuário continue se localizando mesmo com a temperatura/umidade
         # etc. preenchendo a carta. Permanecem abaixo de estações/desenhos (20+).
-        self.ax.add_feature(
-            cfeature.NaturalEarthFeature(
-                "physical", "coastline", "50m", facecolor="none", edgecolor=theme["coastline"]
+        # Cada contorno ganha um gêmeo de halo (invisível por padrão, zorder
+        # imediatamente abaixo) para o modo "Destacar contornos" — desenho
+        # duplo em vez de path effects (proibidos em patches sobre GeoAxes).
+        context_features = {
+            "coastline": cfeature.NaturalEarthFeature(
+                "physical", "coastline", "50m", facecolor="none"
             ),
-            linewidth=0.6,
-            zorder=16,
-        )
-        self.ax.add_feature(
-            cfeature.NaturalEarthFeature(
-                "cultural",
-                "admin_0_boundary_lines_land",
-                "50m",
-                facecolor="none",
+            "borders": cfeature.NaturalEarthFeature(
+                "cultural", "admin_0_boundary_lines_land", "50m", facecolor="none"
+            ),
+            "states": cfeature.NaturalEarthFeature(
+                "cultural", "admin_1_states_provinces_lines", "50m", facecolor="none"
+            ),
+        }
+        context_zorder = {"coastline": 16, "borders": 16, "states": 15}
+        halo_theme = theme["emphasis_halo"]
+        self._context_halo_artists = {
+            # Halo sólido mesmo sob a fronteira tracejada: mais visível e sem
+            # o problema de alinhar os traços entre as duas linhas.
+            name: self.ax.add_feature(
+                feat,
+                edgecolor=halo_theme,
+                linewidth=CONTEXT_LINEWIDTHS[name][1] + CONTEXT_HALO_EXTRA,
+                zorder=context_zorder[name] - 0.1,
+                visible=False,
+            )
+            for name, feat in context_features.items()
+        }
+        self._context_artists = {
+            "coastline": self.ax.add_feature(
+                context_features["coastline"],
+                edgecolor=theme["coastline"],
+                linewidth=CONTEXT_LINEWIDTHS["coastline"][0],
+                zorder=16,
+            ),
+            "borders": self.ax.add_feature(
+                context_features["borders"],
                 edgecolor=theme["borders"],
+                linewidth=CONTEXT_LINEWIDTHS["borders"][0],
+                linestyle="--",
+                zorder=16,
             ),
-            linewidth=0.4,
-            linestyle="--",
-            zorder=16,
-        )
-        self.ax.add_feature(
-            cfeature.NaturalEarthFeature(
-                "cultural",
-                "admin_1_states_provinces_lines",
-                "50m",
-                facecolor="none",
+            "states": self.ax.add_feature(
+                context_features["states"],
                 edgecolor=theme["states"],
+                linewidth=CONTEXT_LINEWIDTHS["states"][0],
+                zorder=15,
             ),
-            linewidth=0.2,
-            zorder=15,
-        )
+        }
+        if self._context_emphasis:
+            # Troca de tema/região reconstruiu os artistas — re-aplica o realce
+            self._apply_context_emphasis(True)
 
         gl = self.ax.gridlines(
             draw_labels=True,
@@ -423,18 +502,25 @@ class MapCanvas(FigureCanvas):
 
         # Dentro da carta (canto inferior direito): fora da linha dos rótulos de
         # longitude, com quem a posição antiga (y=-0.02) colidia em todo export.
+        # O halo branco garante leitura sobre qualquer fundo (satélite escuro,
+        # TSM, campos preenchidos) — sem ele a marca some em tons próximos.
         self.ax.text(
             0.995,
             0.012,
             f"CartoMet BR v{APP_VERSION}",
             transform=self.ax.transAxes,
             fontsize=8,
-            color="#999999",
+            color="#666666",
             ha="right",
             va="bottom",
             style="italic",
             zorder=30,
+            path_effects=[pe.withStroke(linewidth=2, foreground="white")],
         )
+
+        # Camada de cidades sobrevive à reconstrução (tema/região)
+        if self._cities_enabled:
+            self._replot_cities_for_view()
 
         # Maximiza a carta na "mesa branca" (startup e troca de tema)
         self._reflow_layout()
@@ -446,6 +532,90 @@ class MapCanvas(FigureCanvas):
             self.current_theme = theme_name
             self._setup_base_map()
 
+    def set_context_emphasis(self, enabled: bool) -> None:
+        """Liga/desliga o realce dos contornos de contexto (costa/países/estados).
+
+        Realce = linhas mais grossas na cor forte do tema + halo de contraste
+        por baixo (desenho duplo). Mantém o previsor localizado sobre satélite
+        e campos preenchidos, onde as linhas finas do mapa base desaparecem.
+        """
+        if enabled == self._context_emphasis:
+            return
+        self._context_emphasis = enabled
+        self._apply_context_emphasis(enabled)
+        self.draw_idle()
+
+    def _apply_context_emphasis(self, enabled: bool) -> None:
+        """Aplica/remove o estilo de realce nos artistas de contexto vivos."""
+        theme = MAP_THEMES.get(self.current_theme, MAP_THEMES["Clássico"])
+        for name, artist in self._context_artists.items():
+            normal_lw, strong_lw = CONTEXT_LINEWIDTHS[name]
+            artist.set_linewidth(strong_lw if enabled else normal_lw)
+            artist.set_edgecolor(theme["emphasis_line"] if enabled else theme[name])
+        for halo in self._context_halo_artists.values():
+            halo.set_visible(enabled)
+
+    def set_cities_visible(self, enabled: bool) -> None:
+        """Liga/desliga a camada de cidades (sedes municipais IBGE com nome)."""
+        self._cities_enabled = enabled
+        if enabled:
+            self._replot_cities_for_view()
+        else:
+            self._clear_cities()
+        self.draw_idle()
+
+    def _clear_cities(self) -> None:
+        for artist in self._cities_artists:
+            with contextlib.suppress(Exception):
+                artist.remove()
+        self._cities_artists.clear()
+
+    def _replot_cities_for_view(self) -> None:
+        """Replota as cidades para a VISTA real (``ax.get_extent``).
+
+        Usa a vista, e não ``config.extent``, porque scroll/pan mudam só a
+        visualização — a seleção (capital > população, separação mínima) deve
+        acompanhar o que o usuário está vendo.
+        """
+        if not self._cities_enabled:
+            return
+        self._clear_cities()
+        try:
+            x0, x1, y0, y1 = self.ax.get_extent(crs=ccrs.PlateCarree())
+        except Exception:
+            return
+        cities = select_cities(load_cities(), [x0, y0, x1, y1])
+        label_dy = (y1 - y0) * 0.012
+        halo = [pe.withStroke(linewidth=2.5, foreground="white")]
+        for city in cities:
+            (dot,) = self.ax.plot(
+                city.lon,
+                city.lat,
+                "o",
+                markersize=3.0,
+                markerfacecolor="#B03A2E",
+                markeredgecolor="white",
+                markeredgewidth=0.7,
+                transform=ccrs.PlateCarree(),
+                zorder=21.5,
+                clip_on=True,
+            )
+            txt = self.ax.text(
+                city.lon,
+                city.lat + label_dy,
+                city.name,
+                transform=ccrs.PlateCarree(),
+                fontsize=8 if city.is_capital else 7,
+                fontweight="bold" if city.is_capital else "normal",
+                color="#212121",
+                ha="center",
+                va="bottom",
+                zorder=21.5,
+                clip_on=True,
+                path_effects=halo,
+            )
+            self._cities_artists.extend([dot, txt])
+
     # ═══════════════════════════════════════════════════════════════════════
     #  CAMPOS SINÓTICOS (PNMM, Espessura, Centros H/L)
     # ═══════════════════════════════════════════════════════════════════════
@@ -453,8 +623,13 @@ class MapCanvas(FigureCanvas):
     def set_synoptic_data(self, data: object) -> None:
         """Define dados sinóticos e plota — PRESERVA simbologias desenhadas."""
         self.synoptic_data = data
+        self._centers_persistence = {}  # ranking topológico é por rodada/step
         self._clear_synoptic_artists()
         self._plot_synoptic_fields()
+        # O título (1-2 linhas) acabou de mudar — a mesa precisa re-reservar o
+        # topo, senão ele vaza para fora da figura.
+        self._reflow_layout()
+        self.draw()
 
     def _clear_synoptic_artists(self) -> None:
         """Remove APENAS os artists de camadas sinóticas."""
@@ -574,6 +749,17 @@ class MapCanvas(FigureCanvas):
         """Plota camada de centros H/L."""
         existing_texts = {id(t) for t in self.ax.texts}
 
+        # Máscara orográfica (opcional): veta centros sobre terreno elevado,
+        # onde a PNMM é extrapolação (Andes/Altiplano). None = sem filtro.
+        exclude = None
+        if self.plot_options.get("centers_terrain_filter", True):
+            exclude = getattr(data, "highland_mask", None)
+
+        # Ranking topológico cacheado por rodada/step: o campo é o mesmo em
+        # todos os replots por extent (zoom/reset) — recalcular custa ~1,2 s.
+        if not self._centers_persistence:
+            self._centers_persistence = compute_persistence_maps(data.pnmm)
+
         plot_maxmin_points(
             self.ax,
             data.lon2d,
@@ -586,6 +772,8 @@ class MapCanvas(FigureCanvas):
             min_distance=25,
             threshold=1018,
             max_points=8,
+            exclude_mask=exclude,
+            persistence_map=self._centers_persistence["max"],
         )
         plot_maxmin_points(
             self.ax,
@@ -599,11 +787,22 @@ class MapCanvas(FigureCanvas):
             min_distance=20,
             threshold=1008,
             max_points=10,
+            exclude_mask=exclude,
+            persistence_map=self._centers_persistence["min"],
         )
 
         for txt in self.ax.texts:
             if id(txt) not in existing_texts:
                 self._synoptic_artists["centers"].append(txt)
+
+    def set_centers_terrain_filter(self, enabled: bool) -> None:
+        """Liga/desliga o filtro orográfico dos centros H/L (re-render do cache)."""
+        self.plot_options["centers_terrain_filter"] = bool(enabled)
+        if self.synoptic_data is None or not self.plot_options.get("centers", True):
+            return
+        self._clear_single_layer("centers")
+        self._plot_single_layer("centers")
+        self.draw()
 
     def _update_synoptic_title(self) -> None:
         """Atalho legado — redireciona para o título dinâmico."""
@@ -756,7 +955,9 @@ class MapCanvas(FigureCanvas):
             self._plot_centers_layer(self.synoptic_data)
 
         self._update_synoptic_title()
-        self.draw()
+        # SEM self.draw() aqui: os dois chamadores (set_synoptic_data e
+        # apply_extent) reflowam a mesa e desenham na sequência — um render
+        # pré-reflow seria pago e imediatamente repintado.
 
     # ═══════════════════════════════════════════════════════════════════════
     #  DESENHO INTERATIVO
@@ -975,7 +1176,8 @@ class MapCanvas(FigureCanvas):
             self.ax.set_extent([new[0], new[2], new[1], new[3]], crs=ccrs.PlateCarree())
             self.draw()
         except Exception:
-            pass
+            return
+        self._view_settle_timer.start()
 
     def _on_release(self, event: object) -> None:
         """Fim do pan, do traço de caneta ou do arraste de forma."""
@@ -1001,7 +1203,22 @@ class MapCanvas(FigureCanvas):
             self.ax.set_extent([new[0], new[2], new[1], new[3]], crs=ccrs.PlateCarree())
             self.draw()
         except Exception:
-            pass
+            return
+        self._view_settle_timer.start()
+
+    def _deferred_view_settle(self) -> None:
+        """Assenta a vista no repouso do scroll/pan: reflow (título) + cidades.
+
+        Deliberadamente NÃO toca em ``config.extent`` nem emite
+        ``extent_changed`` — scroll/pan continuam sendo só visualização
+        (mudar isso dispararia re-thinning de observações e sync de spinboxes
+        a cada gesto).
+        """
+        if self._layout_suspended or self._draw_suspended:
+            return
+        self._reflow_layout()
+        self._replot_cities_for_view()
+        self.draw_idle()
 
     @staticmethod
     def _clamp_extent(extent: list[float]) -> list[float]:
@@ -1045,49 +1262,207 @@ class MapCanvas(FigureCanvas):
         if self.synoptic_data is not None:
             self._clear_synoptic_artists()
             self._plot_synoptic_fields()
+        # Re-seleciona as cidades para o novo domínio (thinning por vista)
+        self._replot_cities_for_view()
         # Realinha o layout (colorbars/margens) para a nova proporção e centraliza
         self._reflow_layout()
         self.draw()
         self.extent_changed.emit(list(extent))
 
+    # ─── Motor determinístico da "mesa branca" ────────────────────────────
+    # Margens em fração da figura. O tight_layout foi APOSENTADO aqui: ele
+    # ignora eixos de colorbar criados por fig.colorbar (não são subplots) —
+    # um reset com ZCIT+TSM na tela movia só a carta e deixava as colorbars
+    # órfãs, com um vão branco no meio da mesa.
+    _MESA_LEFT = 0.055  # rótulos do gridliner ("100°W")
+    _MESA_BOTTOM = 0.055
+    _MESA_RIGHT = 0.012
+    _MESA_TOP_MIN = 0.03
+    _MESA_VCB_W = 0.018  # largura da barra vertical
+    _MESA_VCB_GAP = 0.012  # vão carta → barra
+    _MESA_VCB_LABELS = {"loczcit": 0.085, "blocking": 0.055}  # ticks + rótulo
+    _MESA_HCB_H = 0.026  # altura da barra horizontal (TSM)
+    _MESA_HCB_RESERVE = 0.105  # reserva total inferior (barra+ticks+rótulo)
+    _MESA_PL_RESERVE = 0.055  # colorbars inset dos campos PL (x=1.02 + rótulos)
+
+    def draw(self) -> None:
+        """Render completo; vira no-op dentro de ``batch_layout()`` (lote)."""
+        if self._draw_suspended:
+            return
+        super().draw()
+
+    @contextlib.contextmanager
+    def batch_layout(self):
+        """Suspende o motor da mesa e os draws durante operações em LOTE.
+
+        Cada add/remove de camada pagaria reflow + um render completo da pilha;
+        num lote (ex.: restauração pós-animação) isso multiplica renders
+        idênticos. O chamador faz UM reflow+draw ao sair. Guarda/restaura os
+        flags (o controller da animação também usa ``_layout_suspended``).
+        """
+        prev_layout = self._layout_suspended
+        prev_draw = self._draw_suspended
+        self._layout_suspended = True
+        self._draw_suspended = True
+        try:
+            yield
+        finally:
+            self._layout_suspended = prev_layout
+            self._draw_suspended = prev_draw
+
     def _reflow_layout(self) -> None:
-        """Maximiza o eixo na figura (margens mínimas p/ rótulos/título) e centraliza.
+        """Motor determinístico da mesa: posiciona carta e colorbars por construção.
 
-        Sequência consagrada do apply_extent: `tight_layout` encolhe as margens ao
-        mínimo que acomoda os rótulos do gridliner e o título; a recentragem alinha
-        a união eixo+colorbars. Também chamada no fim de `_setup_base_map` — sem
-        isso, o startup/troca de tema ficava no retângulo padrão do add_subplot
-        (margens de ~12%), desperdiçando a "mesa branca" em volta da carta.
+        Margens fixas para os rótulos do gridliner, topo medido pelo título
+        real (1–2 linhas), colorbars ancoradas à caixa REAL da carta (após o
+        apply_aspect do Cartopy) e centralização horizontal do conjunto.
+        ``_fit_layout_to_figure`` fecha como rede de segurança (mede as
+        tightbboxes verdadeiras e corrige vazamentos residuais).
         """
+        if getattr(self, "_layout_suspended", False):
+            return  # animação: geometria congelada é imposta pelo controller
         try:
-            self.fig.tight_layout(pad=0.6)
+            self._layout_mesa()
         except Exception as e:
-            logger.debug("Aviso ao recalcular layout: %s", e)
-        self._recenter_axes_horizontally()
+            logger.debug("Aviso no layout da mesa: %s", e)
+        self._fit_layout_to_figure()
 
-    def _recenter_axes_horizontally(self) -> None:
-        """Centraliza horizontalmente o conjunto (mapa + barras de cores) na figura.
+    def _layout_mesa(self) -> None:
+        fig = self.fig
 
-        Eixos Cartopy têm aspecto fixo; com 1+ colorbars, `tight_layout`/
-        `constrained_layout` deixam o mapa preso a um dos lados (espaço em branco
-        assimétrico). Aqui medimos a caixa-união de TODOS os eixos e a deslocamos
-        para ficar simétrica — carta sempre harmônica, independente das camadas.
-        """
+        # 1) Margem superior: mede o título real (pode ter 1 ou 2 linhas)
+        top_reserve = self._MESA_TOP_MIN
         try:
-            self.fig.canvas.draw()  # garante posições após o apply_aspect do Cartopy
-            axes = list(self.fig.axes)
-            if not axes:
-                return
-            positions = [a.get_position() for a in axes]
-            x0 = min(p.x0 for p in positions)
-            x1 = max(p.x1 for p in positions)
-            dx = (1.0 - (x1 - x0)) / 2.0 - x0
-            if abs(dx) < 1e-3:
-                return
-            for a, p in zip(axes, positions, strict=False):
+            title = self.ax.title
+            if title.get_text():
+                bb = title.get_window_extent(fig.canvas.get_renderer())
+                top_reserve += bb.height / fig.bbox.height + 0.012
+        except Exception:
+            top_reserve = 0.09  # fallback: 2 linhas típicas
+
+        # 2) Reservas pelas colorbars ativas
+        vcbs = []
+        if self._loczcit_colorbar is not None and self._loczcit_colorbar.ax.get_visible():
+            vcbs.append((self._loczcit_colorbar, self._MESA_VCB_LABELS["loczcit"]))
+        if self._blocking_colorbar is not None and self._blocking_colorbar.ax.get_visible():
+            vcbs.append((self._blocking_colorbar, self._MESA_VCB_LABELS["blocking"]))
+        pl_reserve = self._MESA_PL_RESERVE if self._pl_colorbars else 0.0
+        right_reserve = (
+            self._MESA_RIGHT
+            + pl_reserve
+            + sum(self._MESA_VCB_GAP + self._MESA_VCB_W + lbl for _, lbl in vcbs)
+        )
+        hcb = None
+        if self._sst_colorbar is not None and self._sst_colorbar.ax.get_visible():
+            hcb = self._sst_colorbar
+        bottom_reserve = self._MESA_BOTTOM + (self._MESA_HCB_RESERVE if hcb else 0.0)
+
+        # 3) Caixa disponível para a carta (o apply_aspect letterboxa dentro dela)
+        self.ax.set_position(
+            [
+                self._MESA_LEFT,
+                bottom_reserve,
+                max(0.1, 1.0 - self._MESA_LEFT - right_reserve),
+                max(0.1, 1.0 - bottom_reserve - top_reserve),
+            ]
+        )
+        # Materializa o apply_aspect SEM renderizar (mesmo passo que o Cartopy
+        # roda em GeoAxes._draw_preprocess). Um canvas.draw() aqui custava um
+        # render completo da pilha inteira a cada operação de camada.
+        self.ax.apply_aspect()
+        pos = self.ax.get_position()
+
+        # 4) Ancora as colorbars na caixa real da carta.
+        # set_axes_locator(None): o _ColorbarAxesLocator do matplotlib re-aplica
+        # o shrink/aspect DE CRIAÇÃO a cada draw, desfazendo a ancoragem — o
+        # motor da mesa assume a posição em definitivo.
+        x = pos.x1 + pl_reserve
+        for cbar, lbl in vcbs:
+            x += self._MESA_VCB_GAP
+            cbar.ax.set_axes_locator(None)
+            cbar.ax.set_aspect("auto")  # a caixa manda na geometria
+            cbar.ax.set_position([x, pos.y0, self._MESA_VCB_W, pos.height])
+            x += self._MESA_VCB_W + lbl
+        if hcb is not None:
+            hcb.ax.set_axes_locator(None)
+            hcb.ax.set_aspect("auto")
+            hcb.ax.set_position(
+                [
+                    pos.x0 + 0.2 * pos.width,
+                    max(0.04, pos.y0 - self._MESA_HCB_RESERVE + 0.02),
+                    0.6 * pos.width,
+                    self._MESA_HCB_H,
+                ]
+            )
+
+        # 5) Centraliza o conjunto (carta + barras verticais) na mesa
+        right_edge = x if vcbs else pos.x1 + pl_reserve
+        left_edge = pos.x0 - self._MESA_LEFT
+        dx = (1.0 - (right_edge - left_edge)) / 2.0 - left_edge
+        if abs(dx) >= 1e-3:
+            for a in fig.axes:
+                p = a.get_position()
                 a.set_position([p.x0 + dx, p.y0, p.width, p.height])
+
+    def _fit_layout_to_figure(self, pad: float = 0.008) -> None:
+        """Impede que rótulos e colorbars vazem da figura (a "mesa branca").
+
+        A recentragem acima usa as CAIXAS dos eixos, mas os rótulos (ex.: os
+        textos "Forte/Moderada/…" da colorbar do LOCZCIT) vivem FORA delas —
+        em extents panorâmicos a colorbar saía cortada na borda direita, na
+        tela e nos quadros da animação. Aqui mede-se a união das tightbboxes
+        (caixas + rótulos): se algo vaza, desloca-se o conjunto; se a união é
+        mais larga que a figura, encolhe-se tudo em torno do centro e
+        desloca-se de novo. No-op quando tudo já cabe — os layouts que hoje
+        estão bons não mudam.
+        """
+        try:
+            # A medição NÃO exige render: GeoAxes.get_tightbbox roda o
+            # _draw_preprocess (apply_aspect), o Gridliner do Cartopy regenera
+            # os rótulos dentro do próprio get_tightbbox, e textos/coleções
+            # medem pelos transforms vivos (set_position propaga na hora).
+            # Antes havia um canvas.draw() por passada — um render completo da
+            # pilha inteira pago a cada operação de camada.
+            for _ in range(2):  # 2ª passada: rótulos têm fonte fixa após o encolhimento
+                renderer = self.fig.canvas.get_renderer()
+                inv = self.fig.transFigure.inverted()
+                boxes = []
+                for a in self.fig.axes:
+                    if not a.get_visible():
+                        continue
+                    tight = a.get_tightbbox(renderer)
+                    if tight is not None and tight.width > 0:
+                        boxes.append(tight.transformed(inv))
+                if not boxes:
+                    return
+                x0 = min(b.x0 for b in boxes)
+                x1 = max(b.x1 for b in boxes)
+                y0 = min(b.y0 for b in boxes)
+                y1 = max(b.y1 for b in boxes)
+                x_ok = x0 >= pad - 1e-6 and x1 <= (1.0 - pad) + 1e-6
+                y_ok = y0 >= pad - 1e-6 and y1 <= (1.0 - pad) + 1e-6
+                if x_ok and y_ok:
+                    return  # tudo dentro da mesa — não mexe
+                avail = 1.0 - 2.0 * pad
+                # Escala uniforme (preserva o aspecto do conjunto); X centraliza,
+                # Y apenas EMPURRA para dentro (o título deve seguir no topo,
+                # não flutuar centralizado no meio da mesa).
+                scale = min(1.0, avail / max(x1 - x0, 1e-9), avail / max(y1 - y0, 1e-9))
+                cx_u = (x0 + x1) / 2.0
+                cy_u = (y0 + y1) / 2.0
+                new_h_u = (y1 - y0) * scale
+                new_cy_u = min(max(cy_u, pad + new_h_u / 2.0), 1.0 - pad - new_h_u / 2.0)
+                for a in self.fig.axes:
+                    p = a.get_position()
+                    cx = p.x0 + p.width / 2.0
+                    cy = p.y0 + p.height / 2.0
+                    new_w = p.width * scale
+                    new_h = p.height * scale
+                    new_cx = 0.5 + (cx - cx_u) * scale  # escala em torno da união + centraliza
+                    new_cy = new_cy_u + (cy - cy_u) * scale
+                    a.set_position([new_cx - new_w / 2.0, new_cy - new_h / 2.0, new_w, new_h])
         except Exception as e:
-            logger.debug("Aviso ao centralizar o layout horizontalmente: %s", e)
+            logger.debug("Aviso ao ajustar o layout à figura: %s", e)
 
     def previous_extent(self) -> None:
         """Volta ao extent anterior (pilha simples — substitui o Ctrl+Z reservado)."""
@@ -1283,6 +1658,7 @@ class MapCanvas(FigureCanvas):
                 va="center",
                 transform=ccrs.PlateCarree(),
                 zorder=25,
+                clip_on=True,  # texto não é recortado por padrão → flutuaria na mesa
                 path_effects=[pe.withStroke(linewidth=3, foreground="white")],
             )
 
@@ -1686,6 +2062,7 @@ class MapCanvas(FigureCanvas):
                     va="center",
                     transform=ccrs.PlateCarree(),
                     zorder=25,
+                    clip_on=True,
                     path_effects=[pe.withStroke(linewidth=3, foreground="white")],
                 )
             cmd.artist = artist
@@ -1724,6 +2101,7 @@ class MapCanvas(FigureCanvas):
                 va="center",
                 transform=ccrs.PlateCarree(),
                 zorder=25,
+                clip_on=True,
                 bbox={
                     "boxstyle": "round,pad=0.3",
                     "facecolor": "black",
@@ -1801,6 +2179,58 @@ class MapCanvas(FigureCanvas):
         if self._blocking_artists:
             layers.append({"kind": "blocking"})
         return layers
+
+    def snapshot_composition(self) -> dict:
+        """Fotografa a composição viva p/ restaurá-la após a animação de steps.
+
+        Guarda REFERÊNCIAS aos dados originais (não cópias): ``add_pl_layer``
+        substitui ``_pl_data[layer_id]`` a cada quadro, então o snapshot deve
+        ser tirado ANTES do primeiro frame. Bloqueio/LOCZCIT não entram aqui —
+        o canvas guarda só artistas; seus results ficam na MainWindow.
+        """
+        return {
+            "synoptic": self.synoptic_data,
+            "plot_options": dict(self.plot_options),
+            "pl_data": dict(self._pl_data),
+            "wind_types": dict(self._pl_wind_types),
+            "zorder_base": self._pl_zorder_counter,
+            "extent_xyxy": list(self.ax.get_extent(crs=ccrs.PlateCarree())),
+        }
+
+    def restore_composition(self, snap: dict) -> None:
+        """Reverte o canvas à composição do snapshot (fim/cancelamento da animação).
+
+        Remove as camadas de modelo re-renderizadas pela animação e re-plota as
+        originais; desenhos/satélite/TSM/observações não são tocados (ficaram
+        estáticos durante a animação). Bloqueio/LOCZCIT são re-plotados pelo
+        chamador a partir dos results memorizados na MainWindow.
+        """
+        with self.batch_layout():  # um único reflow+render no fim do lote
+            for lid in list(self._pl_data):
+                self.remove_pl_layer(lid)
+            self.remove_blocking()
+            self.remove_loczcit()
+            self.clear_frozen_levels()
+
+            if snap.get("synoptic") is not None:
+                self.set_synoptic_data(snap["synoptic"])
+                for k, v in (snap.get("plot_options") or {}).items():
+                    self.toggle_layer(k, bool(v))
+            else:
+                self._clear_synoptic_artists()
+                self.synoptic_data = None
+
+            pl_data = snap.get("pl_data") or {}
+            # Rebobina o contador para reproduzir a ordem relativa (zorder) original
+            self._pl_zorder_counter = max(7, int(snap.get("zorder_base", 7)) - len(pl_data))
+            for lid, data in pl_data.items():
+                self.add_pl_layer(lid, data, (snap.get("wind_types") or {}).get(lid, "barbs"))
+
+            self.ax.set_extent(snap["extent_xyxy"], crs=ccrs.PlateCarree())
+
+        self._update_map_title()
+        self._reflow_layout()
+        self.draw()
 
     def import_drawings_state(self, records: list[dict]) -> None:
         """Reconstrói desenhos a partir de records (.cmbr). NÃO limpa o mapa.
@@ -1887,6 +2317,29 @@ class MapCanvas(FigureCanvas):
             format=fmt,
             bbox_extra_artists=extra_artists or None,
         )
+
+    def freeze_levels(self, mapping: dict) -> None:
+        """Fixa níveis de contorno por ``layer_id`` (animação de steps).
+
+        Enquanto ativos, ``_plot_scalar_contourf``/``_plot_scalar_contour``
+        usam estes níveis em vez de derivá-los do quadro corrente — escala e
+        colorbar idênticas em todos os frames. Limpar com
+        ``clear_frozen_levels()`` ao fim da animação.
+        """
+        self._frozen_levels = dict(mapping)
+
+    def clear_frozen_levels(self) -> None:
+        """Desativa os níveis congelados (volta à escala automática por plot)."""
+        self._frozen_levels = {}
+
+    def render_frame_png(self, filepath: str | Path, dpi: int = 100) -> None:
+        """Salva um QUADRO de animação em PNG com dimensões constantes.
+
+        Diferente de ``save_figure``, NÃO usa ``bbox_inches="tight"`` — o
+        bbox "tight" varia com o conteúdo (título/colorbars) e produziria
+        quadros de tamanhos diferentes, o que quebra a codificação GIF/MP4.
+        """
+        self.fig.savefig(str(filepath), dpi=dpi, facecolor="white", format="png")
 
     def capture_canvas(self, filepath: str | Path, scale: int = 2) -> None:
         """Captura pixel-perfect do canvas como exibido na tela.
@@ -2224,6 +2677,7 @@ class MapCanvas(FigureCanvas):
             va="center",
             transform=ccrs.PlateCarree(),
             zorder=25,
+            clip_on=True,  # texto não é recortado por padrão → flutuaria na mesa
             bbox={
                 "boxstyle": "round,pad=0.3",
                 "facecolor": "black",
@@ -2342,6 +2796,7 @@ class MapCanvas(FigureCanvas):
                 va="center",
                 transform=ccrs.PlateCarree(),
                 zorder=26,
+                clip_on=True,
             )
         self._emoji_annotations.append(artist)
         self._emoji_records.append(
@@ -2458,6 +2913,7 @@ class MapCanvas(FigureCanvas):
                 va="bottom",
                 transform=ccrs.PlateCarree(),
                 zorder=25,
+                clip_on=True,
                 bbox={
                     "boxstyle": "round,pad=0.2",
                     "facecolor": "white",
@@ -2517,7 +2973,7 @@ class MapCanvas(FigureCanvas):
         )
 
         self._update_map_title()
-        self._recenter_axes_horizontally()
+        self._reflow_layout()
         self.draw()
 
     def toggle_satellite(self, visible: bool) -> None:
@@ -2567,20 +3023,18 @@ class MapCanvas(FigureCanvas):
             shading="auto",
         )
 
-        # Colorbar
+        # Colorbar — cax explícito, ver nota no plot_loczcit_raster
+        cax = self.fig.add_axes([0.25, 0.06, 0.5, self._MESA_HCB_H])
         self._sst_colorbar = self.fig.colorbar(
             self._sst_artist,
-            ax=self.ax,
+            cax=cax,
             orientation="horizontal",
-            fraction=0.046,
-            pad=0.06,
-            shrink=0.6,
             label="TSM (°C) — MUR SST 1km",
         )
         self._sst_colorbar.ax.tick_params(labelsize=8)
 
         self._update_map_title()
-        self._recenter_axes_horizontally()
+        self._reflow_layout()
         self.draw()
 
     def toggle_sst(self, visible: bool) -> None:
@@ -2595,8 +3049,11 @@ class MapCanvas(FigureCanvas):
     def remove_sst(self) -> None:
         """Remove a camada de TSM do mapa."""
         if self._sst_colorbar is not None:
+            cax = self._sst_colorbar.ax
             with contextlib.suppress(ValueError, AttributeError):
                 self._sst_colorbar.remove()
+            with contextlib.suppress(ValueError, AttributeError, KeyError):
+                cax.remove()  # cax explícito não sai sozinho no Colorbar.remove()
             self._sst_colorbar = None
         if self._sst_artist is not None:
             with contextlib.suppress(ValueError, AttributeError):
@@ -2644,14 +3101,16 @@ class MapCanvas(FigureCanvas):
         # o estado da Collection (`_antialiaseds`), usado pelo caminho de fallback.
         self._loczcit_artist.set_antialiased(False)
 
+        # cax EXPLÍCITO (não ax=): o eixo criado pelo fig.colorbar re-impõe o
+        # aspect/shrink de criação dentro do próprio set_position, brigando com
+        # o motor da mesa. Um Axes comum obedece — a posição aqui é placeholder,
+        # o _layout_mesa ancora na caixa real da carta.
+        cax = self.fig.add_axes([0.90, 0.25, self._MESA_VCB_W, 0.5])
         cbar = self.fig.colorbar(
             self._loczcit_artist,
-            ax=self.ax,
+            cax=cax,
             orientation="vertical",
-            fraction=0.046,
-            pad=0.02,
             ticks=[0, 1, 2, 3],
-            shrink=0.6,
         )
         cbar.ax.set_yticklabels(["Cinemática", "Fraca", "Moderada", "Forte"])
         cbar.ax.tick_params(labelsize=8)
@@ -2673,25 +3132,8 @@ class MapCanvas(FigureCanvas):
             loc="left",
             pad=14,
         )
-        self._recenter_axes_horizontally()  # centraliza com a colorbar da ZCIT
-        self._match_colorbar_height(cbar)  # domínio panorâmico: cbar na altura da carta
+        self._reflow_layout()  # motor da mesa: ancora a colorbar e centraliza
         self.draw()
-
-    def _match_colorbar_height(self, cbar) -> None:
-        """Alinha a colorbar vertical à altura da carta.
-
-        Em domínios panorâmicos (ex.: LOCZCIT 70°×30°) o GeoAxes fica baixo e a
-        colorbar criada pelo ``fig.colorbar`` sobra acima/abaixo do mapa.
-        """
-        try:
-            self.fig.canvas.draw()  # materializa o apply_aspect do Cartopy
-            pos_map = self.ax.get_position()
-            pos_cb = cbar.ax.get_position()
-            if pos_cb.height > pos_map.height + 1e-3:
-                cbar.ax.set_aspect("auto")  # a caixa passa a mandar na geometria
-                cbar.ax.set_position([pos_cb.x0, pos_map.y0, pos_cb.width, pos_map.height])
-        except Exception as e:
-            logger.debug("Aviso ao alinhar a colorbar à carta: %s", e)
 
     def toggle_loczcit(self, visible: bool) -> None:
         """Mostra ou oculta o raster do LOCZCIT-PA (e sua colorbar)."""
@@ -2786,17 +3228,26 @@ class MapCanvas(FigureCanvas):
                 art.remove()
         self._loczcit_axis_artists = []
 
-    def remove_loczcit(self) -> None:
-        """Remove o raster do LOCZCIT-PA, sua colorbar e o overlay de eixo."""
+    def remove_loczcit(self, reflow: bool = False) -> None:
+        """Remove o raster do LOCZCIT-PA, sua colorbar e o overlay de eixo.
+
+        ``reflow=True`` (remoção pelo usuário): a mesa reclama o espaço da
+        colorbar. Default False — os ciclos internos de replot já reflowam.
+        """
         if self._loczcit_colorbar is not None:
+            cax = self._loczcit_colorbar.ax
             with contextlib.suppress(ValueError, AttributeError):
                 self._loczcit_colorbar.remove()
+            with contextlib.suppress(ValueError, AttributeError, KeyError):
+                cax.remove()  # cax explícito não sai sozinho no Colorbar.remove()
             self._loczcit_colorbar = None
         if self._loczcit_artist is not None:
             with contextlib.suppress(ValueError, AttributeError):
                 self._loczcit_artist.remove()
             self._loczcit_artist = None
         self.remove_loczcit_axis()
+        if reflow:
+            self._reflow_layout()
 
     # ═══════════════════════════════════════════════════════════════════════
     #  BLOQUEIO ATMOSFÉRICO (ANOMALIA DE Z500)
@@ -2837,14 +3288,9 @@ class MapCanvas(FigureCanvas):
         )
         self._blocking_artists = [fill, zero]
 
-        cbar = self.fig.colorbar(
-            fill,
-            ax=self.ax,
-            orientation="vertical",
-            fraction=0.046,
-            pad=0.02,
-            shrink=0.7,
-        )
+        # cax explícito — ver nota no plot_loczcit_raster (motor da mesa manda)
+        cax = self.fig.add_axes([0.90, 0.25, self._MESA_VCB_W, 0.5])
+        cbar = self.fig.colorbar(fill, cax=cax, orientation="vertical")
         cbar.set_label("Anomalia de Z500 (gpm)", fontsize=9)
         cbar.ax.tick_params(labelsize=8)
         self._blocking_colorbar = cbar
@@ -2867,8 +3313,7 @@ class MapCanvas(FigureCanvas):
             loc="left",
             pad=14,
         )
-        self._recenter_axes_horizontally()
-        self._match_colorbar_height(cbar)  # setor panorâmico: cbar na altura da carta
+        self._reflow_layout()  # motor da mesa: ancora a colorbar e centraliza
         self.draw()
 
     def toggle_blocking(self, visible: bool) -> None:
@@ -2879,16 +3324,25 @@ class MapCanvas(FigureCanvas):
             self._blocking_colorbar.ax.set_visible(visible)
         self.draw()
 
-    def remove_blocking(self) -> None:
-        """Remove o campo de anomalia de Z500 e sua colorbar."""
+    def remove_blocking(self, reflow: bool = False) -> None:
+        """Remove o campo de anomalia de Z500 e sua colorbar.
+
+        ``reflow=True`` (remoção pelo usuário): a mesa reclama o espaço da
+        colorbar. Default False — os ciclos internos de replot já reflowam.
+        """
         if self._blocking_colorbar is not None:
+            cax = self._blocking_colorbar.ax
             with contextlib.suppress(ValueError, AttributeError):
                 self._blocking_colorbar.remove()
+            with contextlib.suppress(ValueError, AttributeError, KeyError):
+                cax.remove()  # cax explícito não sai sozinho no Colorbar.remove()
             self._blocking_colorbar = None
         for art in self._blocking_artists:
             with contextlib.suppress(ValueError, AttributeError, NotImplementedError):
                 art.remove()
         self._blocking_artists = []
+        if reflow:
+            self._reflow_layout()
 
     # ═══════════════════════════════════════════════════════════════════════
     #  OBSERVAÇÕES DE SUPERFÍCIE (SYNOP / METAR)
@@ -3060,7 +3514,8 @@ class MapCanvas(FigureCanvas):
 
     def add_pl_layer(self, layer_id: str, data: PLFieldData, wind_type: str = "barbs"):
         """Adiciona uma camada PL/OLR ao mapa."""
-        self.remove_pl_layer(layer_id)
+        # Substituição in-place: limpa SEM renderizar (o render vem no replot)
+        self._remove_pl_layer_state(layer_id)
         self._pl_zorder_counter = min(self._pl_zorder_counter + 1, 14)
         self._pl_data[layer_id] = data
         self._pl_wind_types[layer_id] = wind_type
@@ -3080,13 +3535,15 @@ class MapCanvas(FigureCanvas):
         if var_info.get("category") == "wind":
             wind_type = self._pl_wind_types.get(layer_id, "barbs")
             artists = self._plot_wind_field(data, wind_type)
+        elif var_info.get("plot_type") == "axis_line":
+            artists = self._plot_axis_line(data, var_info)
         elif var_info.get("plot_type") == "contour":
-            artists = self._plot_scalar_contour(data, var_info)
+            artists = self._plot_scalar_contour(data, var_info, self._frozen_levels.get(layer_id))
         else:
-            artists = self._plot_scalar_contourf(data, var_info)
+            artists = self._plot_scalar_contourf(data, var_info, self._frozen_levels.get(layer_id))
 
         self._pl_artists[layer_id] = artists
-        self._recenter_axes_horizontally()  # mantém a carta centralizada na figura
+        self._reflow_layout()  # motor da mesa: reserva espaço p/ a colorbar inset
         self.draw()
 
     # Paleta OLR clássica
@@ -3167,8 +3624,12 @@ class MapCanvas(FigureCanvas):
         "#7a0a16",
     ]
 
-    def _plot_scalar_contourf(self, data: PLFieldData, var_info: dict) -> list:
-        """Plota campo escalar com contourf (preenchido) + contour labels."""
+    def _plot_scalar_contourf(self, data: PLFieldData, var_info: dict, fixed_levels=None) -> list:
+        """Plota campo escalar com contourf (preenchido) + contour labels.
+
+        ``fixed_levels`` (animação) substitui a derivação de níveis do
+        próprio quadro — ver ``freeze_levels()``.
+        """
         artists = []
         values = data.values
 
@@ -3192,7 +3653,9 @@ class MapCanvas(FigureCanvas):
         else:
             cmap = cmap_name
 
-        if data.variable == "olr":
+        if fixed_levels is not None:
+            levels = fixed_levels
+        elif data.variable == "olr":
             levels = np.linspace(100, 310, 22)
         elif data.variable == "precip":
             # Níveis fixos de precipitação (mm); evita preencher áreas secas
@@ -3214,6 +3677,7 @@ class MapCanvas(FigureCanvas):
                 "q",
                 "wind_speed",
                 "temp_grad",
+                "theta_e_grad",
                 "tcwv",
                 "sst_grad",
             ):
@@ -3277,16 +3741,47 @@ class MapCanvas(FigureCanvas):
 
         return artists
 
-    def _plot_scalar_contour(self, data: PLFieldData, var_info: dict) -> list:
-        """Plota campo escalar com contour apenas (linhas)."""
+    def _plot_axis_line(self, data: PLFieldData, var_info: dict) -> list:
+        """Plota o Eixo da Frente (isolinha TFP=0) como LINHA NEUTRA de apoio.
+
+        Diagnóstico *human-in-the-loop*: o eixo orienta o traçado manual, mas
+        NÃO é uma frente classificada (fria/quente) — cor neutra, sem símbolos.
+        O campo TFP já vem mascarado (NaN onde |∇θe| é fraco ou sobre os Andes),
+        então o contorno só aparece na zona baroclínica real. Sem colorbar; a
+        zorder 16 mantém o guia acima de qualquer sombreado ligado depois.
+        """
+        values = data.values
+        if not np.any(np.isfinite(values)):
+            return []
+        cs = self.ax.contour(
+            data.lons,
+            data.lats,
+            values,
+            levels=[0.0],
+            colors=["#333333"],
+            linewidths=2.4,
+            transform=ccrs.PlateCarree(),
+            zorder=16,
+        )
+        return [cs]
+
+    def _plot_scalar_contour(self, data: PLFieldData, var_info: dict, fixed_levels=None) -> list:
+        """Plota campo escalar com contour apenas (linhas).
+
+        ``fixed_levels`` (animação) substitui a derivação de níveis do
+        próprio quadro — ver ``freeze_levels()``.
+        """
         artists = []
         values = data.values
 
-        vmin, vmax = np.nanpercentile(values, [2, 98])
-        if abs(vmax - vmin) < 1e-10:
-            return artists  # Campo constante, nada a plotar
-        step = max(1, int((vmax - vmin) / 20))
-        levels = np.arange(int(vmin), int(vmax) + step, step)
+        if fixed_levels is not None:
+            levels = fixed_levels
+        else:
+            vmin, vmax = np.nanpercentile(values, [2, 98])
+            if abs(vmax - vmin) < 1e-10:
+                return artists  # Campo constante, nada a plotar
+            step = max(1, int((vmax - vmin) / 20))
+            levels = np.arange(int(vmin), int(vmax) + step, step)
         if len(levels) < 2:
             return artists
 
@@ -3421,8 +3916,8 @@ class MapCanvas(FigureCanvas):
                 pass
             del self._pl_colorbars[layer_id]
 
-    def remove_pl_layer(self, layer_id: str):
-        """Remove completamente uma camada PL."""
+    def _remove_pl_layer_state(self, layer_id: str) -> None:
+        """Remove artists/colorbar/estado de uma camada PL — SEM re-render."""
         if layer_id in self._pl_artists:
             for artist in self._pl_artists[layer_id]:
                 with contextlib.suppress(ValueError, AttributeError, NotImplementedError):
@@ -3436,6 +3931,9 @@ class MapCanvas(FigureCanvas):
         if layer_id in self._pl_wind_types:
             del self._pl_wind_types[layer_id]
 
+    def remove_pl_layer(self, layer_id: str):
+        """Remove completamente uma camada PL."""
+        self._remove_pl_layer_state(layer_id)
         self._update_map_title()
         self.draw()
 

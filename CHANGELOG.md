@@ -5,6 +5,238 @@ Todas as mudanças notáveis do **CartoMet BR** são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [3.1.0] — não lançado
+
+### Corrigido
+
+- **🧹 "Mesa branca" definitivamente domada (motor determinístico de layout).**
+  Três efeitos que irritavam o uso diário foram eliminados na raiz:
+  - **H/L flutuando na mesa** ao acionar o LOCZCIT (que encolhe o extent): os
+    textos dos centros agora têm `clip_on=True` — texto do matplotlib não é
+    recortado por padrão, e os centros "fora do mapa" eram desenhados sobre a
+    mesa branca. O mesmo recorte foi aplicado aos **textos desenhados pelo
+    usuário** (símbolos A/B, anotações, emoji fallback, régua de medição), que
+    flutuavam da mesma forma ao navegar para outro domínio — ficou evidente ao
+    importar um boletim WPC e auto-enquadrar na América do Norte.
+  - **Mesa embaralhada no reset** com ZCIT + TSM na tela (carta à esquerda,
+    colorbar órfã à direita, vão no meio): o `tight_layout` foi **aposentado** —
+    ele ignora eixos de colorbar (não são subplots) e movia só a carta. O novo
+    motor (`_layout_mesa`) posiciona tudo por construção: margens fixas para o
+    gridliner, topo medido pelo título real, colorbars **ancoradas à caixa real
+    da carta** (pós-`apply_aspect`) e centralização do conjunto; rede de
+    segurança (`_fit_layout_to_figure`) agora cobre X **e** Y.
+  - **Colorbars rebeldes**: o eixo criado por `fig.colorbar(ax=...)` re-impõe o
+    aspect/shrink de criação dentro do próprio `set_position` (via
+    `_ColorbarAxesLocator`), desfazendo qualquer ancoragem. As colorbars da
+    ZCIT, do bloqueio e da TSM agora usam **`cax` explícito** (Axes comum, que
+    obedece ao motor). Remover camadas devolve o espaço à carta
+    (`remove_loczcit/remove_blocking(reflow=True)`).
+  - **Menos travadas (renders sob controle)**: o motor mede o layout **sem
+    renderizar** — `apply_aspect()` materializa a caixa real da carta e as
+    tightbboxes saem dos transforms vivos (o Gridliner do Cartopy regenera os
+    rótulos dentro do próprio `get_tightbbox`). Cada operação de camada
+    (trocar step, adicionar campo, reset de extent, TSM…) custa agora
+    **exatamente 1 render completo** — eram 4–5 com os `draw()` internos do
+    reflow (medido: reset com pilha cheia caiu de 7,5 s para 1,4 s; adicionar
+    campo, de ~1,8 s para ~0,5 s). A restauração pós-animação roda em lote
+    (`batch_layout()`: um único reflow+render no fim) e a animação
+    **suspende** o motor durante os quadros (a geometria congelada do
+    controller é quem manda) — importante com rasters pesados (MUR SST 1 km).
+    Régua de regressão: `_rascunhos/qa_smokes/perf_mesa.py` (conta renders por
+    ação) e `visual_mesa_check.py` (geometria das colorbars preservada).
+
+- **📡 Sonda Vertical observada de volta (UWyo aposentou o servidor antigo).**
+  Em meados de 2026 a Universidade de Wyoming desligou o CGI legado
+  (`/cgi-bin/sounding` → HTTP 404 permanente) e o `siphon` (≤ 0.10.x) ainda
+  aponta para ele — a fonte **Observada (Wyoming)** passou ~1 semana
+  retornando "Server Error (404)". Novo cliente próprio (`data/wyoming.py`)
+  consome a **interface WSGI atual** (`/wsgi/sounding`, CSV em unidades SI),
+  tentando **FM35** (TEMP clássico — paridade com o produto legado) e caindo
+  para **BUFR** (alta resolução; único em estações que abandonaram o TAC).
+  "Sem dados" é reconhecido pelo **corpo** da resposta (o status varia por
+  fonte: FM35 → 404, BUFR → 400) e vira mensagem amigável de "balão não
+  lançado", distinta de erro de servidor; o `siphon` permanece apenas como
+  fallback de rede. **Bônus**: o CGI antigo servia vento em **nós** e o worker
+  assumia m/s — o endpoint novo serve **m/s nativo** (e o fallback converte),
+  corrigindo a magnitude das barbelas do Skew-T e do hodógrafo. Cobertura:
+  `tests/test_wyoming.py` (fixture com resposta real de Belém 82193).
+
+### Adicionado
+
+- **🗺 "Mapinha" regional de um clique (feedback de usuário operacional —
+  fluxo do antigo editor de cartas do SIPAM).** Três peças novas que juntas
+  reproduzem o mapa-base regional georreferenciado sobre o qual o previsor
+  carimba a simbologia:
+  - **Recorte por estado** — combo *"Estado:"* no painel Região com as 27 UFs
+    (`EXTENT_UFS` em `core/config.py`, caixas IBGE arredondadas para fora).
+    Diferente do combo Região (que troca o domínio e limpa os dados),
+    selecionar a UF apenas **recorta a carta atual** via `apply_extent`
+    (dados preservados, layout correto, spinboxes sincronizados); zoom/pan
+    manual desmarca a seleção sozinho.
+  - **Camada "Cidades"** — checkbox em *Camadas sinóticas* que plota sedes
+    municipais com nome (asset `assets/cidades_br.csv`: 2 678 cidades IBGE
+    com população e flag de capital, gerado por `tools/gera_cidades_ibge.py`;
+    geobr/geopandas **não** entram como dependência). Seleção determinística
+    por vista: capitais > população, separação mínima proporcional à largura
+    do domínio (mesma ideia do thinning de estações), máx. 14 rótulos, halo
+    branco no texto (legível sobre satélite). Replota em recorte, zoom,
+    scroll/pan (no repouso) e troca de tema. *Nota de release:* o CSV precisa
+    entrar nos data files do spec do PyInstaller, junto dos logos.
+  - **"Destacar contornos"** — checkbox que engrossa costa/fronteiras/estados
+    na cor forte do tema com **halo de contraste por baixo** (desenho duplo —
+    sem path effects em patches sobre GeoAxes, a proibição histórica). Sobre a
+    imagem de satélite as linhas finas do mapa base (estados com 0.2 pt)
+    desapareciam e o previsor não sabia "em que região estava"; o realce
+    **liga sozinho ao ativar o satélite** (e nunca se desliga sozinho). Cores
+    `emphasis_line`/`emphasis_halo` por tema em `MAP_THEMES`; exige
+    **cartopy ≥ 0.24** (FeatureArtist virou Collection — restilização
+    in-place com `set_linewidth`/`set_edgecolor`).
+
+- **📤 Boletim de Análise Codificado (CODSAS) — o traçado humano vira arquivo
+  compartilhável.** Nenhuma instituição brasileira publica as posições das
+  feições sinóticas em arquivo codificado, como o WPC/NOAA faz há décadas
+  (*coded surface bulletin*, CODSUS). Agora o CartoMet exporta a análise
+  traçada à mão num boletim de texto aberto — menu *Arquivo → "Exportar/
+  Importar Boletim Codificado"* — pronto para compartilhar, arquivar ou montar
+  um banco de análises da América do Sul. O formato **CODSAS V1**
+  (`gui/bulletin_io.py`, módulo puro) preserva a estrutura do boletim do WPC
+  (cabeçalho + `VALID` + uma feição por linha com continuação), mas usa
+  coordenadas decimais assinadas `lat,lon` — o encoding compactado do WPC
+  assume longitude sempre a OESTE e não representa o domínio da ZCIT (que
+  cruza Greenwich até 15°E). Entram no boletim as 13 linhas OMM (`COLD`,
+  `WARM`, `STNRY`, `OCFNT`, `ZCAS`, `ZCIT INTn`, `TROF`, `RIDGE`, `SQUALL`,
+  `DRYLINE`, `FGEN`, `FLYS`, `JET` — frentes com `FLIP`), os 5 símbolos
+  pontuais (`HIGH`, `LOW`, `HURCN`, `TSTORM`, `VORTEX`) e as anotações
+  (`TEXT`); caneta, formas e emojis não são feições — permanecem no projeto
+  `.cmbr` (que já persiste todos os desenhos). A importação é **aditiva e sem
+  rede** (as feições entram no histórico — Desfazer funciona) e aceita também
+  **boletins WPC genuínos** (via `metpy.io.parse_wpc_surface_bulletin`;
+  pressões centrais viram rótulos), com **auto-enquadre** quando o boletim cai
+  fora do enquadramento atual. Cobertura: `tests/test_bulletin_io.py`
+  (round-trip completo, longitude leste, continuação de linha, CODSUS real).
+
+- **🌡 Preset "Diagnóstico Baroclínico" (apoio ao traçado MANUAL de frentes).**
+  Novo botão nas *Análises Prontas* que empilha, no nível escolhido (850 hPa
+  por padrão, via diálogo), campos diagnósticos objetivos para o previsor
+  traçar a frente à mão (*human-in-the-loop*): **Gradiente de θe** (sombreado)
+  e **Eixo da Frente — TFP** (linha neutra-guia) já ligados; **Advecção de θe**,
+  **θe** e **Frontogênese de Petterssen** empilhados e disponíveis (desligados).
+  O eixo TFP é a isolinha *Thermal Front Parameter* = 0 (Hewson 1998) mascarada
+  por `|∇θe|` mínimo — **guia de posição, não frente classificada** (a
+  classificação fria/quente e o traçado OMM continuam com o meteorologista). Os
+  campos de θe mascaram o terreno elevado (Andes: onde a pressão de superfície é
+  menor que o nível, o θe é subterrâneo/fictício) para não gerar eixos-fantasma
+  sobre a cordilheira, e também ficam disponíveis avulsos em *Campos em
+  Altitude*. Substitui a abordagem de detecção/traçado automático (abandonada
+  por não convergir com a análise sinótica humana).
+- **🔑 Chave ERA5 (CDS) gerenciada pela interface** (menu *Arquivo → "Chave
+  ERA5 (CDS)..."*). O usuário cola a chave pessoal (gratuita) da API do
+  Copernicus/CDS sem tocar em terminal ou `~/.cdsapirc` — a credencial é
+  passada por parâmetro ao `cdsapi.Client` e persistida via `QSettings`,
+  com botão **"Apagar chave"** (pensado para laboratórios de ensino com
+  computadores compartilhados), exibição mascarada (só os 4 últimos
+  caracteres) e teste de conexão em thread (nunca trava a GUI). Aviso no
+  diálogo: o ERA5 é publicado com ~5 dias de atraso. Novo extra opcional
+  `reanalysis` (`cdsapi`); cadeia de resolução da chave (argumento → env
+  `CDSAPI_KEY` → QSettings) em `data/cds_credentials.py` (módulo puro,
+  reutilizável fora da GUI). Cobertura: `tests/test_cds_key.py`. Abre
+  caminho para produtos baseados em reanálise (validação científica de
+  índices e detecções automáticas).
+
+- **⛰ Centros H/L blindados contra os Andes + ranqueamento por proeminência.**
+  Dois refinamentos na detecção automática de centros de pressão da carta de
+  superfície, motivados por avaliação A/B com PNMM real:
+  - **Máscara orográfica** (nova sub-opção "⛰ Filtrar terreno elevado" sob
+    *Centros H/L*, ligada por padrão; desligar re-renderiza na hora, sem rede):
+    onde a redução ao nível do mar excede ~155 hPa (≈ 1500 m — `msl − sp`, com a
+    pressão de superfície `sp` gratuita da stream `oper`), a PNMM é extrapolação
+    sob a montanha e cria máximos/mínimos artefactuais no Altiplano/Andes. O
+    limiar é o parâmetro calibrável `PNMM_ARTIFACT_DELTA_HPA` (ecmwf.py). Caches
+    antigos sem `sp` degradam graciosamente (detector segue sem filtro).
+  - **Ranqueamento por persistência topológica** (`metpy.calc.peak_persistence`,
+    requer MetPy ≥ 1.7, agora mínimo do projeto): quando há mais candidatos que o
+    teto de símbolos, os centros **proeminentes** vencem oscilações rasas — antes
+    o critério era só o desvio de 1013 hPa. Silencioso (sem UI); com MetPy antigo
+    cai no critério legado. O ranking é **cacheado por rodada/step**
+    (`compute_persistence_maps`): o campo não muda entre replots por zoom/reset,
+    e recalculá-lo a cada redesenho custava ~1,2 s. Nota: substituir o detector
+    inteiro pela persistência foi avaliado e rejeitado (artefatos dos Andes;
+    baixas subpolares conectadas ao cavado circumpolar têm persistência baixa)
+    — o filtro morfológico continua sendo o detector; a persistência só ordena.
+  - Cobertura: `tests/test_centers_detection.py` (máscara veta região; proeminência
+    vence intensidade com teto de pontos; fallback sem máscara).
+
+- **🌡️ Temperatura Máxima e Mínima a 2 m (`tmax2m`/`tmin2m`).** Novos campos de
+  superfície no painel *Campos Meteorológicos*, direto do ECMWF Open Data gratuito
+  (stream `oper`): `mx2t3`/`mn2t3` — o extremo das **últimas 3 horas** que antecedem
+  o step (de +150h em diante o Open Data publica a janela de 6h, `mx2t6`/`mn2t6`, e
+  o loader troca o parâmetro automaticamente — `t2_extreme_param`). Valores em °C
+  (paletas `YlOrRd`/`YlGnBu_r`); step ≥ +3h obrigatório (no step 0 a janela é
+  degenerada), validado na GUI e no diálogo de animação. GRIB de ~620 KB por step,
+  cache-first como os demais campos. Cobertura: `tests/test_ecmwf.py::TestT2Extremes`.
+
+- **🎬 Animação de Steps (GIF/MP4).** Novo **Arquivo → "Exportar Animação (GIF/MP4)…"**
+  (`Ctrl+Shift+A`) e botão **"🎬 Animar Steps…"** no painel *Previsão*: a **composição
+  atual do mapa** (sinótica, campos em altitude/presets, **Bloqueio Z500** e **ZCIT
+  LOCZCIT-PA**) é re-renderizada para cada step do intervalo escolhido e exportada como
+  **GIF** (sempre disponível, via Pillow) ou **MP4 H.264** (extra opcional `animation`:
+  `uv sync --extra animation` — ffmpeg fica fora do instalador Windows). Satélite, TSM,
+  observações e desenhos permanecem estáticos durante a animação.
+  - **Prevenção estrutural do erro de alcance:** o diálogo só oferta steps válidos para
+    a rodada (06Z/18Z ≤ +144h; 00Z/12Z ≤ +240h) — o erro "rodada 06Z tem alcance máximo
+    de +144h" torna-se inalcançável pela animação. Passo nativo (3h; 6h após +144h) ou
+    6/12/24h, com nota sobre a "aceleração" aparente ao cruzar +144h.
+  - **Escala congelada entre quadros:** os níveis de contorno/colorbar dos campos são
+    fixados a partir das estatísticas agregadas do intervalo inteiro
+    (`FrameScaleTracker`), eliminando o "respirar" da colorbar quadro a quadro
+    (bloqueio e raster da ZCIT já usam escalas fixas por design).
+  - **Pipeline em 3 fases** com progresso unificado e cancelamento cooperativo:
+    (1) pré-download serializado cache-first (anti-429; reusa o tratamento de retry
+    existente — steps já baixados não vão à rede); (2) render dos quadros com preview
+    ao vivo no canvas (produtor-consumidor: decode GRIB em worker, plot na GUI thread,
+    1 step em voo); (3) codificação em streaming (RAM constante, quadros em disco).
+    Em **qualquer** desfecho — sucesso, erro ou cancelamento — a composição original
+    do mapa é restaurada e os quadros temporários são apagados.
+  - **LOCZCIT-PA na animação:** se o índice ativo usa o filtro **LISA**, o diálogo
+    avisa o custo (Monte Carlo por quadro) e sugere IQR via checkbox pré-marcado;
+    o LISA permanece disponível por opt-in (a semente fixa garante consistência
+    entre quadros). Com LOCZCIT na composição, o alcance ofertado é limitado a
+    **+228h** (a OLR madura da Técnica B precisa do step `+12h` na rodada-base,
+    inexistente além de +240h — evita 404 no fim do alcance).
+  - Quadros com dimensões constantes (`MapCanvas.render_frame_png`, sem bbox "tight");
+    paleta GIF mestra amostrada do intervalo (cores estáveis, sem "piscar" da
+    colorbar); MP4 com dimensões pares (yuv420p) e `+faststart`. Núcleo puro e
+    testável em `services/animation_service.py`, coberto por
+    `tests/test_animation_service.py`.
+
+### Corrigido
+
+- **🔤 Título cortado após zoom de scroll/pan ("é uma coisa ou outra").**
+  O reflow do layout já rodava nos caminhos de zoom-área/resetar/anterior
+  (`apply_extent`), mas **scroll da roda e pan por arraste** faziam
+  `set_extent + draw()` diretos — mudando a proporção da carta sem re-reservar
+  o topo, o título saía cortado e só "voltava" ao resetar (perdendo o zoom).
+  Agora um timer single-shot (~180 ms) re-arma a cada tick e **assenta a vista
+  no repouso** do gesto: reflow (título re-medido) + replot das cidades.
+  Barato (nada roda durante o gesto), respeita a animação
+  (`_layout_suspended`) e não emite `extent_changed` (scroll/pan seguem sendo
+  só visualização).
+
+- **💧 Marca d'água "CartoMet BR" invisível conforme o fundo.** O texto era
+  cinza chapado `#999999` sem contorno — sobre satélite, TSM ou campos de tom
+  parecido, sumia. Ganhou o mesmo halo branco (`withStroke`) já usado nos
+  rótulos de contorno, legível sobre qualquer fundo.
+
+- **📐 Colorbar cortada na borda da "mesa" em extents panorâmicos.** A recentragem
+  do layout media apenas as caixas dos eixos e ignorava os RÓTULOS — em enquadramentos
+  largos (ex.: LOCZCIT + vento em zoom personalizado), os textos da colorbar
+  ("Forte/Moderada/…") vazavam da figura e saíam cortados na tela, na exportação e nos
+  quadros da animação. Novo passe `MapCanvas._fit_layout_to_figure()`: mede a união das
+  *tightbboxes* (caixas **+ rótulos**), desloca o conjunto para caber e, se a união for
+  mais larga que a figura, encolhe-a em torno do centro — a carta fica centralizada com
+  a colorbar integralmente visível, automaticamente. No-op quando tudo já cabe (layouts
+  bons não mudam).
+
 ## [3.0.2] — 2026-06-29
 
 ### Adicionado

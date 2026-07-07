@@ -48,6 +48,7 @@ from PyQt6.QtWidgets import (
 
 from cartomet_br.core.config import Config
 from cartomet_br.data.ecmwf import (
+    PL_LEVELS,
     VARIABLE_REGISTRY,
     PLFieldData,
     SatelliteData,
@@ -70,7 +71,7 @@ from cartomet_br.gui.analysis_engine import (
     MeteogramWorker,
 )
 from cartomet_br.gui.cross_section_panel import CrossSectionPanel
-from cartomet_br.gui.dialogs import FirstRunDialog, WelcomeDialog
+from cartomet_br.gui.dialogs import BaroclinicLevelDialog, FirstRunDialog, WelcomeDialog
 from cartomet_br.gui.download_dialog import (
     BlockingThread,
     DownloadProgressDialog,
@@ -119,6 +120,12 @@ class MainWindow(QMainWindow):
         self._active_xsec = None  # (lon_a, lat_a, lon_b, lat_b) ativo
         self._instability_worker = None  # worker dos campos de instabilidade (F9)
         self._last_valid_time = None  # datetime do modelo carregado (sync de obs)
+        # Últimos results de bloqueio/LOCZCIT (o canvas guarda só artistas);
+        # a animação de steps usa-os p/ restaurar essas camadas ao final.
+        self._last_blocking_result = None
+        self._last_loczcit_result = None
+        self._animation_controller = None  # orquestrador da animação de steps
+        self._animation_dialog = None
 
         self.setWindowTitle(f"{APP_NAME} — {APP_DESCRIPTION}")
         self.setMinimumSize(1200, 800)
@@ -258,6 +265,11 @@ class MainWindow(QMainWindow):
         print_action.triggered.connect(self._print_canvas)
         file_menu.addAction(print_action)
 
+        animate_action = QAction("Exportar Animação (GIF/MP4)...", self)
+        animate_action.setShortcut(QKeySequence("Ctrl+Shift+A"))
+        animate_action.triggered.connect(self._on_animate_requested)
+        file_menu.addAction(animate_action)
+
         file_menu.addSeparator()
 
         save_project_action = QAction("Salvar Projeto...", self)
@@ -270,11 +282,23 @@ class MainWindow(QMainWindow):
         open_project_action.triggered.connect(self._open_project)
         file_menu.addAction(open_project_action)
 
+        export_bulletin_action = QAction("Exportar Boletim Codificado (CODSAS)...", self)
+        export_bulletin_action.triggered.connect(self._export_bulletin)
+        file_menu.addAction(export_bulletin_action)
+
+        import_bulletin_action = QAction("Importar Boletim Codificado (CODSAS/WPC)...", self)
+        import_bulletin_action.triggered.connect(self._import_bulletin)
+        file_menu.addAction(import_bulletin_action)
+
         file_menu.addSeparator()
 
         config_dir_action = QAction("Configurar Diretório de Dados...", self)
         config_dir_action.triggered.connect(self._configure_data_dir)
         file_menu.addAction(config_dir_action)
+
+        cds_key_action = QAction("Chave ERA5 (CDS)...", self)
+        cds_key_action.triggered.connect(self._configure_cds_key)
+        file_menu.addAction(cds_key_action)
 
         open_data_action = QAction("Abrir Pasta de Dados", self)
         open_data_action.triggered.connect(self._open_data_folder)
@@ -580,7 +604,13 @@ class MainWindow(QMainWindow):
         self.canvas.extent_changed.connect(self._on_extent_changed)
 
         self.settings_panel.update_requested.connect(self._download_data)
+        self.settings_panel.animate_requested.connect(self._on_animate_requested)
+        self.settings_panel.terrain_filter_changed.connect(self.canvas.set_centers_terrain_filter)
+        self.settings_panel.context_emphasis_changed.connect(self.canvas.set_context_emphasis)
+        self.settings_panel.cities_changed.connect(self.canvas.set_cities_visible)
         self.settings_panel.region_changed.connect(self._on_region_changed)
+        # Recorte por UF: apply_extent preserva os dados carregados e replota
+        self.settings_panel.uf_extent_requested.connect(self.canvas.apply_extent)
         self.settings_panel.theme_changed.connect(self._on_theme_changed)
         self.settings_panel.layers_changed.connect(self._on_layer_toggled)
 
@@ -591,6 +621,7 @@ class MainWindow(QMainWindow):
         self.field_panel.loczcit_requested.connect(self._on_loczcit_requested)
         self.field_panel.blocking_requested.connect(self._on_blocking_requested)
         self.field_panel.instability_requested.connect(self._launch_instability)
+        self.field_panel.baroclinic_requested.connect(self._on_baroclinic_requested)
 
         self.canvas.annotation_requested.connect(self._on_annotation_requested)
 
@@ -1351,6 +1382,8 @@ class MainWindow(QMainWindow):
             spin.setValue(int(round(val)))
             spin.blockSignals(False)
         self.config.extent = list(extent)
+        # Combo Estado: desmarca a UF se o novo extent não é o preset dela
+        sp.sync_uf_combo(extent)
         # Re-thinning das observações ativas para o novo domínio
         self._refresh_active_observations()
 
@@ -1431,6 +1464,9 @@ class MainWindow(QMainWindow):
         self.satellite_panel.set_downloading(False)
         self.satellite_panel.set_loaded(sat_data.time_str)
         self.canvas.plot_satellite(sat_data)
+        # Sobre a imagem de satélite as linhas finas do mapa base somem —
+        # liga o realce de contornos (o usuário pode desligar; nunca se desliga só).
+        self.settings_panel.emphasis_check.setChecked(True)
         self.status_label.setText(f"● Satélite: {sat_data.time_str}")
         self.status_label.setStyleSheet("color: #27AE60;")
 
@@ -1853,6 +1889,19 @@ class MainWindow(QMainWindow):
         step = self.settings_panel.get_step()
         technique = self.field_panel.get_technique()
 
+        # Extremos de T 2 m são a máx/mín da janela que ANTECEDE o step —
+        # no step 0 a janela é degenerada, independente do método.
+        if var_key in ("tmax2m", "tmin2m") and step < 3:
+            nome = VARIABLE_REGISTRY.get(var_key, {}).get("nome", var_key)
+            QMessageBox.warning(
+                self,
+                f"{nome} requer step ≥ 3h",
+                f"{nome} é o extremo das últimas 3 horas que antecedem o step "
+                "(6 horas além de +144h).\n\n"
+                "No step 0 essa janela não existe — use step +3h ou mais.",
+            )
+            return
+
         # Variáveis desacumuláveis (OLR/precip) no modo Direto exigem step ≥ 3h.
         # No modo Estabilizada (Técnica B) o step 0 é permitido (usa rodada anterior).
         if var_key in ("olr", "precip") and technique == "direct" and step < 3:
@@ -2001,13 +2050,15 @@ class MainWindow(QMainWindow):
 
     def _on_remove_pl_layer(self, layer_id: str):
         if layer_id == "loczcit":
-            self.canvas.remove_loczcit()
+            self.canvas.remove_loczcit(reflow=True)  # mesa reclama o espaço da colorbar
+            self._last_loczcit_result = None
             self.canvas.draw()
         elif layer_id == "loczcit_axis":
             self.canvas.remove_loczcit_axis()
             self.canvas.draw()
         elif layer_id == "blocking":
-            self.canvas.remove_blocking()
+            self.canvas.remove_blocking(reflow=True)
+            self._last_blocking_result = None
             self.canvas.draw()
         else:
             self.canvas.remove_pl_layer(layer_id)
@@ -2180,6 +2231,9 @@ class MainWindow(QMainWindow):
         if getattr(self, "_loczcit_dl_dialog", None):
             self._loczcit_dl_dialog.finish_ok()
             self._loczcit_dl_dialog = None
+        # Memoriza o result (o canvas guarda só artistas) — necessário p/
+        # restaurar a camada ao fim da animação de steps.
+        self._last_loczcit_result = result
         self.canvas.plot_loczcit_raster(result)
         m = result.meta
         method_tag = "LISA" if m.get("filter_method") == "coherence" else "IQR"
@@ -2325,6 +2379,9 @@ class MainWindow(QMainWindow):
         if getattr(self, "_blocking_dl_dialog", None):
             self._blocking_dl_dialog.finish_ok()
             self._blocking_dl_dialog = None
+        # Memoriza o result (o canvas guarda só artistas) — necessário p/
+        # restaurar a camada ao fim da animação de steps.
+        self._last_blocking_result = result
         self.canvas.plot_blocking_anomaly(result)
         m = result.meta
         approx_tag = "≈" if m.get("is_approx") else ""
@@ -2356,6 +2413,172 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("color: #E74C3C;")
         QMessageBox.warning(self, "Erro no Bloqueio Atmosférico (Z500)", error_msg)
 
+    # ═══════════════════════════════════════════════════════════════════════
+    #  ANIMAÇÃO DE STEPS (GIF/MP4)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _on_animate_requested(self):
+        """Anima a composição atual do mapa ao longo dos steps de previsão."""
+        busy = any(
+            t is not None and t.isRunning()
+            for t in (
+                self.download_thread,
+                self.pl_download_thread,
+                getattr(self, "loczcit_thread", None),
+                getattr(self, "blocking_thread", None),
+            )
+        )
+        if busy:
+            QMessageBox.information(
+                self, "Aguarde", "Um download ou cálculo está em andamento. Aguarde concluir."
+            )
+            return
+        if getattr(self, "_animation_controller", None) is not None:
+            QMessageBox.information(self, "Aguarde", "Uma animação já está em andamento.")
+            return
+
+        animatable = ("synoptic", "field", "blocking", "loczcit")
+        layer_specs = [s for s in self.canvas.export_layers_state() if s.get("kind") in animatable]
+        if not layer_specs:
+            QMessageBox.information(
+                self,
+                "Animação de Steps",
+                "Adicione ao menos uma camada de modelo (sinótica, campo em "
+                "altitude, bloqueio ou ZCIT) antes de animar.\n\n"
+                "Satélite, TSM, observações e desenhos permanecem estáticos "
+                "durante a animação.",
+            )
+            return
+
+        # Resolve a rodada (mesmo padrão do LOCZCIT: "auto" → mais recente)
+        cycle = self.settings_panel.get_cycle()
+        cycle_date = self.settings_panel.get_cycle_date()
+        if cycle is None or not cycle_date:
+            try:
+                from cartomet_br.data.ecmwf import estimate_available_cycles
+
+                latest = estimate_available_cycles().get("latest")
+                if latest:
+                    cycle = latest["cycle"]
+                    cycle_date = latest["base_datetime"].strftime("%Y%m%d")
+            except Exception:
+                pass
+        if cycle is None or not cycle_date:
+            QMessageBox.warning(
+                self,
+                "Animação de Steps",
+                "Não foi possível determinar a rodada do ECMWF.\n\n"
+                'Clique em "Verificar Rodadas" e selecione uma rodada primeiro.',
+            )
+            return
+
+        from cartomet_br.gui.animation_dialog import AnimationDialog
+
+        # O LOCZCIT atual foi calculado com LISA? (banner de custo no diálogo)
+        loczcit_lisa = False
+        if any(s.get("kind") == "loczcit" for s in layer_specs):
+            result = self._last_loczcit_result
+            meta = getattr(result, "meta", {}) if result is not None else {}
+            loczcit_lisa = meta.get("filter_method") == "coherence"
+
+        # Rótulos p/ o resumo do diálogo: animadas × estáticas (satélite/TSM/obs)
+        static_kinds = ("satellite", "sst", "observations")
+        static_labels = [
+            self._layer_label(s)
+            for s in self.canvas.export_layers_state()
+            if s.get("kind") in static_kinds
+        ]
+
+        dlg = AnimationDialog(
+            cycle=cycle,
+            cycle_date=cycle_date,
+            layer_specs=layer_specs,
+            technique=self.field_panel.get_technique(),
+            current_step=self.settings_panel.get_step(),
+            charts_dir=self.config.charts_dir,
+            layer_labels=[self._layer_label(s) for s in layer_specs],
+            static_labels=static_labels,
+            loczcit_lisa=loczcit_lisa,
+            parent=self,
+        )
+        dlg.setStyleSheet(DARK_STYLE)
+        dlg.generate_requested.connect(lambda: self._start_animation_from_dialog(dlg))
+        dlg.show()
+
+    def _start_animation_from_dialog(self, dlg):
+        """Valida o spec do diálogo e dispara o pipeline de 3 fases."""
+        from cartomet_br.gui.animation_engine import AnimationController
+
+        spec = dlg.build_spec()
+        if spec is None:
+            return
+        dlg.enter_progress_mode()
+
+        controller = AnimationController(self, spec, parent=self)
+        controller.phase_changed.connect(dlg.set_phase)
+        controller.progress_text.connect(dlg.set_status)
+        controller.progress_value.connect(dlg.set_progress)
+        controller.finished_ok.connect(self._on_animation_ok)
+        controller.finished_error.connect(self._on_animation_error)
+        controller.finished_cancelled.connect(self._on_animation_cancelled)
+        dlg.cancel_requested.connect(controller.cancel)
+
+        self._animation_controller = controller
+        self._animation_dialog = dlg
+        self.status_label.setText("● Gerando animação de steps...")
+        self.status_label.setStyleSheet("color: #9B59B6;")
+        controller.start()
+
+    def _animation_teardown(self):
+        dlg = getattr(self, "_animation_dialog", None)
+        if dlg is not None:
+            if hasattr(dlg, "force_close"):
+                dlg.force_close()
+            else:
+                dlg.close()
+            self._animation_dialog = None
+        self._animation_controller = None
+
+    def _on_animation_ok(self, out_path: str):
+        from pathlib import Path as _Path
+
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+
+        self._animation_teardown()
+        path = _Path(out_path)
+        try:
+            size_mb = path.stat().st_size / 1e6
+            size_txt = f" ({size_mb:.1f} MB)"
+        except OSError:
+            size_txt = ""
+        self.status_label.setText(f"● Animação salva: {path.name}{size_txt}")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+        box = QMessageBox(self)
+        box.setStyleSheet(DARK_STYLE)
+        box.setWindowTitle("Animação de Steps")
+        box.setText(f"Animação salva:\n{path}{size_txt}")
+        open_btn = box.addButton("Abrir", QMessageBox.ButtonRole.AcceptRole)
+        folder_btn = box.addButton("Abrir pasta", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+        if box.clickedButton() is open_btn:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        elif box.clickedButton() is folder_btn:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
+
+    def _on_animation_error(self, message: str):
+        self._animation_teardown()
+        self.status_label.setText("● Erro na animação de steps")
+        self.status_label.setStyleSheet("color: #E74C3C;")
+        QMessageBox.warning(self, "Erro na Animação de Steps", message)
+
+    def _on_animation_cancelled(self):
+        self._animation_teardown()
+        self.status_label.setText("● Animação cancelada")
+        self.status_label.setStyleSheet("color: #F39C12;")
+
     def _process_preset_queue(self):
         """Processa a próxima camada da fila de preset."""
         if not hasattr(self, "_preset_queue") or not self._preset_queue:
@@ -2379,6 +2602,70 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             QTimer.singleShot(3000, self._process_preset_queue)
+
+    # ─── Preset "Diagnóstico Baroclínico" (apoio ao traçado manual) ─────────
+    # Ordem = empilhamento (baixo→cima). visível=False entra na pilha porém
+    # DESLIGADO (camada de apoio). Frontogênese reusa o campo T-Petterssen já
+    # existente. O Eixo TFP é linha NEUTRA (guia), não frente classificada.
+    _BAROCLINIC_LAYERS = [
+        ("theta_e_grad", True),
+        ("tfp_axis", True),
+        ("theta_e_adv", False),
+        ("theta_e", False),
+        ("frontogenesis", False),
+    ]
+
+    def _on_baroclinic_requested(self):
+        """Escolhe o nível e empilha os campos diagnósticos de apoio a frentes."""
+        if self.pl_download_thread and self.pl_download_thread.isRunning():
+            QMessageBox.information(
+                self, "Aguarde", "Um download já está em andamento. Aguarde concluir."
+            )
+            return
+
+        dlg = BaroclinicLevelDialog(PL_LEVELS, default_level=850, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        level = dlg.selected_level()
+
+        self._baro_queue = [(vk, level, vis) for vk, vis in self._BAROCLINIC_LAYERS]
+        self.status_label.setText("● Diagnóstico Baroclínico — carregando camadas...")
+        self.status_label.setStyleSheet("color: #16A085;")
+        self._process_baroclinic_queue()
+
+    def _process_baroclinic_queue(self):
+        """Baixa/empilha a próxima camada do preset (serializado, cache-first)."""
+        if not getattr(self, "_baro_queue", None):
+            self.status_label.setText("● Diagnóstico Baroclínico completo!")
+            self.status_label.setStyleSheet("color: #27AE60;")
+            return
+        if self.pl_download_thread and self.pl_download_thread.isRunning():
+            QTimer.singleShot(500, self._process_baroclinic_queue)
+            return
+
+        var_key, level, visible = self._baro_queue.pop(0)
+        self._baro_pending = (var_key, level, visible)
+        self._on_add_pl_layer(var_key, level, "barbs")
+        try:
+            self.pl_download_thread.finished_ok.connect(
+                self._baro_after_layer, Qt.ConnectionType.SingleShotConnection
+            )
+            self.pl_download_thread.finished_error.connect(
+                lambda *_: self._process_baroclinic_queue(),
+                Qt.ConnectionType.SingleShotConnection,
+            )
+        except Exception:
+            QTimer.singleShot(3000, self._process_baroclinic_queue)
+
+    def _baro_after_layer(self, *_args):
+        """Camada empilhada: se for de apoio (visível=False), desmarca → oculta."""
+        pending = getattr(self, "_baro_pending", None)
+        if pending is not None:
+            var_key, level, visible = pending
+            if not visible:
+                # Desmarcar emite toggle_layer_requested → oculta no canvas.
+                self.field_panel.set_layer_checked(f"{var_key}_{level}", False)
+        self._process_baroclinic_queue()
 
     # ═══════════════════════════════════════════════════════════════════════
     #  OPERAÇÕES DE ARQUIVO
@@ -2655,6 +2942,118 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"● Projeto aberto: {Path(filepath).name}")
         self.status_label.setStyleSheet("color: #27AE60;")
 
+    def _export_bulletin(self):
+        """Exporta o traçado num boletim de texto codificado (CODSAS).
+
+        Espírito do *coded surface bulletin* do WPC, adaptado à América do Sul:
+        um arquivo de texto compartilhável/arquivável contendo SÓ as feições
+        meteorológicas (linhas OMM, símbolos pontuais e anotações). Caneta,
+        formas e emojis não são feições — permanecem no projeto ``.cmbr``.
+        """
+        from cartomet_br.gui import bulletin_io
+
+        self.canvas.commit_pending_line()
+        cmds, skipped = bulletin_io.exportable_commands(self.canvas.history.commands)
+        skipped += len(self.canvas._emoji_records)
+        if not cmds:
+            QMessageBox.information(
+                self,
+                "Exportar Boletim",
+                "Nenhuma feição meteorológica finalizada para exportar.\n\n"
+                "Dica: feche cada linha com [Enter]. Caneta, formas e emojis\n"
+                "não entram no boletim — use Salvar Projeto para preservá-los.",
+            )
+            return
+
+        meta = self.canvas.get_chart_time_meta()
+        vt = str(meta.get("valid_time") or "")
+        stamp = (
+            vt.replace("-", "").replace(":", "").replace("T", "_")
+            if vt
+            else f"{datetime.now():%Y%m%d_%H%M}"
+        )
+        default = self.config.projects_dir / f"boletim_{stamp}{bulletin_io.BULLETIN_EXTENSION}"
+        filepath, _ = QFileDialog.getSaveFileName(
+            self,
+            "Exportar Boletim Codificado",
+            str(default),
+            "Boletim de Análise (*.txt);;Todos (*)",
+        )
+        if not filepath:
+            return
+        path = Path(filepath)
+        if path.suffix == "":
+            path = path.with_suffix(bulletin_io.BULLETIN_EXTENSION)
+
+        text = bulletin_io.dump_bulletin(
+            cmds,
+            valid_time=vt,
+            base_time=str(meta.get("base_time") or ""),
+            step=int(meta.get("step") or 0),
+            app_version=APP_VERSION,
+        )
+        try:
+            path.write_text(text, encoding="utf-8")
+        except OSError as e:
+            QMessageBox.critical(
+                self, "Erro ao Exportar Boletim", f"Não foi possível gravar o boletim:\n\n{e}"
+            )
+            self.status_label.setText("● Erro ao exportar boletim")
+            self.status_label.setStyleSheet("color: #E74C3C;")
+            return
+        extra = f" (+{skipped} fora do boletim: caneta/formas/emojis)" if skipped else ""
+        self.status_label.setText(f"● Boletim exportado: {path.name} — {len(cmds)} feições{extra}")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _import_bulletin(self):
+        """Importa um boletim codificado (CODSAS ou WPC) sobre a carta atual.
+
+        Aditivo e sem rede: as feições entram no histórico (Desfazer funciona)
+        por cima do que já está traçado — quem decide limpar antes é o usuário.
+        Se o boletim cair fora do enquadramento atual (ex.: boletim WPC da
+        América do Norte), o mapa auto-enquadra nas feições importadas.
+        """
+        from cartomet_br.gui import bulletin_io, project_io
+
+        filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            "Importar Boletim Codificado",
+            str(self.config.projects_dir),
+            "Boletim de Análise (*.txt);;Todos (*)",
+        )
+        if not filepath:
+            return
+        try:
+            parsed = bulletin_io.parse_bulletin(
+                Path(filepath).read_text(encoding="utf-8", errors="replace")
+            )
+            records = project_io.commands_to_records(parsed.commands)
+        except (OSError, bulletin_io.BulletinError, project_io.ProjectError) as e:
+            QMessageBox.warning(
+                self, "Importar Boletim", f"Não foi possível importar o boletim:\n\n{e}"
+            )
+            return
+
+        self.canvas.import_drawings_state(records)
+
+        # Auto-enquadre proativo: se o CENTRO das feições caiu fora do
+        # enquadramento atual, leva o usuário até elas (margem de 5°).
+        bbox = bulletin_io.commands_bbox(parsed.commands)
+        if bbox is not None:
+            x0, y0, x1, y1 = self.config.extent
+            cx, cy = (bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0
+            if not (x0 <= cx <= x1 and y0 <= cy <= y1):
+                self.canvas.apply_extent(
+                    [bbox[0] - 5.0, bbox[1] - 5.0, bbox[2] + 5.0, bbox[3] + 5.0]
+                )
+
+        origem = "WPC/NOAA" if parsed.fmt == "WPC" else "CODSAS"
+        self.status_label.setText(
+            f"● Boletim importado ({origem}): {len(parsed.commands)} feições — "
+            f"válido {parsed.valid_time or '—'}"
+        )
+        self.status_label.setStyleSheet("color: #27AE60;")
+
     def _show_project_context(
         self,
         ctx: dict,
@@ -2768,6 +3167,7 @@ class MainWindow(QMainWindow):
             logger.warning("Satélite em cache ilegível (%s): %s", filename, exc)
             return False
         self.canvas.plot_satellite(sat_data)
+        self.settings_panel.emphasis_check.setChecked(True)
         with contextlib.suppress(Exception):
             self.satellite_panel.set_loaded(sat_data.time_str or path.stem)
         return True
@@ -2901,6 +3301,8 @@ class MainWindow(QMainWindow):
 
         # 1) Limpa o canvas (todas as camadas + desenhos)
         self.canvas.clear_map()
+        self._last_blocking_result = None
+        self._last_loczcit_result = None
 
         # 2) Reseta o estado dos painéis para refletir o mapa vazio
         with contextlib.suppress(Exception):
@@ -3054,6 +3456,12 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Sucesso", f"Diretório alterado para:\n{new_dir}")
             except Exception as e:
                 QMessageBox.critical(self, "Erro", f"Erro ao configurar diretório:\n{e}")
+
+    def _configure_cds_key(self):
+        """Gerencia a chave pessoal da API do CDS/Copernicus (ERA5)."""
+        from cartomet_br.gui.cds_key_dialog import CDSKeyDialog
+
+        CDSKeyDialog(self).exec()
 
     # ─── Importar Arquivo Local ────────────────────────────────────────────
 
@@ -3387,6 +3795,7 @@ class MainWindow(QMainWindow):
             )
 
             self.canvas.plot_satellite(sat_data)
+            self.settings_panel.emphasis_check.setChecked(True)
             self.satellite_panel.toggle_check.setVisible(True)
             self.satellite_panel.toggle_check.setChecked(True)
             self.satellite_panel.status_label.setText(f"✓ Local: {file_path.name}")
