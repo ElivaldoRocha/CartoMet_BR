@@ -33,7 +33,12 @@ from PyQt6.QtWidgets import QSizePolicy
 from cartomet_br.charts.interactive import interpolar_pontos
 from cartomet_br.charts.synoptic import compute_persistence_maps, plot_maxmin_points
 from cartomet_br.core.config import COLORS, LEVELS, Config
-from cartomet_br.data.cities import load_cities, select_cities
+from cartomet_br.data.cities import (
+    CITY_DENSITY_FACTORS,
+    DEFAULT_CITY_DENSITY,
+    load_cities,
+    select_cities,
+)
 from cartomet_br.data.ecmwf import (
     VARIABLE_REGISTRY,
     PLFieldData,
@@ -284,6 +289,7 @@ class MapCanvas(FigureCanvas):
         # a flag sobrevive à reconstrução do mapa base.
         self._cities_artists: list = []
         self._cities_enabled: bool = False
+        self._city_density_factor: float = CITY_DENSITY_FACTORS[DEFAULT_CITY_DENSITY]
 
         # Imagem de satélite
         self._sat_artist = None
@@ -564,6 +570,23 @@ class MapCanvas(FigureCanvas):
             self._clear_cities()
         self.draw_idle()
 
+    def set_city_density(self, factor: float) -> None:
+        """Ajusta a densidade da camada de cidades e replota na hora (sem rede).
+
+        `factor` segue `CITY_DENSITY_FACTORS` (maior → mais rótulos): multiplica
+        o teto de cidades e reduz a separação mínima entre rótulos.
+        """
+        try:
+            factor = float(factor)
+        except (TypeError, ValueError):
+            return
+        if factor <= 0 or factor == self._city_density_factor:
+            return
+        self._city_density_factor = factor
+        if self._cities_enabled:
+            self._replot_cities_for_view()
+            self.draw_idle()
+
     def _clear_cities(self) -> None:
         for artist in self._cities_artists:
             with contextlib.suppress(Exception):
@@ -584,7 +607,9 @@ class MapCanvas(FigureCanvas):
             x0, x1, y0, y1 = self.ax.get_extent(crs=ccrs.PlateCarree())
         except Exception:
             return
-        cities = select_cities(load_cities(), [x0, y0, x1, y1])
+        cities = select_cities(
+            load_cities(), [x0, y0, x1, y1], density_factor=self._city_density_factor
+        )
         label_dy = (y1 - y0) * 0.012
         halo = [pe.withStroke(linewidth=2.5, foreground="white")]
         for city in cities:

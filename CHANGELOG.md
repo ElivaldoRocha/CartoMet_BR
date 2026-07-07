@@ -78,9 +78,13 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
     com população e flag de capital, gerado por `tools/gera_cidades_ibge.py`;
     geobr/geopandas **não** entram como dependência). Seleção determinística
     por vista: capitais > população, separação mínima proporcional à largura
-    do domínio (mesma ideia do thinning de estações), máx. 14 rótulos, halo
-    branco no texto (legível sobre satélite). Replota em recorte, zoom,
-    scroll/pan (no repouso) e troca de tema. *Nota de release:* o CSV precisa
+    do domínio (mesma ideia do thinning de estações), halo branco no texto
+    (legível sobre satélite). Seletor **Densidade** (Baixa / **Média** / Alta /
+    Máxima) sob o checkbox, espelhando o das observações: o fator multiplica o
+    teto de rótulos (7/14/28/56) e aproxima os rótulos entre si — em Rondônia,
+    a Máxima recoloca Cacoal, Rolim de Moura, Costa Marques e Cerejeiras do
+    mapa de referência do SIPAM. Replota em recorte, zoom, scroll/pan (no
+    repouso) e troca de tema. *Nota de release:* o CSV precisa
     entrar nos data files do spec do PyInstaller, junto dos logos.
   - **"Destacar contornos"** — checkbox que engrossa costa/fronteiras/estados
     na cor forte do tema com **halo de contraste por baixo** (desenho duplo —

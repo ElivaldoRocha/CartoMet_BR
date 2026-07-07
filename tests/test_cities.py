@@ -1,7 +1,13 @@
 """Camada "Cidades": asset empacotado + seleção determinística (thinning)."""
 
 from cartomet_br.core.config import EXTENT_BRASIL, EXTENT_UFS
-from cartomet_br.data.cities import City, load_cities, select_cities
+from cartomet_br.data.cities import (
+    CITY_DENSITY_FACTORS,
+    DEFAULT_CITY_DENSITY,
+    City,
+    load_cities,
+    select_cities,
+)
 
 
 def _mk(name, lon, lat, pop=10_000, capital=False, uf="XX"):
@@ -105,3 +111,36 @@ def test_select_rondonia_inclui_porto_velho_e_interior():
     nomes = [c.name for c in out]
     assert "Porto Velho" in nomes
     assert len(nomes) >= 8, f"esperava um recorte estadual povoado, veio {nomes}"
+
+
+# ── densidade ────────────────────────────────────────────────────────────────
+
+
+def test_fatores_de_densidade_sao_crescentes_e_padrao_e_neutro():
+    valores = list(CITY_DENSITY_FACTORS.values())
+    assert valores == sorted(valores)
+    # "Média" = 1.0 preserva o comportamento validado (compat de assinatura)
+    assert CITY_DENSITY_FACTORS[DEFAULT_CITY_DENSITY] == 1.0
+
+
+def test_densidade_escala_a_quantidade_no_recorte_estadual():
+    cities = load_cities()
+    extent = EXTENT_UFS["RO"]
+    contagens = [
+        len(select_cities(cities, extent, density_factor=f)) for f in CITY_DENSITY_FACTORS.values()
+    ]
+    assert contagens == sorted(contagens), f"contagens não-monótonas: {contagens}"
+    assert contagens[0] < contagens[-1], "Máxima deveria mostrar mais cidades que Baixa"
+
+
+def test_densidade_respeita_teto_escalado():
+    cities = [_mk(f"c{i}", lon=-74 + i * 1.5, lat=-10) for i in range(30)]
+    extent = [-75, -35, -30, 6]
+    assert len(select_cities(cities, extent, density_factor=0.5)) <= 7
+    assert len(select_cities(cities, extent, density_factor=4.0)) <= 56
+
+
+def test_densidade_fator_1_equivale_ao_padrao():
+    cities = load_cities()
+    extent = EXTENT_UFS["RO"]
+    assert select_cities(cities, extent) == select_cities(cities, extent, density_factor=1.0)

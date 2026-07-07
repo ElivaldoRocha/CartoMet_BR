@@ -8,11 +8,23 @@ Qt/Matplotlib — o plot fica no ``MapCanvas``.
 from __future__ import annotations
 
 import csv
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 
-from cartomet_br.gui._constants import get_assets_path
+# Fatores do seletor "Densidade" da camada Cidades — mesma escala do overlay
+# de observações (OBS_DENSITY_FACTORS): maior → mais rótulos na tela.
+# O padrão é "Média" (= comportamento validado com o mapa SIPAM de Rondônia);
+# "Máxima" aproxima o produto de um mapa de referência municipal.
+CITY_DENSITY_FACTORS: dict[str, float] = {
+    "Baixa": 0.5,
+    "Média": 1.0,
+    "Alta": 2.0,
+    "Máxima": 4.0,
+}
+DEFAULT_CITY_DENSITY = "Média"
 
 
 @dataclass(frozen=True)
@@ -27,10 +39,24 @@ class City:
     is_capital: bool
 
 
+def _assets_path() -> Path:
+    """Caminho dos assets em dev e no executável PyInstaller.
+
+    Réplica local de ``gui._constants.get_assets_path`` — importá-la daqui
+    criaria ciclo (gui/__init__ → layer_panel → data.cities → gui). A camada
+    de dados não importa da GUI; manter as duas em sincronia.
+    """
+    if getattr(sys, "frozen", False):
+        base = Path(sys._MEIPASS)  # type: ignore[attr-defined]  # PyInstaller (runtime frozen)
+    else:
+        base = Path(__file__).resolve().parents[1]
+    return base / "assets"
+
+
 @lru_cache(maxsize=1)
 def load_cities() -> tuple[City, ...]:
     """Carrega o asset empacotado (linhas iniciadas em ``#`` são proveniência)."""
-    path = get_assets_path() / "cidades_br.csv"
+    path = _assets_path() / "cidades_br.csv"
     cities: list[City] = []
     with path.open(encoding="utf-8", newline="") as f:
         for row in csv.DictReader(line for line in f if not line.startswith("#")):
@@ -51,6 +77,7 @@ def select_cities(
     cities: Sequence[City],
     extent: Sequence[float],
     max_labels: int = 14,
+    density_factor: float = 1.0,
 ) -> list[City]:
     """Escolhe as cidades a rotular no extent ``[lon_min, lat_min, lon_max, lat_max]``.
 
@@ -59,6 +86,10 @@ def select_cities(
     separação mínima proporcional à largura do domínio — mesma ideia do
     ``thinning_radius`` das observações de superfície. No Brasil inteiro sobram
     as capitais; num estado, as cidades médias entram sozinhas.
+
+    ``density_factor`` segue ``CITY_DENSITY_FACTORS``: fator maior multiplica o
+    teto de rótulos e divide a separação mínima (mais cidades na tela); 1.0 é
+    o comportamento padrão ("Média").
     """
     lon_min, lat_min, lon_max, lat_max = (float(v) for v in extent)
     width = lon_max - lon_min
@@ -73,10 +104,11 @@ def select_cities(
     ]
     candidates.sort(key=lambda c: (not c.is_capital, -c.population, c.name))
 
-    min_sep = max(width / 10.0, 0.25)
+    label_cap = max(1, round(max_labels * density_factor))
+    min_sep = max(width / 10.0, 0.25) / density_factor
     chosen: list[City] = []
     for cand in candidates:
-        if len(chosen) >= max_labels:
+        if len(chosen) >= label_cap:
             break
         if all(max(abs(cand.lon - c.lon), abs(cand.lat - c.lat)) >= min_sep for c in chosen):
             chosen.append(cand)

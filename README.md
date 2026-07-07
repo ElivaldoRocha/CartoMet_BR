@@ -151,7 +151,7 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 ### 🗺 Mapa regional de um clique — recorte por estado, cidades e contornos destacados
 
 - **Combo "Estado:"** no painel *Região* com as **27 UFs**: recorta a carta atual para o estado escolhido **preservando os dados carregados** (diferente do combo Região, que troca o domínio e limpa tudo); zoom/pan manual desmarca a seleção sozinho
-- **Camada "Cidades"** (checkbox em *Camadas sinóticas*): sedes municipais **IBGE** com nome — capitais em negrito e cidades maiores primeiro, densidade ajustada ao zoom (máx. 14 rótulos, com halo legível sobre satélite). Base empacotada (`assets/cidades_br.csv`, 2 678 municípios) — **sem rede e sem dependências novas**
+- **Camada "Cidades"** (checkbox em *Camadas sinóticas*): sedes municipais **IBGE** com nome — capitais em negrito e cidades maiores primeiro, com halo legível sobre satélite. Seletor **Densidade** (Baixa / **Média** / Alta / Máxima), como o das observações: mais densidade = mais sedes rotuladas, ajustadas ao zoom. Base empacotada (`assets/cidades_br.csv`, 2 678 municípios) — **sem rede e sem dependências novas**
 - **"Destacar contornos"** (checkbox): engrossa costa, fronteiras e divisas de estados com **halo de contraste** — essencial sobre **imagem de satélite** e campos preenchidos, onde as linhas finas do mapa base somem; **liga sozinho ao ativar o satélite**
 - Fluxo típico (inspirado no editor de cartas do SIPAM): escolher o estado → ligar *Cidades* e *Destacar contornos* → carimbar **emojis meteorológicos** e simbologia OMM → **📤 Exportar** PNG/PDF
 - O título da carta agora **sobrevive ao zoom por scroll e ao pan** (o layout se re-assenta ao fim do gesto), e a marca d'água ganhou halo — legível em qualquer fundo

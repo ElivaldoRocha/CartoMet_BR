@@ -34,6 +34,7 @@ from cartomet_br.core.config import (
     EXTENT_UFS,
     UF_NOMES,
 )
+from cartomet_br.data.cities import CITY_DENSITY_FACTORS, DEFAULT_CITY_DENSITY
 from cartomet_br.data.ecmwf import (
     PL_LEVELS,
     VARIABLE_REGISTRY,
@@ -284,6 +285,7 @@ class SettingsPanel(QWidget):
     context_emphasis_changed = pyqtSignal(bool)  # realce de costa/fronteiras/estados
     uf_extent_requested = pyqtSignal(list)  # recorte por estado (preserva dados)
     cities_changed = pyqtSignal(bool)  # camada de cidades rotuladas (IBGE)
+    city_density_changed = pyqtSignal(float)  # fator de densidade das cidades
 
     REGIONS = {
         "América do Sul": EXTENT_AMSUL,
@@ -562,6 +564,25 @@ class SettingsPanel(QWidget):
         )
         options_layout.addWidget(self.cities_check)
 
+        # Sub-opção das cidades: densidade dos rótulos (padrão das observações)
+        city_density_row = QHBoxLayout()
+        city_density_row.addSpacing(18)  # indenta sob "Cidades"
+        city_density_row.addWidget(QLabel("Densidade:"))
+        self.city_density_combo = QComboBox()
+        for name, factor in CITY_DENSITY_FACTORS.items():
+            self.city_density_combo.addItem(name, factor)
+        self.city_density_combo.setCurrentText(DEFAULT_CITY_DENSITY)
+        self.city_density_combo.setToolTip(
+            "Quantidade de cidades rotuladas no mapa. Maior densidade mostra mais\n"
+            "sedes municipais (rótulos mais próximos entre si). Aplica na hora,\n"
+            "sem rede — a prioridade capital > população é mantida."
+        )
+        self.city_density_combo.currentIndexChanged.connect(
+            lambda _: self.city_density_changed.emit(self.get_city_density())
+        )
+        city_density_row.addWidget(self.city_density_combo, 1)
+        options_layout.addLayout(city_density_row)
+
         layout.addWidget(options_group)
 
         # ═══ 6. OBSERVAÇÕES DE SUPERFÍCIE (SYNOP / METAR) ═══
@@ -703,6 +724,11 @@ class SettingsPanel(QWidget):
         """Fator de densidade do overlay selecionado (ver OBS_DENSITY_FACTORS)."""
         factor = self.obs_density_combo.currentData()
         return float(factor) if factor is not None else OBS_DENSITY_FACTORS[DEFAULT_OBS_DENSITY]
+
+    def get_city_density(self) -> float:
+        """Fator de densidade da camada de cidades (ver CITY_DENSITY_FACTORS)."""
+        factor = self.city_density_combo.currentData()
+        return float(factor) if factor is not None else CITY_DENSITY_FACTORS[DEFAULT_CITY_DENSITY]
 
     def set_obs_reference_time(self, dt):
         """Guarda o valid_time do modelo (datetime UTC ou None) e atualiza o painel.
