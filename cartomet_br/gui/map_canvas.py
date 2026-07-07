@@ -308,6 +308,9 @@ class MapCanvas(FigureCanvas):
         # base; os eixos vivos são recriados a partir dele.
         self._wind_rose_data: list[dict] = []
         self._wind_rose_axes: list = []
+        # Durante pan/scroll os insets ficam ocultos (o eixo polar dobra o custo
+        # de cada draw); o settle da vista os devolve via visibilidade normal.
+        self._wind_rose_gesture_hidden: bool = False
 
         # Imagem de satélite
         self._sat_artist = None
@@ -788,6 +791,11 @@ class MapCanvas(FigureCanvas):
             self._wind_rose_axes.append(None)
             return
         inset.set_navigate(False)  # pan/zoom da carta não navega o inset
+        # Fora da MEDIÇÃO do layout da mesa: o get_tightbbox do matplotlib ignora
+        # o recorte de textos (mede o "N"/título mesmo clipados), então um inset
+        # perto da borda inflava o tightbbox do GeoAxes e o _fit_layout_to_figure
+        # "empurrava" o título/carta a cada settle de pan/scroll.
+        inset.set_in_layout(False)
         inset.patch.set_facecolor("white")
         inset.patch.set_alpha(0.62)  # translúcido sobre o mapa, ainda legível
         ns = "N" if lat >= 0 else "S"
@@ -804,12 +812,15 @@ class MapCanvas(FigureCanvas):
                 title=tag,
             )
         # Recorta o inset INTEIRO (barras, grade, rótulos de rumo, título) ao
-        # retângulo da carta — nada de rosa vazando na mesa branca quando a âncora
-        # fica perto da borda. findobj() alcança os rótulos aninhados nos eixos
-        # (que get_children() não cobre — deixavam o "E"/"N" escapar na margem).
+        # retângulo da carta via clip_BOX. NÃO usar set_clip_path(self.ax.patch):
+        # o patch do GeoAxes do Cartopy (_ViewClippedPathPatch) não é honrado no
+        # render do texto — o "N" e o título vazavam na mesa branca (provado por
+        # A/B: o mesmo clip num Axes comum recorta; no GeoAxes, não). O ax.bbox é
+        # um TransformedBbox VIVO (acompanha reflow/pan) e o viewport PlateCarree
+        # é retangular — recorte exato e mais barato que caminho.
         for art in inset.findobj():
             with contextlib.suppress(Exception):
-                art.set_clip_path(self.ax.patch)
+                art.set_clip_box(self.ax.bbox)
                 # Rótulos/título nascem com clip_on=False (podem sair do eixo) —
                 # forçar True para o recorte da carta valer também neles.
                 art.set_clip_on(True)
@@ -827,6 +838,9 @@ class MapCanvas(FigureCanvas):
         self._clear_wind_rose_insets_artists()
         for entry in self._wind_rose_data:
             self._create_wind_rose_inset(entry)
+        # Reconstrução pode acontecer com a âncora fora da vista (troca de tema
+        # após um recorte) — aplica a regra de visibilidade já na recriação.
+        self._update_wind_rose_visibility()
 
     def clear_wind_rose_insets(self) -> None:
         """Remove TODAS as rosas fixadas (dado + eixos)."""
@@ -844,6 +858,7 @@ class MapCanvas(FigureCanvas):
         ponto ancorado da rosa sai do extent visível, o inset desaparece — não
         fica ocupando a margem da carta.
         """
+        self._wind_rose_gesture_hidden = False  # fim do gesto: regra normal
         if not self._wind_rose_axes:
             return
         try:
@@ -857,6 +872,21 @@ class MapCanvas(FigureCanvas):
                 continue
             lon, lat = entry["lon"], entry["lat"]
             inset.set_visible(lo_x <= lon <= hi_x and lo_y <= lat <= hi_y)
+
+    def _hide_wind_roses_during_gesture(self) -> None:
+        """Oculta os insets enquanto o usuário arrasta/rola (pan/scroll).
+
+        O eixo polar dobra o custo de cada render da pilha (medido: 155 ms com
+        inset vs 78 ms sem) — a rosa some durante o gesto para a carta se mover
+        fluida e volta no settle da vista (``_deferred_view_settle``), que chama
+        ``_update_wind_rose_visibility`` e restaura a regra normal.
+        """
+        if self._wind_rose_gesture_hidden or not self._wind_rose_axes:
+            return
+        self._wind_rose_gesture_hidden = True
+        for inset in self._wind_rose_axes:
+            if inset is not None:
+                inset.set_visible(False)
 
     def export_wind_roses(self) -> list[dict]:
         """Serializa as rosas fixadas em records puros p/ o projeto (.cmbr)."""
@@ -1471,7 +1501,7 @@ class MapCanvas(FigureCanvas):
         new = self._clamp_extent(new)
         try:
             self.ax.set_extent([new[0], new[2], new[1], new[3]], crs=ccrs.PlateCarree())
-            self._update_wind_rose_visibility()
+            self._hide_wind_roses_during_gesture()
             self.draw()
         except Exception:
             return
@@ -1499,7 +1529,7 @@ class MapCanvas(FigureCanvas):
         new = self._clamp_extent([x0 + dx, y0 + dy, x1 + dx, y1 + dy])
         try:
             self.ax.set_extent([new[0], new[2], new[1], new[3]], crs=ccrs.PlateCarree())
-            self._update_wind_rose_visibility()
+            self._hide_wind_roses_during_gesture()
             self.draw()
         except Exception:
             return
