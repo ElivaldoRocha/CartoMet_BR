@@ -127,14 +127,24 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
     halo). Sobrevive à troca de tema/região e ao recorte (recriado do dado puro,
     como as cidades). **Some sozinha quando a âncora sai da área visível** (zoom-área/
     scroll/mover) — nada de rosa flutuando na "mesa branca" — e é **recortada ao
-    retângulo da carta**. *"🗑"* (painel) e *"🗑 Limpar mapa"* removem as fixadas;
-    teto de 8 para não pesar o *render*.
+    retângulo da carta**. *"Limpar"* (painel) e *"🗑 Limpar mapa"* removem as
+    fixadas; teto de 8 para não pesar o *render*. Três acabamentos de campo:
+    o recorte usa **`clip_box` (retângulo vivo da carta)** — o `clip_path` no
+    patch do GeoAxes do Cartopy **não é honrado pelo render de texto** do Agg e
+    deixava o "N"/título do inset vazarem na mesa perto da borda; o inset fica
+    **fora da medição do layout** (`set_in_layout(False)`) — o `get_tightbbox`
+    do matplotlib mede textos **ignorando o recorte**, e a medição inflada
+    fazia o motor da mesa "empurrar" o título/carta a cada repouso de
+    pan/scroll; e durante o **gesto** de mover/scroll os insets ficam ocultos
+    (o eixo polar dobrava o custo de cada quadro — 155 → 78 ms medidos),
+    voltando no repouso da vista — o pan segue fluido com rosas fixadas.
   - **Persistência no projeto (`.cmbr`).** As rosas fixadas entram no arquivo de
     projeto como **dado já binado** — abrir **nunca dispara rede**. O esquema do
     `.cmbr` sobe para **v2** (aditivo: projetos v1 continuam abrindo). Entram
     também no export PNG/PDF por serem parte da figura.
-  - **Rosa em níveis de pressão + configuração (Fase 3).** Botão **⚙** no
-    painel abre o diálogo de configuração: **nível** (10 m ou qualquer um dos
+  - **Rosa em níveis de pressão + configuração (Fase 3).** Botão
+    *"Configurar…"* no painel abre o diálogo de configuração: **nível** (10 m
+    ou qualquer um dos
     13 níveis isobáricos do IFS — 1000…50 hPa), **faixas de velocidade**
     customizáveis (CSV ascendente; a última faixa é sempre aberta), **limiar de
     calmaria** (0–5 m/s — na Amazônia ele muda muito a leitura) e o toggle
@@ -149,8 +159,9 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
     **vigente**. *Fix* de acompanhamento: trocar o combo *Setores* preservava
     só o nº de rumos e **resetava silenciosamente** faixas/calmaria custom aos
     defaults — agora herda os parâmetros da rosa ativa.
-  - Rosa climatológica ERA5 (esta sim, climatologia) fica para uma fase
-    seguinte — exige um loader pontual novo no CDS.
+  - A feature encerra na Fase 3 (IFS): a rosa climatológica ERA5 foi
+    **descartada** por decisão de escopo (exigiria um loader pontual novo no
+    CDS, com fila e chave ativa).
 
 - **📤 Boletim de Análise Codificado (CODSAS) — o traçado humano vira arquivo
   compartilhável.** Nenhuma instituição brasileira publica as posições das
