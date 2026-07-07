@@ -1218,6 +1218,17 @@ def _sample_surface(datasets: list, lon: float, lat: float) -> dict:
     return out
 
 
+def _wind_dir_deg(u, v) -> np.ndarray:
+    """Direção meteorológica do vento (graus, "de onde sopra"): atan2(-u,-v).
+
+    Convenção OMM: 0° = vento DE norte, 90° = DE leste, sentido horário.
+    Função única para toda conversão u/v → direção (meteograma, rosa dos ventos).
+    """
+    u = np.asarray(u, dtype=float)
+    v = np.asarray(v, dtype=float)
+    return np.asarray(np.degrees(np.arctan2(-u, -v)) % 360.0)
+
+
 def _assemble_point_timeseries(
     lon: float,
     lat: float,
@@ -1240,8 +1251,7 @@ def _assemble_point_timeseries(
     u = np.asarray(u10, dtype=float)
     v = np.asarray(v10, dtype=float)
     wind_speed = np.hypot(u, v)
-    # Direção meteorológica (de onde sopra): atan2(-u,-v).
-    wind_dir = np.degrees(np.arctan2(-u, -v)) % 360.0
+    wind_dir = _wind_dir_deg(u, v)
     msl_hpa = np.asarray(msl_pa, dtype=float) / 100.0
     tcwv_mm = np.asarray(tcwv, dtype=float)
 
@@ -1395,6 +1405,158 @@ def load_point_timeseries(
         rec_tp,
         base_time,
         cycle,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  SÉRIE DE VENTO POR NÍVEL DE PRESSÃO NUM PONTO (Rosa dos Ventos — Fase 3)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Vento u/v num nível isobárico ao longo dos steps da rodada, para a rosa dos
+# ventos em altitude. Reusa load_model_profile por step (MESMO GRIB/cache da
+# pseudo-sondagem Skew-T — clicar rosa a 850 hPa onde já houve sondagem é
+# instantâneo). Downloads bounded, cache-first e serializados (anti-429).
+
+# Tolerância p/ casar o nível pedido com a coluna disponível: sobre relevo alto
+# o perfil descarta níveis subterrâneos (NaN) e o mais próximo pode ficar longe
+# do pedido (ex.: 1000 hPa sobre os Andes). Fora da tolerância → step pulado
+# com aviso, nunca um vento de outro nível "fingindo" ser o pedido. Parâmetro
+# calibrável, no espírito de THETA_E_HIGHLAND_TOL_HPA.
+LEVEL_MATCH_TOLERANCE_HPA: float = 100.0
+
+
+@dataclass
+class PointLevelWindSeries:
+    """Série de vento num nível de pressão num ponto — rosa dos ventos em altitude.
+
+    Arrays alinhados por step. Previsão pontual do IFS (não observação); direção
+    meteorológica ("de onde sopra"). Só o que a rosa precisa — sem os campos de
+    superfície do :class:`PointTimeseries` (msl/tcwv/precip não têm sentido aqui).
+    """
+
+    lon: float
+    lat: float
+    grid_lon: float
+    grid_lat: float
+    level_hpa: float
+    steps: np.ndarray  # horas de previsão
+    wind_speed: np.ndarray  # m/s
+    wind_dir: np.ndarray  # graus (de onde sopra)
+    base_time: str = ""
+    cycle: int | None = None
+
+
+def _nearest_level_wind(
+    profile: ModelProfile,
+    level_hpa: float,
+    tolerance_hpa: float = LEVEL_MATCH_TOLERANCE_HPA,
+) -> tuple[float, float] | None:
+    """(speed, dir) do nível de ``profile`` mais próximo de ``level_hpa`` (PURO).
+
+    ``None`` se o nível mais próximo estiver além de ``tolerance_hpa`` (coluna
+    sobre relevo alto que descartou os níveis baixos) ou se u/v forem NaN ali.
+    """
+    pressures = np.asarray(profile.pressures, dtype=float)
+    if pressures.size == 0:
+        return None
+    idx = int(np.argmin(np.abs(pressures - float(level_hpa))))
+    if abs(float(pressures[idx]) - float(level_hpa)) > tolerance_hpa:
+        return None
+    u = float(profile.u[idx])
+    v = float(profile.v[idx])
+    if not (np.isfinite(u) and np.isfinite(v)):
+        return None
+    speed = float(np.hypot(u, v))
+    direction = float(_wind_dir_deg(u, v))
+    return speed, direction
+
+
+def load_point_level_wind_timeseries(
+    lon: float,
+    lat: float,
+    level_hpa: float,
+    steps: list[int] | None = None,
+    cycle: int | None = None,
+    cycle_date: str | None = None,
+    data_dir: Path = Path("data"),
+    source: str = "ecmwf",
+    force_download: bool = False,
+    progress_cb=None,
+) -> PointLevelWindSeries:
+    """Série de vento num nível isobárico num ponto — rosa dos ventos (Fase 3).
+
+    Para cada step (``steps`` ou ``METEOGRAM_STEPS``) reusa ``load_model_profile``
+    (um GRIB de perfil por step, cache-first — o MESMO arquivo do Skew-T) e
+    extrai u/v do nível mais próximo de ``level_hpa`` via ``_nearest_level_wind``.
+    O laço roda na thread do worker, uma requisição por vez (anti-429). Steps
+    indisponíveis ou fora da tolerância de nível são pulados com aviso.
+    """
+    if data_dir is None:
+        raise ValueError("data_dir não pode ser None")
+    data_dir = Path(data_dir)
+    steps = list(steps) if steps is not None else list(METEOGRAM_STEPS)
+
+    rec_steps: list[float] = []
+    rec_speed: list[float] = []
+    rec_dir: list[float] = []
+    grid_lon = grid_lat = None
+    base_time = ""
+
+    for s in steps:
+        if progress_cb:
+            progress_cb(f"Baixando +{s}h…")
+        try:
+            profile = load_model_profile(
+                lon,
+                lat,
+                step=s,
+                cycle=cycle,
+                cycle_date=cycle_date,
+                data_dir=data_dir,
+                source=source,
+                force_download=force_download,
+            )
+        except Exception as e:  # noqa: BLE001 — step ausente não derruba a série
+            logger.warning("Step +%sh indisponível para a rosa em nível: %s", s, e)
+            continue
+
+        wind = _nearest_level_wind(profile, level_hpa)
+        if wind is None:
+            logger.warning(
+                "Step +%sh sem nível ~%g hPa neste ponto (relevo alto?) — pulado.",
+                s,
+                level_hpa,
+            )
+            continue
+
+        rec_steps.append(float(s))
+        rec_speed.append(wind[0])
+        rec_dir.append(wind[1])
+        if grid_lon is None:
+            grid_lon, grid_lat = profile.grid_lon, profile.grid_lat
+            base_time = profile.base_time
+
+    if not rec_steps:
+        raise ValueError(
+            f"Nenhum step com vento válido a {level_hpa:g} hPa neste ponto "
+            "(rede/cache ou coluna sobre relevo alto).\n"
+            "Verifique a rodada/conexão ou tente outro nível."
+        )
+
+    # Invariante: rec_steps não-vazio ⇒ o grid foi amostrado (grid_lon/lat setados).
+    assert grid_lon is not None and grid_lat is not None
+
+    return PointLevelWindSeries(
+        lon=float(lon),
+        lat=float(lat),
+        grid_lon=float(grid_lon),
+        grid_lat=float(grid_lat),
+        level_hpa=float(level_hpa),
+        steps=np.asarray(rec_steps, dtype=float),
+        wind_speed=np.asarray(rec_speed, dtype=float),
+        wind_dir=np.asarray(rec_dir, dtype=float),
+        base_time=base_time,
+        cycle=cycle,
     )
 
 
