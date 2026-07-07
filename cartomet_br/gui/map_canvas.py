@@ -183,6 +183,7 @@ class MapCanvas(FigureCanvas):
     )  # estação RAOB ancorada (dict) p/ Sonda Vertical
     model_sounding_requested = pyqtSignal(float, float)  # (lon, lat) p/ pseudo-sondagem do modelo
     meteogram_requested = pyqtSignal(float, float)  # (lon, lat) p/ meteograma (F6)
+    wind_rose_requested = pyqtSignal(float, float)  # (lon, lat) p/ rosa dos ventos
     cross_section_requested = pyqtSignal(
         float, float, float, float
     )  # (lon_a,lat_a,lon_b,lat_b) p/ corte vertical (F4)
@@ -1171,6 +1172,15 @@ class MapCanvas(FigureCanvas):
             self.interaction_mode = None
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
 
+    def set_wind_rose_mode(self, enabled: bool) -> None:
+        """Modo 'Rosa dos Ventos' — o clique dispara a rosa do vento previsto no ponto."""
+        if enabled:
+            self.interaction_mode = "wind_rose"
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+        elif self.interaction_mode == "wind_rose":
+            self.interaction_mode = None
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+
     def set_cross_section_mode(self, enabled: bool) -> None:
         """Modo 'Corte Vertical' (F4) — dois cliques (A→B) definem a reta do corte."""
         if enabled:
@@ -1626,6 +1636,10 @@ class MapCanvas(FigureCanvas):
         elif self.interaction_mode == "meteogram":
             self._mark_sounding_point(event.xdata, event.ydata, color="#117A65")
             self.meteogram_requested.emit(float(event.xdata), float(event.ydata))
+
+        elif self.interaction_mode == "wind_rose":
+            self._mark_sounding_point(event.xdata, event.ydata, color="#8E44AD")
+            self.wind_rose_requested.emit(float(event.xdata), float(event.ydata))
 
         elif self.interaction_mode == "cross_section":
             self._on_xsec_click(event.xdata, event.ydata)

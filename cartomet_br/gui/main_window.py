@@ -69,6 +69,7 @@ from cartomet_br.gui.analysis_engine import (
     CrossSectionWorker,
     InstabilityWorker,
     MeteogramWorker,
+    WindRoseWorker,
 )
 from cartomet_br.gui.cross_section_panel import CrossSectionPanel
 from cartomet_br.gui.dialogs import BaroclinicLevelDialog, FirstRunDialog, WelcomeDialog
@@ -89,6 +90,7 @@ from cartomet_br.gui.meteogram_panel import MeteogramPanel
 from cartomet_br.gui.sounding_engine import ModelSoundingWorker, SoundingWorker
 from cartomet_br.gui.sounding_panel import SoundingPanel
 from cartomet_br.gui.themes import DARK_STYLE
+from cartomet_br.gui.wind_rose_panel import WindRosePanel
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +118,8 @@ class MainWindow(QMainWindow):
         self._active_model_point = None  # (lon, lat) da pseudo-sondagem do modelo
         self._meteogram_worker = None  # worker do meteograma (F6)
         self._active_meteogram_point = None  # (lon, lat) do meteograma ativo
+        self._wind_rose_worker = None  # worker da rosa dos ventos
+        self._active_wind_rose_point = None  # (lon, lat) da rosa ativa
         self._xsec_worker = None  # worker do corte vertical (F4)
         self._active_xsec = None  # (lon_a, lat_a, lon_b, lat_b) ativo
         self._instability_worker = None  # worker dos campos de instabilidade (F9)
@@ -237,6 +241,11 @@ class MainWindow(QMainWindow):
         self.cross_section_panel = CrossSectionPanel("Corte Vertical (A→B)", self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.cross_section_panel)
         self.cross_section_panel.hide()
+
+        # Rosa dos Ventos — dock direito deslizante, oculto até o 1º clique.
+        self.wind_rose_panel = WindRosePanel("Rosa dos Ventos (Ponto)", self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.wind_rose_panel)
+        self.wind_rose_panel.hide()
 
     def _setup_menu(self):
         menubar = self.menuBar()
@@ -449,6 +458,20 @@ class MainWindow(QMainWindow):
         self.meteogram_mode_btn.clicked.connect(self._toggle_meteogram_mode)
         toolbar.addWidget(self.meteogram_mode_btn)
 
+        self.wind_rose_mode_btn = QPushButton("🌹 Rosa dos Ventos")
+        self.wind_rose_mode_btn.setCheckable(True)
+        self.wind_rose_mode_btn.setToolTip(
+            "Clique num ponto do mapa para a rosa dos ventos: distribuição do vento "
+            "previsto (IFS 10 m) ao longo dos steps da rodada — de onde sopra e com "
+            "que intensidade (não é climatologia)"
+        )
+        self.wind_rose_mode_btn.setStyleSheet("""
+            QPushButton { background-color: #8E44AD; padding: 6px 14px; font-size: 11px; }
+            QPushButton:checked { background-color: #E74C3C; }
+        """)
+        self.wind_rose_mode_btn.clicked.connect(self._toggle_wind_rose_mode)
+        toolbar.addWidget(self.wind_rose_mode_btn)
+
         self.xsec_mode_btn = QPushButton("🔪 Corte Vertical")
         self.xsec_mode_btn.setCheckable(True)
         self.xsec_mode_btn.setToolTip(
@@ -644,6 +667,7 @@ class MainWindow(QMainWindow):
         self.canvas.model_sounding_requested.connect(self._on_model_sounding_point)
         self.sounding_panel.source_changed.connect(self._on_sounding_source_changed)
         self.canvas.meteogram_requested.connect(self._on_meteogram_point)
+        self.canvas.wind_rose_requested.connect(self._on_wind_rose_point)
         self.canvas.cross_section_requested.connect(self._on_cross_section_request)
         self.settings_panel.step_combo.currentIndexChanged.connect(self._on_sounding_step_changed)
 
@@ -823,6 +847,7 @@ class MainWindow(QMainWindow):
         analysis = (
             ("sounding_mode_btn", self.canvas.set_sounding_mode),
             ("meteogram_mode_btn", self.canvas.set_meteogram_mode),
+            ("wind_rose_mode_btn", self.canvas.set_wind_rose_mode),
             ("xsec_mode_btn", self.canvas.set_cross_section_mode),
         )
         for attr, setter in analysis:
@@ -834,8 +859,8 @@ class MainWindow(QMainWindow):
     def _disable_other_click_modes(self, keep: str = "") -> None:
         """Desliga TODOS os modos de clique exceto ``keep`` (desenho/zoom/pan/análises).
 
-        ``keep`` ∈ {"sounding", "meteogram", "cross_section"} para preservar a
-        análise que está sendo ativada.
+        ``keep`` ∈ {"sounding", "meteogram", "wind_rose", "cross_section"} para
+        preservar a análise que está sendo ativada.
         """
         # Desenho/anotação/régua/emoji/caneta/formas.
         for btn in (self.draw_mode_btn, self.annotate_btn, self.ruler_btn):
@@ -860,6 +885,7 @@ class MainWindow(QMainWindow):
         analysis = {
             "sounding": ("sounding_mode_btn", self.canvas.set_sounding_mode),
             "meteogram": ("meteogram_mode_btn", self.canvas.set_meteogram_mode),
+            "wind_rose": ("wind_rose_mode_btn", self.canvas.set_wind_rose_mode),
             "cross_section": ("xsec_mode_btn", self.canvas.set_cross_section_mode),
         }
         for key, (attr, setter) in analysis.items():
@@ -927,6 +953,22 @@ class MainWindow(QMainWindow):
             self.status_label.setStyleSheet("color: #117A65;")
         else:
             self.canvas.set_meteogram_mode(False)
+            self.status_label.setText("● Pronto")
+            self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _toggle_wind_rose_mode(self, checked: bool) -> None:
+        """Liga/desliga a Rosa dos Ventos, exclusiva dos demais modos de clique."""
+        if checked:
+            self._disable_other_click_modes(keep="wind_rose")
+            self.canvas.set_wind_rose_mode(True)
+            self.wind_rose_panel.show()
+            self.wind_rose_panel.raise_()
+            self.status_label.setText(
+                "● Rosa dos Ventos — clique num ponto do mapa para a distribuição do vento (10 m)"
+            )
+            self.status_label.setStyleSheet("color: #8E44AD;")
+        else:
+            self.canvas.set_wind_rose_mode(False)
             self.status_label.setText("● Pronto")
             self.status_label.setStyleSheet("color: #27AE60;")
 
@@ -1150,6 +1192,65 @@ class MainWindow(QMainWindow):
     def _on_meteogram_error(self, msg: str) -> None:
         self.meteogram_panel.show_error(msg)
         self.status_label.setText("● Meteograma indisponível")
+        self.status_label.setStyleSheet("color: #E74C3C;")
+
+    # ── Rosa dos Ventos (distribuição direção×velocidade) ────────────────────
+    def _on_wind_rose_point(self, lon: float, lat: float) -> None:
+        """Clique no modo Rosa dos Ventos → abre o painel e dispara a série/binagem."""
+        self._active_wind_rose_point = (float(lon), float(lat))
+        self.wind_rose_panel.show()
+        self.wind_rose_panel.raise_()
+        self._launch_wind_rose()
+
+    def _launch_wind_rose(self) -> None:
+        """Dispara o WindRoseWorker no ponto ativo usando a rodada atual.
+
+        Reusa o mesmo download do meteograma (vento de 10 m, +0…+72h, cache-first)
+        e bina a distribuição. Como o eixo já É a distribuição de todos os steps,
+        NÃO re-dispara ao mudar o step — o usuário re-clica para outra rodada.
+        """
+        if self._active_wind_rose_point is None:
+            return
+        lon, lat = self._active_wind_rose_point
+        cycle = self.settings_panel.get_cycle()
+        cycle_date = self.settings_panel.get_cycle_date()
+        ns = "N" if lat >= 0 else "S"
+        ew = "E" if lon >= 0 else "W"
+        label = f"IFS 10 m — {abs(lat):.1f}°{ns} {abs(lon):.1f}°{ew}"
+
+        if self._wind_rose_worker is not None and self._wind_rose_worker.isRunning():
+            return
+
+        self.wind_rose_panel.show_loading(label, "+0…+72h")
+        self.status_label.setText(f"● Rosa dos Ventos em {label} — baixando série…")
+        self.status_label.setStyleSheet("color: #8E44AD;")
+
+        worker = WindRoseWorker(
+            lon=lon,
+            lat=lat,
+            cycle=cycle,
+            cycle_date=cycle_date,
+            data_dir=self.config.grib_dir,
+            parent=self,
+        )
+        worker.progress.connect(self._on_wind_rose_progress)
+        worker.finished_ok.connect(self._on_wind_rose_ok)
+        worker.finished_error.connect(self._on_wind_rose_error)
+        self._wind_rose_worker = worker
+        worker.start()
+
+    def _on_wind_rose_progress(self, msg: str) -> None:
+        self.status_label.setText(f"● {msg}")
+        self.status_label.setStyleSheet("color: #8E44AD;")
+
+    def _on_wind_rose_ok(self, result) -> None:
+        self.wind_rose_panel.render(result)
+        self.status_label.setText("● Rosa dos Ventos pronta")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_wind_rose_error(self, msg: str) -> None:
+        self.wind_rose_panel.show_error(msg)
+        self.status_label.setText("● Rosa dos Ventos indisponível")
         self.status_label.setStyleSheet("color: #E74C3C;")
 
     # ── Corte Vertical (cross-section A→B) — F4 ──────────────────────────────
