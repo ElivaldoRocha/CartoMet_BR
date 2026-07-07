@@ -764,6 +764,9 @@ class MapCanvas(FigureCanvas):
         }
         self._wind_rose_data.append(entry)
         self._create_wind_rose_inset(entry)
+        # A estrela do clique ficaria no centro do inset, cobrindo o "calmo %":
+        # o próprio inset já marca o ponto, então remove o marcador temporário.
+        self.clear_sounding_marker()
         self.draw_idle()
         return True
 
