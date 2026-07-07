@@ -1,9 +1,10 @@
 """
 Motor da Sonda Vertical (Radiossondagem / Skew-T) — CartoMet BR v3.0.
 
-Isola TODA a rede (Universidade de Wyoming via ``siphon``) e o cálculo
-termodinâmico (``metpy``) numa ``QThread`` dedicada — a GUI nunca congela e nunca
-quebra por falha de rede ou sensor (regra inegociável §3 da spec de Radiossondagem).
+Isola TODA a rede (Universidade de Wyoming via ``data/wyoming.py``, com o
+``siphon`` legado como fallback) e o cálculo termodinâmico (``metpy``) numa
+``QThread`` dedicada — a GUI nunca congela e nunca quebra por falha de rede
+ou sensor (regra inegociável §3 da spec de Radiossondagem).
 
 O servidor de Wyoming é notoriamente instável; cada etapa é blindada por try/except.
 Cada índice termodinâmico é calculado isoladamente: uma sonda com sensor de vento
@@ -92,20 +93,48 @@ class SoundingWorker(QThread):
         time_label = self.target_time.strftime("%d/%m/%Y %H:%MZ")
         station_label = f"{name} ({wmo})"
 
-        # ── 1. Rede: Wyoming via siphon ──────────────────────────────────────
+        # ── 1. Rede: interface WSGI nova da UWyo ─────────────────────────────
+        # O CGI legado morreu em ~06/2026 (HTTP 404 permanente) e o siphon
+        # ≤ 0.10 ainda aponta para ele; o cliente próprio (data/wyoming.py)
+        # fala com o endpoint novo (CSV, vento em m/s). O siphon fica apenas
+        # como fallback de erro de REDE, caso a UWyo restaure o serviço antigo.
         self.progress.emit(f"Buscando sondagem de {station_label}…")
-        try:
-            from siphon.simplewebservice.wyoming import WyomingUpperAir
+        from cartomet_br.data.wyoming import WyomingNoDataError, fetch_wyoming_sounding
 
-            df = WyomingUpperAir.request_data(self.target_time, wmo)
-        except Exception as e:  # HTTPError, timeout, ValueError "no data", etc.
-            logger.warning("Falha ao baixar sondagem %s @ %s: %s", wmo, time_label, e)
+        try:
+            df = fetch_wyoming_sounding(self.target_time, wmo)
+        except WyomingNoDataError as e:
+            logger.warning("Sem sondagem %s @ %s: %s", wmo, time_label, e)
             self.finished_error.emit(
                 f"Sem dados de radiossondagem para {station_label} às {time_label}.\n"
-                f"O servidor da Universidade de Wyoming pode estar instável ou o balão "
-                f"desta estação/horário não foi lançado.\n\nDetalhe técnico: {e}"
+                f"O balão desta estação/horário não foi lançado — ou ainda não "
+                f"chegou ao arquivo da Universidade de Wyoming (tente 00Z/12Z)."
             )
             return
+        except Exception as e:  # timeout, 5xx, DNS... → tenta o siphon legado
+            logger.warning("Endpoint WSGI da UWyo falhou (%s); tentando siphon legado.", e)
+            try:
+                from siphon.simplewebservice.wyoming import WyomingUpperAir
+
+                df = WyomingUpperAir.request_data(self.target_time, wmo)
+                # O CGI legado serve vento em NÓS; daqui em diante tudo é m/s
+                for col in ("u_wind", "v_wind", "speed"):
+                    if col in df.columns:
+                        df[col] = df[col] * 0.514444
+            except Exception as e2:
+                logger.warning(
+                    "Falha ao baixar sondagem %s @ %s: %s | fallback siphon: %s",
+                    wmo,
+                    time_label,
+                    e,
+                    e2,
+                )
+                self.finished_error.emit(
+                    f"Sem dados de radiossondagem para {station_label} às {time_label}.\n"
+                    f"O servidor da Universidade de Wyoming parece indisponível "
+                    f"no momento.\n\nDetalhe técnico: {e}"
+                )
+                return
 
         # ── 2. Limpeza + unidades MetPy ──────────────────────────────────────
         try:
