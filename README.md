@@ -82,6 +82,7 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 
 - Botão **🌹 Rosa dos Ventos**: clique num ponto e veja num painel docado a **distribuição do vento previsto** (IFS 10 m) ao longo dos steps da rodada — **de onde sopra**, com que **intensidade** (faixas de velocidade empilhadas) e quanto de **calmaria** (centro)
 - Reusa o download do meteograma (cache-first, anti-429) em **thread**; render **próprio** em eixo polar (**sem** a dependência `windrose`); combo **Setores** (8/16/36) re-bina a série já baixada **sem rede**
+- **📌 Fixar no mapa**: ancora a rosa como **inset georreferenciado** nas coordenadas do ponto — escala com o zoom, acompanha o *pan*, sobrevive à troca de tema/região e entra no export; **salva no projeto `.cmbr`** (dado já binado — abrir não baixa nada); **🗑** limpa todas
 - *Badge* de honestidade: é a distribuição da **previsão**, **não** uma climatologia (mistura padrão sinótico + ciclo diurno de horas locais distintas) — *não confundir* com o **indicador de norte** (triângulo+N) da aba de traçado
 
 ### 🔪 Corte Vertical — seção (cross-section) A→B
@@ -345,7 +346,7 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 | **Diagnóstico Baroclínico** | Empilha campos de apoio ao traçado **manual** de frentes no nível escolhido: Gradiente de θe + Eixo TFP (linha-guia) ligados; Advecção de θe, θe e Frontogênese disponíveis — máscara de terreno (Andes); *human-in-the-loop* |
 | **Sonda Vertical (Skew-T)** | Radiossondagem observada (Wyoming) **ou** pseudo-sondagem do modelo IFS em qualquer ponto (oceano/previsão) — Skew-T, hodógrafa e índices via MetPy |
 | **Meteograma** | Série temporal do IFS num ponto (+0…+72 h): T, vento, precipitação, PNMM e água precipitável |
-| **Rosa dos Ventos** | Distribuição direção×velocidade do vento previsto (IFS 10 m) num ponto ao longo dos steps da rodada — setores, faixas de velocidade e calmaria; render próprio (sem `windrose`), previsão e não climatologia |
+| **Rosa dos Ventos** | Distribuição direção×velocidade do vento previsto (IFS 10 m) num ponto ao longo dos steps da rodada — setores, faixas de velocidade e calmaria; render próprio (sem `windrose`), previsão e não climatologia; **fixável** como inset georreferenciado no mapa e salva no `.cmbr` |
 | **Corte Vertical (A→B)** | Seção pressão × distância de ω, temperatura, umidade e vento ao longo de uma reta desenhada |
 | **Instabilidade (CAPE/CIN/LI/K)** | Campos de instabilidade derivados do modelo — K-index nativo; LI/CAPE/CIN em grade engrossada; render contínuo (aprox.) |
 | **Carta OMM** | Export com cabeçalho institucional (instituição/analista/validade/logo) + legenda dos símbolos — PNG/PDF entregável |

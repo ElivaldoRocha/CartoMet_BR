@@ -105,7 +105,7 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   poligonais). Sobrevive a troca de tema/região e é legível sobre satélite
   (borda branca + halo).
 
-- **🌹 Rosa dos ventos (distribuição direção×velocidade) — Fase 1.** Botão
+- **🌹 Rosa dos ventos (distribuição direção×velocidade).** Botão
   *"Rosa dos Ventos"* na toolbar (modo de clique exclusivo, como Meteograma/
   Sonda/Corte): clicar num ponto abre um painel dockável com a **distribuição do
   vento previsto** (IFS 10 m) ao longo dos steps da rodada — de onde sopra, com
@@ -119,8 +119,18 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   explícito: é a distribuição da **previsão**, **não** uma climatologia (mistura
   padrão sinótico + ciclo diurno de horas locais distintas). *Não confundir* com
   o indicador de norte acima (triângulo+N): aquele é decoração cartográfica, esta
-  é análise estatística. Inset georreferenciado no mapa e rosa climatológica ERA5
-  ficam para fases seguintes.
+  é análise estatística.
+  - **Fixar no mapa (inset georreferenciado).** O botão *"📌 Fixar no mapa"* do
+    painel ancora a rosa como um **inset polar compacto** nas coordenadas do ponto
+    (`ax.inset_axes(..., transform=transData, projection="polar")`) — escala com o
+    zoom e acompanha o *pan*, translúcido e legível sobre satélite (título com
+    halo). Sobrevive à troca de tema/região e ao recorte (recriado do dado puro,
+    como as cidades); *"🗑"* limpa todas; teto de 8 para não pesar o *render*.
+  - **Persistência no projeto (`.cmbr`).** As rosas fixadas entram no arquivo de
+    projeto como **dado já binado** — abrir **nunca dispara rede**. O esquema do
+    `.cmbr` sobe para **v2** (aditivo: projetos v1 continuam abrindo). Entram
+    também no export PNG/PDF por serem parte da figura.
+  - Níveis de pressão e rosa climatológica ERA5 ficam para uma fase seguinte.
 
 - **📤 Boletim de Análise Codificado (CODSAS) — o traçado humano vira arquivo
   compartilhável.** Nenhuma instituição brasileira publica as posições das
