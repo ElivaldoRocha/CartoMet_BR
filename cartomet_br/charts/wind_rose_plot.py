@@ -17,11 +17,10 @@ import matplotlib.patheffects as pe
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 
-from cartomet_br.data.wind_rose import WindRose
+from cartomet_br.data.wind_rose import CARDINAL_8, WindRose, compass_label
 
 # Rampa perceptual frio→quente (fraco→forte) para as faixas de velocidade.
 _RAMP_ANCHORS = ["#3B6FB6", "#56B0CE", "#67C98C", "#E7D64B", "#EF8B3C", "#D7301F"]
-_CARDINAL_8 = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 
 
 def speed_bin_colors(n_bins: int) -> list[tuple[float, float, float, float]]:
@@ -54,6 +53,7 @@ def render_wind_rose(
     title: str = "",
     show_legend: bool = True,
     show_calm: bool = True,
+    show_stats: bool = False,
     compact: bool = False,
 ) -> list:
     """Desenha ``rose`` num eixo polar. Devolve os artistas criados (barras/textos).
@@ -61,6 +61,8 @@ def render_wind_rose(
     ``ax`` deve ser um eixo polar (``projection="polar"``). Rosa vazia (sem
     amostras válidas) vira uma mensagem centralizada. ``compact=True`` (usado no
     inset do mapa): só 4 rumos, sem rótulos radiais e fontes menores.
+    ``show_stats=True``: linha "vento médio · rumo predominante" abaixo da rosa
+    (via xlabel — em eixo polar ele é centrado sob o gráfico).
     """
     ax.clear()
     ax.set_theta_zero_location("N")
@@ -116,7 +118,7 @@ def render_wind_rose(
         ax.tick_params(axis="y", length=0)
     else:
         ax.set_xticks(np.radians(np.arange(0, 360, 45)))
-        ax.set_xticklabels(_CARDINAL_8, fontsize=9, color=text_color)
+        ax.set_xticklabels(CARDINAL_8, fontsize=9, color=text_color)
         ax.tick_params(axis="y", labelsize=7, colors=text_color)
     ax.grid(True, color=grid_color, alpha=0.6, linewidth=0.6)
     ax.set_axisbelow(True)
@@ -144,6 +146,13 @@ def render_wind_rose(
             bbox={"boxstyle": "round,pad=0.2", "fc": "white", "ec": grid_color, "alpha": 0.85},
         )
         artists.append(calm_txt)
+
+    if show_stats:
+        stats = f"Vento médio {rose.mean_speed:.1f} m/s"
+        if math.isfinite(rose.prevailing_deg):
+            stats += f"  ·  Predominante {compass_label(rose.prevailing_deg)}"
+        ax.set_xlabel(stats, fontsize=7 if compact else 8.5, color=text_color, labelpad=8)
+        artists.append(ax.xaxis.label)
 
     if title:
         ax.set_title(

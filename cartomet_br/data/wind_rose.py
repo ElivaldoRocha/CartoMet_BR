@@ -30,6 +30,21 @@ DEFAULT_SPEED_BINS: tuple[float, ...] = (0.5, 2.0, 4.0, 6.0, 8.0, 10.0, math.inf
 # Nº de setores de direção (16 = 22,5° cada, rosa clássica de 16 rumos).
 DEFAULT_SECTORS = 16
 
+# Rumos cardeais/colaterais (8 pontos, horário a partir do Norte). Fonte única —
+# o render (wind_rose_plot) e os rótulos de estatística usam esta tupla.
+CARDINAL_8: tuple[str, ...] = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+
+
+def compass_label(deg: float) -> str:
+    """Rumo de 8 pontos mais próximo de ``deg`` (graus, 0=N horário, wrap 360°)."""
+    idx = int(round((float(deg) % 360.0) / 45.0)) % 8
+    return CARDINAL_8[idx]
+
+
+def level_label(level_hpa: float | None) -> str:
+    """Rótulo humano do nível da rosa: ``None`` → "10 m" (superfície); senão hPa."""
+    return "10 m" if level_hpa is None else f"{level_hpa:g} hPa"
+
 
 @dataclass(frozen=True)
 class WindRose:

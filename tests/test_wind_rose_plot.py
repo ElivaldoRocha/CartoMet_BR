@@ -58,6 +58,33 @@ def test_render_compacto_inset():
     plt.close(fig)
 
 
+def test_show_stats_desenha_media_e_rumo():
+    rose = compute_wind_rose([6.0] * 20, [90.0] * 20)  # vento DE leste
+    fig, ax = _polar_ax()
+    render_wind_rose(ax, rose, show_stats=True)
+    assert "médio" in ax.get_xlabel()
+    assert "6.0 m/s" in ax.get_xlabel()
+    assert "Predominante E" in ax.get_xlabel()
+    plt.close(fig)
+
+
+def test_show_stats_omite_rumo_se_tudo_calmaria():
+    rose = compute_wind_rose([0.0, 0.1], [10.0, 200.0])  # prevailing = NaN
+    fig, ax = _polar_ax()
+    render_wind_rose(ax, rose, show_stats=True)
+    assert "médio" in ax.get_xlabel()
+    assert "Predominante" not in ax.get_xlabel()
+    plt.close(fig)
+
+
+def test_show_stats_default_desligado():
+    rose = compute_wind_rose([6.0] * 20, [90.0] * 20)
+    fig, ax = _polar_ax()
+    render_wind_rose(ax, rose)
+    assert ax.get_xlabel() == ""
+    plt.close(fig)
+
+
 def test_speed_bin_labels_formata_infinito():
     labels = speed_bin_labels(DEFAULT_SPEED_BINS)
     assert labels[0] == "0.5–2"

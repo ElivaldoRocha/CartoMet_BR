@@ -8,9 +8,12 @@ import pytest
 
 from cartomet_br.data.wind_rose import (
     CALM_THRESHOLD,
+    CARDINAL_8,
     DEFAULT_SECTORS,
     DEFAULT_SPEED_BINS,
+    compass_label,
     compute_wind_rose,
+    level_label,
     wind_rose_from_dict,
     wind_rose_to_dict,
 )
@@ -136,6 +139,48 @@ def test_bins_default_seis_faixas():
     assert len(rose.freq[0]) == len(DEFAULT_SPEED_BINS) - 1
     assert rose.sector_centers  # sanity
     assert len(rose.freq) == DEFAULT_SECTORS
+
+
+# ── Rótulos (rumo de 8 pontos e nível) ───────────────────────────────────────
+
+
+def test_compass_label_nos_8_rumos():
+    for i, name in enumerate(CARDINAL_8):
+        assert compass_label(i * 45.0) == name
+
+
+def test_compass_label_arredonda_e_da_wrap():
+    assert compass_label(350.0) == "N"  # wrap em 360°
+    assert compass_label(360.0) == "N"
+    assert compass_label(-45.0) == "NW"  # negativo normalizado
+    assert compass_label(100.0) == "E"  # 100° → mais perto de E (90) que SE (135)
+    assert compass_label(113.0) == "SE"  # 113° → mais perto de SE
+
+
+def test_level_label_superficie_e_pressao():
+    assert level_label(None) == "10 m"
+    assert level_label(850.0) == "850 hPa"
+    assert level_label(925) == "925 hPa"
+
+
+# ── Faixas e calmaria customizadas (diálogo de config — Fase 3) ──────────────
+
+
+def test_bins_customizados_respeitados():
+    edges = (1.0, 5.0, math.inf)
+    rose = compute_wind_rose([3.0, 8.0, 8.0], [0.0, 0.0, 0.0], speed_bin_edges=edges)
+    assert rose.speed_bin_edges == edges
+    assert len(rose.freq[0]) == 2
+    assert rose.freq[0][0] == pytest.approx(100.0 / 3)  # 3 m/s na faixa 1–5
+    assert rose.freq[0][1] == pytest.approx(200.0 / 3)  # 8 m/s (×2) na faixa ≥5
+
+
+def test_calm_threshold_customizado():
+    # Limiar alto: 1.5 m/s vira calmaria; com o default (0.5) seria ativo.
+    rose = compute_wind_rose([1.5, 5.0], [0.0, 0.0], calm_threshold=2.0)
+    assert rose.calm_fraction == pytest.approx(0.5)
+    assert rose.calm_threshold == pytest.approx(2.0)
+    assert _total_freq(rose) == pytest.approx(50.0)
 
 
 # ── Serialização (persistência .cmbr) ────────────────────────────────────────
