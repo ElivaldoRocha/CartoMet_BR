@@ -70,9 +70,10 @@ class WindRosePanel(AnalysisDock):
         self.sectors_combo.setToolTip("Nº de rumos da rosa (re-bina sem baixar de novo).")
         self.sectors_combo.currentIndexChanged.connect(self._on_sectors_changed)
         h.addWidget(self.sectors_combo)
-        self.config_btn = QPushButton("⚙")
+        # Rótulos TEXTUAIS nos botões: glifos como ⚙/🗑 viram "!" em fontes sem
+        # o símbolo (visto em campo no Windows) — o usuário não sabia p/ que serviam.
+        self.config_btn = QPushButton("Configurar…")
         self.config_btn.setToolTip("Configurar a rosa (nível, faixas de velocidade, calmaria).")
-        self.config_btn.setFixedWidth(34)
         self.config_btn.clicked.connect(self.config_requested.emit)
         h.addWidget(self.config_btn)
         h.addStretch(1)
@@ -80,9 +81,8 @@ class WindRosePanel(AnalysisDock):
         self.pin_btn.setToolTip("Fixa esta rosa como inset ancorado no ponto (georreferenciado).")
         self.pin_btn.clicked.connect(self._on_pin_clicked)
         h.addWidget(self.pin_btn)
-        self.clear_pins_btn = QPushButton("🗑")
+        self.clear_pins_btn = QPushButton("Limpar")
         self.clear_pins_btn.setToolTip("Remove todas as rosas fixadas no mapa.")
-        self.clear_pins_btn.setFixedWidth(34)
         self.clear_pins_btn.clicked.connect(self.clear_pins_requested.emit)
         h.addWidget(self.clear_pins_btn)
         self._controls_row = row
