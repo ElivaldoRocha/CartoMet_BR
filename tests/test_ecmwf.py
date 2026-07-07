@@ -164,6 +164,47 @@ class TestVariableRegistry:
         assert conv(1.0) == pytest.approx(1e5)
 
 
+class TestT2Extremes:
+    """Extremos de T 2 m (mx2t/mn2t) — Open Data stream oper, levtype sfc."""
+
+    def test_registry_entries(self):
+        for key, param in (("tmax2m", "mx2t3"), ("tmin2m", "mn2t3")):
+            info = VARIABLE_REGISTRY[key]
+            assert info["param"] == [param]
+            assert info["category"] == "surface"
+            assert info["min_step"] == 3
+            assert info["unit_display"] == "°C"
+
+    def test_param_troca_janela_em_144h(self):
+        from cartomet_br.data.ecmwf import t2_extreme_param
+
+        # Até +144h: janela de 3h; de +150h em diante: 6h (grade do IFS)
+        assert t2_extreme_param("tmax2m", 3) == "mx2t3"
+        assert t2_extreme_param("tmax2m", 144) == "mx2t3"
+        assert t2_extreme_param("tmax2m", 150) == "mx2t6"
+        assert t2_extreme_param("tmax2m", 240) == "mx2t6"
+        assert t2_extreme_param("tmin2m", 3) == "mn2t3"
+        assert t2_extreme_param("tmin2m", 150) == "mn2t6"
+
+    def test_loader_rejeita_step_0(self, tmp_path):
+        from cartomet_br.data.ecmwf import load_t2_extreme
+
+        with pytest.raises(ValueError, match="step"):
+            load_t2_extreme("tmax2m", extent=[-75, -35, -30, 6], step=0, data_dir=tmp_path)
+
+    def test_loader_rejeita_chave_invalida(self, tmp_path):
+        from cartomet_br.data.ecmwf import load_t2_extreme
+
+        with pytest.raises(ValueError, match="variable_key"):
+            load_t2_extreme("2t", extent=[-75, -35, -30, 6], step=3, data_dir=tmp_path)
+
+    def test_validate_level_aceita_sem_nivel(self):
+        from cartomet_br.services.data_service import DataService
+
+        DataService.validate_level("tmax2m", None)  # não deve levantar
+        DataService.validate_level("tmin2m", None)
+
+
 class TestPLLevels:
     def test_has_standard_levels(self):
         for level in [1000, 925, 850, 500, 300, 200]:

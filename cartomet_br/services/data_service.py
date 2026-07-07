@@ -27,6 +27,7 @@ from cartomet_br.data.ecmwf import (
     load_precip,
     load_sst_gradient,
     load_synoptic_data,
+    load_t2_extreme,
     load_tcwv,
 )
 
@@ -116,7 +117,7 @@ class DataService:
     @staticmethod
     def validate_level(variable_key: str, level: int | None) -> None:
         """Valida se o nível de pressão é válido para a variável."""
-        if variable_key in ("olr", "tcwv", "precip", "sst_model", "sst_grad"):
+        if variable_key in ("olr", "tcwv", "precip", "sst_model", "sst_grad", "tmax2m", "tmin2m"):
             return  # Variáveis de superfície, sem nível
         if level is None:
             raise ValidationError(f"A variável '{variable_key}' requer um nível de pressão.")
@@ -231,6 +232,17 @@ class DataService:
                 layer_id = variable_key
                 loader = load_model_sst if variable_key == "sst_model" else load_sst_gradient
                 data = loader(
+                    extent=self._config.extent,
+                    step=step,
+                    cycle=cycle,
+                    cycle_date=cycle_date,
+                    data_dir=self._config.grib_dir,
+                    smoothing_sigma=self._config.smoothing_sigma,
+                )
+            elif variable_key in ("tmax2m", "tmin2m"):
+                layer_id = variable_key
+                data = load_t2_extreme(
+                    variable_key,
                     extent=self._config.extent,
                     step=step,
                     cycle=cycle,

@@ -290,6 +290,17 @@ class SynopticData:
     base_time: str = ""  # Hora da rodada base (ex: "06Z 17/03/2026")
     step: int = 0  # Step de previsão em horas
 
+    # Máscara de terreno elevado (True onde a PNMM é extrapolação artefactual —
+    # Andes/Altiplano). None quando `sp` não está disponível (cache antigo).
+    highland_mask: np.ndarray | None = None
+
+
+# Limiar da máscara orográfica dos centros H/L: onde a REDUÇÃO ao nível do mar
+# (msl − sp) excede este valor, a PNMM é extrapolação sob a montanha (ISA:
+# ~155 hPa ≈ 1500 m) e cria máximos/mínimos artefactuais no Altiplano/Andes.
+# Parâmetro de calibração (mesmo espírito do OCEAN_MASK_THRESHOLD do LOCZCIT).
+PNMM_ARTIFACT_DELTA_HPA: float = 155.0
+
 
 def load_synoptic_data(
     extent: list[float],
@@ -415,6 +426,42 @@ def load_synoptic_data(
     hght_1000 = gh.sel(isobaricInhPa=1000).values
     thickness = hght_500 - hght_1000
 
+    # Máscara orográfica p/ centros H/L: onde (msl − sp) > PNMM_ARTIFACT_DELTA_HPA,
+    # a redução ao nível do mar é extrapolação sob a montanha (Andes/Altiplano) e
+    # gera H/L falsos. Falha de rede/cache antigo sem `sp` → mask None (detector
+    # segue sem filtro — degradação graciosa, não bloqueia a carta).
+    highland_mask = None
+    try:
+        sp_file = download_ecmwf(
+            variables=["sp"],
+            step=step,
+            cycle=cycle,
+            output_path=data_dir / f"ecmwf_sp_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+            data_dir=data_dir,
+            source=source,
+            force_download=force_download,
+            date=cycle_date,
+        )
+        ds_sp = xr.open_dataset(
+            sp_file,
+            engine="cfgrib",
+            backend_kwargs={
+                "filter_by_keys": {"typeOfLevel": "surface"},
+                "errors": "ignore",
+            },
+        )
+        ds_sp = ds_sp.assign_coords(longitude=(ds_sp.longitude + 180) % 360 - 180)
+        ds_sp = ds_sp.sortby("longitude")
+        sp = ds_sp["sp"].sel(
+            longitude=slice(extent[0], extent[2]),
+            latitude=slice(extent[3], extent[1]),
+        )
+        reduction_hpa = (msl.values - sp.values) / 100.0
+        highland_mask = reduction_hpa > PNMM_ARTIFACT_DELTA_HPA
+        ds_sp.close()
+    except Exception as e:  # noqa: BLE001 — opcional por design
+        logger.warning("Máscara orográfica indisponível (sp): %s", e)
+
     # Suavização gaussiana
     if smoothing_sigma > 0:
         pnmm = gaussian_filter(pnmm, sigma=smoothing_sigma)
@@ -461,6 +508,7 @@ def load_synoptic_data(
         extent=extent,
         base_time=base_time_str,
         step=step,
+        highland_mask=highland_mask,
     )
 
 
@@ -560,6 +608,15 @@ def estimate_available_cycles() -> dict:
 
 # Níveis de pressão disponíveis no IFS Open Data
 PL_LEVELS = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100, 50]
+
+# ── Preset "Diagnóstico Baroclínico" (apoio ao traçado MANUAL de frentes) ────
+# θe num nível de pressão é subterrâneo/fictício onde a pressão de superfície é
+# menor que o nível (+ tolerância): sobre os Andes/Altiplano o campo é lixo e o
+# eixo TFP (isolinha TFP=0) desenharia "frentes-fantasma" coladas à cordilheira.
+# Máscara → NaN; o np.gradient propaga o NaN e apaga o eixo espúrio na borda.
+THETA_E_HIGHLAND_TOL_HPA: float = 25.0  # sp <= (nível + isto) hPa → θe = NaN
+# O eixo TFP só é traçado onde |∇θe| tem magnitude sinótica (zona baroclínica).
+TFP_GRAD_MIN_K_100KM: float = 3.0
 
 # Horizonte/cadência padrão do meteograma (F6): +0…+72h de 3 em 3 horas. Bounded
 # de propósito — a série é baixada step a step (serializado, anti-429) na thread.
@@ -746,6 +803,55 @@ VARIABLE_REGISTRY: dict[str, dict[str, Any]] = {
         "symmetric": True,
         "category": "derived",
     },
+    # ── Diagnóstico Baroclínico (θe/∇θe/advecção/eixo TFP) ───────────────────
+    # θe = Temperatura Potencial Equivalente (identidade da massa de ar). Todos
+    # mascaram o terreno alto (Andes) — ver THETA_E_HIGHLAND_TOL_HPA.
+    "theta_e": {
+        "nome": "θe (Temp. Pot. Equivalente)",
+        "param": ["t", "q"],
+        "unit_raw": "K",
+        "unit_display": "K",
+        "conversion": None,
+        "plot_type": "contour",
+        "cmap": None,
+        "symmetric": False,
+        "category": "derived",
+    },
+    "theta_e_grad": {
+        "nome": "Gradiente de θe",
+        "param": ["t", "q"],
+        "unit_raw": "K/m",
+        "unit_display": "°C/100km",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "derived",
+    },
+    "theta_e_adv": {
+        "nome": "Advecção de θe",
+        "param": ["t", "q", "u", "v"],
+        "unit_raw": "K/s",
+        "unit_display": "°C/h",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "RdBu_r",
+        "symmetric": True,
+        "category": "derived",
+    },
+    # Eixo da Frente (TFP=0 mascarado por |∇θe|): LINHA neutra (guia), não frente
+    # classificada. plot_type "axis_line" → render dedicado em map_canvas, s/ colorbar.
+    "tfp_axis": {
+        "nome": "Eixo da Frente (TFP)",
+        "param": ["t", "q"],
+        "unit_raw": "K/m²",
+        "unit_display": "",
+        "conversion": None,
+        "plot_type": "axis_line",
+        "cmap": None,
+        "symmetric": False,
+        "category": "derived",
+    },
     "tcwv": {
         "nome": "Água Precipitável",
         "param": ["tcwv"],
@@ -756,6 +862,34 @@ VARIABLE_REGISTRY: dict[str, dict[str, Any]] = {
         "cmap": "YlGnBu",
         "symmetric": False,
         "category": "surface",
+    },
+    # Extremos de T 2 m: o Open Data (stream oper) publica o extremo da JANELA
+    # que antecede o step — 3 h até +144 h (mx2t3/mn2t3) e 6 h além (mx2t6/
+    # mn2t6). O nome do parâmetro é resolvido por `t2_extreme_param(step)`;
+    # step 0 é inválido (janela degenerada) — daí min_step 3.
+    "tmax2m": {
+        "nome": "Temp. Máxima 2 m",
+        "param": ["mx2t3"],
+        "unit_raw": "K",
+        "unit_display": "°C",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "surface",
+        "min_step": 3,
+    },
+    "tmin2m": {
+        "nome": "Temp. Mínima 2 m",
+        "param": ["mn2t3"],
+        "unit_raw": "K",
+        "unit_display": "°C",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlGnBu_r",
+        "symmetric": False,
+        "category": "surface",
+        "min_step": 3,
     },
     "mfc": {
         "nome": "Convergência de Umidade (MFC)",
@@ -1439,6 +1573,58 @@ def _dewpoint_2d(pressure_hpa: float, q2d: np.ndarray):
     mixing = mpcalc.mixing_ratio_from_specific_humidity(q2d * units("kg/kg"))
     e = mpcalc.vapor_pressure(pressure_hpa * units.hPa, mixing)
     return mpcalc.dewpoint(e).to("degC").magnitude
+
+
+# ── Campos do preset "Diagnóstico Baroclínico" (helpers PUROS/testáveis) ─────
+# θe → ∇θe → advecção → TFP. Operam sobre arrays já em metros (dy escalar, dx_2d
+# variando com a latitude) — sem rede, testáveis com campos sintéticos.
+
+
+def _theta_e_2d(pressure_hpa: float, t2d_k: np.ndarray, q2d: np.ndarray) -> np.ndarray:
+    """θe (K, ndarray) de um nível: T (K) + q (kg/kg) via MetPy (Td = _dewpoint_2d)."""
+    import metpy.calc as mpcalc
+    from metpy.units import units
+
+    td_c = _dewpoint_2d(pressure_hpa, q2d)
+    theta_e = mpcalc.equivalent_potential_temperature(
+        pressure_hpa * units.hPa, t2d_k * units.K, td_c * units.degC
+    )
+    return np.asarray(theta_e.to("K").magnitude)
+
+
+def _theta_e_gradient(theta_e: np.ndarray, dy: float, dx_2d: np.ndarray) -> np.ndarray:
+    """|∇θe| (K/m). NaN de entrada (Andes) propaga para a borda via np.gradient."""
+    dtedy = np.gradient(theta_e, dy, axis=0)
+    dtedx = np.gradient(theta_e, axis=1) / dx_2d
+    return np.asarray(np.hypot(dtedx, dtedy))
+
+
+def _theta_e_advection(
+    theta_e: np.ndarray, u: np.ndarray, v: np.ndarray, dy: float, dx_2d: np.ndarray
+) -> np.ndarray:
+    """Advecção −V·∇θe (K/s): positivo = advecção quente (setor quente da onda)."""
+    dtedy = np.gradient(theta_e, dy, axis=0)
+    dtedx = np.gradient(theta_e, axis=1) / dx_2d
+    return np.asarray(-(u * dtedx + v * dtedy))
+
+
+def _tfp_field(
+    theta_e: np.ndarray, dy: float, dx_2d: np.ndarray, grad_min_k_100km: float
+) -> np.ndarray:
+    """Thermal Front Parameter (Hewson 1998): TFP = −∇|∇θe|·(∇θe/|∇θe|).
+
+    A isolinha TFP=0 (topo da rampa baroclínica) é o EIXO da frente. Retorna NaN
+    onde |∇θe| < ``grad_min`` (K/100km) — o eixo só existe em zona baroclínica
+    real, sem "frentes-fantasma" em gradiente fraco.
+    """
+    dtedy = np.gradient(theta_e, dy, axis=0)
+    dtedx = np.gradient(theta_e, axis=1) / dx_2d
+    mag = np.hypot(dtedx, dtedy)  # K/m
+    dmagdy = np.gradient(mag, dy, axis=0)
+    dmagdx = np.gradient(mag, axis=1) / dx_2d
+    with np.errstate(invalid="ignore", divide="ignore"):
+        tfp = -(dmagdx * dtedx + dmagdy * dtedy) / np.where(mag > 0, mag, np.nan)
+    return np.where(mag * 1e5 >= grad_min_k_100km, tfp, np.nan)
 
 
 def _instability_from_dataset(
@@ -2205,6 +2391,115 @@ def _compute_derived_variable(
             step=step,
         )
 
+    elif variable_key in ("theta_e", "theta_e_grad", "theta_e_adv", "tfp_axis"):
+        # ─── Diagnóstico Baroclínico: θe → ∇θe / advecção / eixo TFP ───
+        # t_data (já lido/suavizado no preâmbulo) + q; θe mascarado sobre o
+        # terreno alto (Andes) e suavizado ciente-de-NaN antes de derivar.
+        def _open_pl(names: list[str], tag: str) -> dict[str, np.ndarray]:
+            f = download_ecmwf(
+                variables=names,
+                levels=[level],
+                step=step,
+                cycle=cycle,
+                output_path=data_dir
+                / f"ecmwf_{tag}_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
+                data_dir=data_dir,
+                source=source,
+                date=cycle_date,
+            )
+            ds = xr.open_dataset(
+                f,
+                engine="cfgrib",
+                backend_kwargs={
+                    "filter_by_keys": {"typeOfLevel": "isobaricInhPa"},
+                    "errors": "ignore",
+                },
+            )
+            ds = ds.assign_coords(longitude=(ds.longitude + 180) % 360 - 180).sortby("longitude")
+            sel: dict[str, Any] = {
+                "longitude": slice(extent[0], extent[2]),
+                "latitude": slice(extent[3], extent[1]),
+            }
+            if "isobaricInhPa" in ds.dims:
+                sel["isobaricInhPa"] = level
+            out = {v: ds[v].sel(**sel).values for v in names}
+            ds.close()
+            return out
+
+        q_data = _open_pl(["q"], "q")["q"]
+
+        # θe (K) a partir da t do preâmbulo + q. Suavizar q p/ acompanhar a t.
+        if smoothing_sigma > 0:
+            q_data = gaussian_filter(q_data, sigma=smoothing_sigma)
+        theta_e = _theta_e_2d(level, t_data, q_data)
+
+        # Máscara orográfica: onde sp <= (nível + tol) hPa, o nível é subterrâneo.
+        # Falha de rede/sp ausente → sem máscara (degradação graciosa).
+        try:
+            sp_file = download_ecmwf(
+                variables=["sp"],
+                step=step,
+                cycle=cycle,
+                output_path=data_dir / f"ecmwf_sp_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+                data_dir=data_dir,
+                source=source,
+                date=cycle_date,
+            )
+            ds_sp = xr.open_dataset(
+                sp_file,
+                engine="cfgrib",
+                backend_kwargs={"filter_by_keys": {"typeOfLevel": "surface"}, "errors": "ignore"},
+            )
+            ds_sp = ds_sp.assign_coords(longitude=(ds_sp.longitude + 180) % 360 - 180).sortby(
+                "longitude"
+            )
+            sp_pa = (
+                ds_sp["sp"]
+                .sel(
+                    longitude=slice(extent[0], extent[2]),
+                    latitude=slice(extent[3], extent[1]),
+                )
+                .values
+            )
+            ds_sp.close()
+            if sp_pa.shape == theta_e.shape:
+                threshold_pa = (level + THETA_E_HIGHLAND_TOL_HPA) * 100.0
+                theta_e = np.where(sp_pa <= threshold_pa, np.nan, theta_e)
+        except Exception as e:  # noqa: BLE001 — máscara é opcional por design
+            logger.warning("Máscara orográfica de θe indisponível (sp): %s", e)
+
+        # Suavização ciente-de-NaN (não sangra o buraco dos Andes p/ os vizinhos).
+        if smoothing_sigma > 0:
+            from cartomet_br.data.loczcit_pa_engine import _nanaware_gaussian
+
+            theta_e = _nanaware_gaussian(theta_e, smoothing_sigma)
+
+        if variable_key == "theta_e":
+            values = theta_e
+        elif variable_key == "theta_e_grad":
+            values = _theta_e_gradient(theta_e, dy, dx_2d) * 1e5  # K/m → °C/100km
+        elif variable_key == "theta_e_adv":
+            uv = _open_pl(["u", "v"], "u_v")
+            u_data, v_data = uv["u"], uv["v"]
+            if smoothing_sigma > 0:
+                u_data = gaussian_filter(u_data, sigma=smoothing_sigma)
+                v_data = gaussian_filter(v_data, sigma=smoothing_sigma)
+            values = _theta_e_advection(theta_e, u_data, v_data, dy, dx_2d) * 3600.0  # K/s → °C/h
+        else:  # tfp_axis — campo TFP mascarado; a isolinha 0 é o eixo (render dedicado)
+            values = _tfp_field(theta_e, dy, dx_2d, TFP_GRAD_MIN_K_100KM)
+
+        return PLFieldData(
+            values=values,
+            lons=lons,
+            lats=lats,
+            variable=variable_key,
+            level=level,
+            unit=var_info["unit_display"],
+            valid_time=valid_time_str,
+            base_time=base_time_str,
+            step=step,
+        )
+
     raise ValueError(f"Variável derivada '{variable_key}' não implementada.")
 
 
@@ -2735,6 +3030,111 @@ def load_tcwv(
         variable="tcwv",
         level=0,
         unit="mm",
+        valid_time=valid_time_str,
+        base_time=base_time_str,
+        step=step,
+    )
+
+
+def t2_extreme_param(variable_key: str, step: int) -> str:
+    """Parâmetro do Open Data para extremos de T 2 m conforme o alcance.
+
+    A stream ``oper`` publica a janela de 3 h (``mx2t3``/``mn2t3``) até
+    +144 h e a de 6 h (``mx2t6``/``mn2t6``) de +150 h em diante — espelhando
+    a grade temporal do IFS (3/3 h → 6/6 h).
+    """
+    base = "mx2t" if variable_key == "tmax2m" else "mn2t"
+    return f"{base}3" if step <= 144 else f"{base}6"
+
+
+def load_t2_extreme(
+    variable_key: str,
+    extent: list[float],
+    step: int = 3,
+    cycle: int | None = None,
+    cycle_date: str | None = None,
+    data_dir: Path = Path("data"),
+    smoothing_sigma: float = 1.0,
+    source: str = "ecmwf",
+    force_download: bool = False,
+) -> PLFieldData:
+    """Baixa e processa Temperatura Máxima/Mínima a 2 m (extremos de janela).
+
+    ``mx2t3``/``mn2t3`` são o extremo das ÚLTIMAS 3 h que antecedem o step
+    (janela de 6 h além de +144 h) — por isso o step 0 é inválido (janela
+    degenerada). Valores convertidos de K para °C.
+    """
+    if variable_key not in ("tmax2m", "tmin2m"):
+        raise ValueError(f"variable_key inválido para extremos de T 2 m: {variable_key}")
+    if step < 3:
+        raise ValueError(
+            "Temp. máx/mín 2 m é o extremo da janela que ANTECEDE o step — "
+            "use step ≥ +3h (no step 0 a janela é degenerada)."
+        )
+    if data_dir is None:
+        raise ValueError("data_dir não pode ser None")
+    data_dir = Path(data_dir)
+
+    param = t2_extreme_param(variable_key, step)
+    date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
+    cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
+
+    logger.info("Carregando %s (%s)", VARIABLE_REGISTRY[variable_key]["nome"], param)
+
+    grib_file = download_ecmwf(
+        variables=[param],
+        levels=None,
+        step=step,
+        cycle=cycle,
+        output_path=data_dir / f"ecmwf_{param}_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+        data_dir=data_dir,
+        source=source,
+        force_download=force_download,
+        date=cycle_date,
+    )
+
+    ds = xr.open_dataset(grib_file, engine="cfgrib", backend_kwargs={"errors": "ignore"})
+    ds = ds.assign_coords(longitude=(ds.longitude + 180) % 360 - 180)
+    ds = ds.sortby("longitude")
+
+    # O GRIB baixado contém um único campo; o cfgrib costuma nomeá-lo pelo
+    # shortName ("mx2t3", "mn2t6", …) — se divergir, usa o primeiro data_var.
+    var_name = param if param in ds.data_vars else next(iter(ds.data_vars))
+    da = ds[var_name].sel(
+        longitude=slice(extent[0], extent[2]),
+        latitude=slice(extent[3], extent[1]),
+    )
+
+    values = da.values - 273.15  # K → °C
+    lons_arr = da.longitude.values
+    lats_arr = da.latitude.values
+
+    if smoothing_sigma > 0:
+        values = gaussian_filter(values, sigma=smoothing_sigma)
+
+    valid_time_str = ""
+    base_time_str = ""
+    try:
+        if "valid_time" in ds.coords:
+            valid_time_str = np.datetime_as_string(ds.valid_time.values, unit="m")
+        if "time" in ds.coords:
+            bt = ds.time.values
+            bt_dt = np.datetime64(bt, "s").astype("datetime64[s]").astype(datetime)
+            base_time_str = f"{bt_dt.strftime('%HZ %d/%m/%Y')}"
+    except (KeyError, IndexError, ValueError, TypeError) as e:
+        logger.warning("Não foi possível extrair metadados de tempo (%s): %s", param, e)
+
+    ds.close()
+
+    logger.info("  %s range: %.1f – %.1f °C", param, np.nanmin(values), np.nanmax(values))
+
+    return PLFieldData(
+        values=values,
+        lons=lons_arr,
+        lats=lats_arr,
+        variable=variable_key,
+        level=0,
+        unit="°C",
         valid_time=valid_time_str,
         base_time=base_time_str,
         step=step,

@@ -28,6 +28,50 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+def _persistence_lookup(data: np.ndarray, extrema: str) -> dict[tuple[int, int], float]:
+    """Persistência topológica de cada extremo local (MetPy ≥ 1.7).
+
+    Usada só como RANQUEAMENTO: centros proeminentes (persistência alta)
+    ganham prioridade sobre oscilações rasas quando há mais candidatos que
+    ``max_points``. Avaliação de 03/07/2026: substituir o detector inteiro
+    pela persistência foi rejeitado (artefatos dos Andes; baixas subpolares
+    conectadas no cavado circumpolar têm persistência baixa) — o filtro
+    morfológico continua sendo o detector.
+    """
+    try:
+        from metpy.calc import peak_persistence
+
+        return {
+            (int(pt[0]), int(pt[1])): float(pers)
+            for pt, pers in peak_persistence(data, maxima=(extrema == "max"))
+        }
+    except Exception as e:  # noqa: BLE001 — ranking é opcional por design
+        logger.debug("peak_persistence indisponível (%s); ranking por intensidade.", e)
+        return {}
+
+
+def _candidate_persistence(pers_map: dict, y: int, x: int, radius: int = 2) -> float:
+    """Persistência do extremo mais próximo do candidato (platôs deslocam 1-2 px)."""
+    best = 0.0
+    for (py, px), p in pers_map.items():
+        if abs(py - y) <= radius and abs(px - x) <= radius and p > best:
+            best = p
+    return best
+
+
+def compute_persistence_maps(data: np.ndarray) -> dict[str, dict]:
+    """Pré-calcula o ranking topológico (max e min) de um campo — p/ cache.
+
+    O ``peak_persistence`` depende só do CAMPO, não do extent: replots por
+    zoom/reset reusam o resultado via ``persistence_map`` em vez de pagar o
+    cálculo (~0,6 s por extremo na grade AmSul 0,25°) a cada redesenho.
+    """
+    return {
+        "max": _persistence_lookup(data, "max"),
+        "min": _persistence_lookup(data, "min"),
+    }
+
+
 def plot_maxmin_points(
     ax,
     lon: np.ndarray,
@@ -41,6 +85,8 @@ def plot_maxmin_points(
     min_distance: int = 10,
     threshold: float | None = None,
     max_points: int = 15,
+    exclude_mask: np.ndarray | None = None,
+    persistence_map: dict | None = None,
 ):
     """
     Plota símbolos H/L nos máximos/mínimos locais com filtros de qualidade.
@@ -67,6 +113,12 @@ def plot_maxmin_points(
         Limiar de intensidade para filtrar extremos fracos
     max_points : int
         Número máximo de símbolos a plotar
+    exclude_mask : np.ndarray, opcional
+        Booleana (True = célula vetada). Uso: máscara orográfica — sobre o
+        Altiplano/Andes a PNMM é extrapolação e cria centros artefactuais.
+    persistence_map : dict, opcional
+        Ranking topológico pré-calculado (``compute_persistence_maps``);
+        omitido → calcula aqui (uso standalone em ``create_synoptic_chart``).
     """
     if transform is None:
         transform = ccrs.PlateCarree()
@@ -85,10 +137,19 @@ def plot_maxmin_points(
     if len(mxy) == 0:
         return
 
+    # Ranqueamento por proeminência (persistência topológica; {} = fallback)
+    pers_map = (
+        persistence_map if persistence_map is not None else _persistence_lookup(data, extrema)
+    )
+
     # Coleta candidatos com suas intensidades
     candidates = []
     for i in range(len(mxy)):
         value = data[mxy[i], mxx[i]]
+
+        # Veta células mascaradas (ex.: terreno elevado — PNMM artefactual)
+        if exclude_mask is not None and exclude_mask[mxy[i], mxx[i]]:
+            continue
 
         # Aplica threshold se especificado
         if threshold is not None:
@@ -105,11 +166,13 @@ def plot_maxmin_points(
                 "lat": lat[mxy[i], mxx[i]],
                 "value": value,
                 "intensity": abs(value - 1013.25),
+                "persistence": _candidate_persistence(pers_map, mxy[i], mxx[i]),
             }
         )
 
-    # Ordena por intensidade
-    candidates.sort(key=lambda c: c["intensity"], reverse=True)
+    # Ordena por proeminência (persistência) e intensidade como desempate;
+    # sem MetPy ≥ 1.7 as persistências são todas 0 → ordem por intensidade (legado)
+    candidates.sort(key=lambda c: (c["persistence"], c["intensity"]), reverse=True)
 
     # Filtra por distância mínima
     selected = []
@@ -127,7 +190,9 @@ def plot_maxmin_points(
         if len(selected) >= max_points:
             break
 
-    # Plota com efeito de contorno
+    # Plota com efeito de contorno. clip_on=True: texto do matplotlib NÃO é
+    # recortado por padrão — sem isso, ao trocar o extent (ex.: auto-enquadre
+    # do LOCZCIT), os H/L que ficaram fora do mapa "flutuavam" na mesa branca.
     path_effects = [pe.withStroke(linewidth=3, foreground="white")]
 
     for cand in selected:
@@ -143,6 +208,7 @@ def plot_maxmin_points(
             transform=transform,
             path_effects=path_effects,
             zorder=20,
+            clip_on=True,
         )
         ax.text(
             cand["lon"],
@@ -156,6 +222,7 @@ def plot_maxmin_points(
             transform=transform,
             path_effects=path_effects,
             zorder=20,
+            clip_on=True,
         )
 
 
@@ -301,6 +368,7 @@ def create_synoptic_chart(
         min_distance=25,
         threshold=1018,
         max_points=8,
+        exclude_mask=data.highland_mask,
     )
 
     plot_maxmin_points(
@@ -315,6 +383,7 @@ def create_synoptic_chart(
         min_distance=20,
         threshold=1008,
         max_points=10,
+        exclude_mask=data.highland_mask,
     )
 
     # Gridlines

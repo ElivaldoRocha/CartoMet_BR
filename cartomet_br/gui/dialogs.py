@@ -9,6 +9,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
+    QComboBox,
     QDialog,
     QFileDialog,
     QFrame,
@@ -334,3 +335,78 @@ class FirstRunDialog(QDialog):
             )
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Erro ao criar diretório:\n{e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  DIÁLOGO DO PRESET "DIAGNÓSTICO BAROCLÍNICO"
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class BaroclinicLevelDialog(QDialog):
+    """Escolha do nível de pressão para o preset Diagnóstico Baroclínico.
+
+    850 hPa é o padrão (nível operacional tradicional de análise de frentes de
+    superfície); outros níveis ficam disponíveis. ``selected_level()`` devolve o
+    nível escolhido (int) após ``exec()`` retornar ``Accepted``.
+    """
+
+    def __init__(self, levels: list[int], default_level: int = 850, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Diagnóstico Baroclínico")
+        self.setModal(True)
+        self.setStyleSheet(DARK_STYLE)
+        self.setMinimumWidth(430)
+        self._setup_ui(levels, default_level)
+
+    def _setup_ui(self, levels: list[int], default_level: int):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(18, 16, 18, 16)
+
+        title = QLabel("<h3 style='color:#1ABC9C; margin:0;'>Diagnóstico Baroclínico</h3>")
+        layout.addWidget(title)
+
+        desc = QLabel(
+            "<p style='font-size:11px; color:#BDC3C7;'>"
+            "Empilha campos de apoio ao traçado <b>manual</b> de frentes "
+            "(Gradiente de θe + Eixo TFP ligados; Advecção de θe, θe e "
+            "Frontogênese disponíveis).</p>"
+        )
+        desc.setWordWrap(True)
+        layout.addWidget(desc)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Nível de pressão:"))
+        self.level_combo = QComboBox()
+        for lv in levels:
+            self.level_combo.addItem(f"{lv} hPa", lv)
+        idx = levels.index(default_level) if default_level in levels else 0
+        self.level_combo.setCurrentIndex(idx)
+        self.level_combo.setMinimumWidth(120)
+        row.addWidget(self.level_combo)
+        row.addStretch()
+        layout.addLayout(row)
+
+        note = QLabel(
+            "<small style='color:#95A5A6;'>O nível tradicionalmente utilizado na "
+            "análise operacional de frentes de superfície é <b>850 hPa</b>.</small>"
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton("Cancelar")
+        cancel_btn.setStyleSheet("background-color:#7F8C8D;")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+        ok_btn = QPushButton("✓ Confirmar")
+        ok_btn.setStyleSheet("background-color:#27AE60; min-width:120px;")
+        ok_btn.setDefault(True)
+        ok_btn.clicked.connect(self.accept)
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+    def selected_level(self) -> int:
+        """Nível de pressão escolhido (hPa)."""
+        return int(self.level_combo.currentData())
