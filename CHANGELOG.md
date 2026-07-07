@@ -125,7 +125,10 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
     (`ax.inset_axes(..., transform=transData, projection="polar")`) — escala com o
     zoom e acompanha o *pan*, translúcido e legível sobre satélite (título com
     halo). Sobrevive à troca de tema/região e ao recorte (recriado do dado puro,
-    como as cidades); *"🗑"* limpa todas; teto de 8 para não pesar o *render*.
+    como as cidades). **Some sozinha quando a âncora sai da área visível** (zoom-área/
+    scroll/mover) — nada de rosa flutuando na "mesa branca" — e é **recortada ao
+    retângulo da carta**. *"🗑"* (painel) e *"🗑 Limpar mapa"* removem as fixadas;
+    teto de 8 para não pesar o *render*.
   - **Persistência no projeto (`.cmbr`).** As rosas fixadas entram no arquivo de
     projeto como **dado já binado** — abrir **nunca dispara rede**. O esquema do
     `.cmbr` sobe para **v2** (aditivo: projetos v1 continuam abrindo). Entram
