@@ -30,11 +30,11 @@ logger = logging.getLogger(__name__)
 
 _PLACEHOLDER = (
     "🌹 Ative a Rosa dos Ventos e clique num ponto do mapa.\n\n"
-    "Distribuição do vento previsto (IFS 10 m) ao longo dos steps da rodada\n"
-    "naquele ponto: de onde sopra e com que intensidade."
+    "Distribuição do vento previsto (IFS, 10 m ou nível de pressão) ao longo\n"
+    "dos steps da rodada naquele ponto: de onde sopra e com que intensidade."
 )
 _BADGE = (
-    "DISTRIBUIÇÃO DO VENTO PREVISTO (IFS 10 m) ao longo de {n} steps da rodada — "
+    "DISTRIBUIÇÃO DO VENTO PREVISTO (IFS {level}) ao longo de {n} steps da rodada — "
     "NÃO é climatologia. Mistura padrão sinótico + ciclo diurno de horas locais distintas."
 )
 _TEXT_COLOR = "#212121"
@@ -48,11 +48,14 @@ class WindRosePanel(AnalysisDock):
     pin_requested = pyqtSignal(object)
     #: Remover todas as rosas fixadas no mapa.
     clear_pins_requested = pyqtSignal()
+    #: Abrir o diálogo de configuração (a MainWindow é dona do estado/diálogo).
+    config_requested = pyqtSignal()
 
     def __init__(self, title: str = "Rosa dos Ventos (Ponto)", parent=None) -> None:
         super().__init__(title, parent, min_width=440, figsize=(6.4, 5.6), placeholder=_PLACEHOLDER)
         self._last_result = None
         self._current_rose = None  # rosa exibida (reflete o combo de setores)
+        self._show_stats = True  # linha "vento médio · predominante" sob a rosa
 
         # Linha de controles (setores + fixar/limpar) inserida acima do canvas.
         row = QWidget()
@@ -67,6 +70,11 @@ class WindRosePanel(AnalysisDock):
         self.sectors_combo.setToolTip("Nº de rumos da rosa (re-bina sem baixar de novo).")
         self.sectors_combo.currentIndexChanged.connect(self._on_sectors_changed)
         h.addWidget(self.sectors_combo)
+        self.config_btn = QPushButton("⚙")
+        self.config_btn.setToolTip("Configurar a rosa (nível, faixas de velocidade, calmaria).")
+        self.config_btn.setFixedWidth(34)
+        self.config_btn.clicked.connect(self.config_requested.emit)
+        h.addWidget(self.config_btn)
         h.addStretch(1)
         self.pin_btn = QPushButton("📌 Fixar no mapa")
         self.pin_btn.setToolTip("Fixa esta rosa como inset ancorado no ponto (georreferenciado).")
@@ -94,12 +102,33 @@ class WindRosePanel(AnalysisDock):
             logger.exception("Falha ao renderizar a rosa dos ventos")
             self.show_error(f"Erro ao desenhar a rosa dos ventos: {e}")
 
+    def current_n_sectors(self) -> int:
+        """Nº de rumos escolhido no combo (a MainWindow monta o worker com ele)."""
+        return int(self.sectors_combo.currentData())
+
+    def set_show_stats(self, enabled: bool) -> None:
+        """Liga/desliga a linha de estatísticas; redesenha na hora (sem re-fetch)."""
+        self._show_stats = bool(enabled)
+        if self._last_result is not None and self._current_rose is not None:
+            with contextlib.suppress(Exception):
+                self._draw(self._current_rose, self._last_result)
+
     def _on_sectors_changed(self) -> None:
-        """Re-bina a série JÁ baixada com o novo nº de setores (sem rede)."""
+        """Re-bina a série JÁ baixada com o novo nº de setores (sem rede).
+
+        Preserva faixas de velocidade e calmaria da rosa ativa — sem isso,
+        trocar Setores resetaria silenciosamente a config custom aos defaults.
+        """
         if self._last_result is None:
             return
-        n = int(self.sectors_combo.currentData())
-        rose = compute_wind_rose(self._last_result.speed, self._last_result.direction, n_sectors=n)
+        prev = self._last_result.rose
+        rose = compute_wind_rose(
+            self._last_result.speed,
+            self._last_result.direction,
+            n_sectors=self.current_n_sectors(),
+            speed_bin_edges=prev.speed_bin_edges,
+            calm_threshold=prev.calm_threshold,
+        )
         with contextlib.suppress(Exception):
             self._draw(rose, self._last_result)
 
@@ -128,7 +157,7 @@ class WindRosePanel(AnalysisDock):
             f"IFS {result.level} — {abs(result.grid_lat):.1f}°{ns} {abs(result.grid_lon):.1f}°{ew}"
         )
         self.set_header(f"🌹 {label}")
-        self.set_badge(_BADGE.format(n=rose.n_total))
+        self.set_badge(_BADGE.format(level=result.level, n=rose.n_total))
 
         title = label
         if result.base_time:
@@ -137,6 +166,13 @@ class WindRosePanel(AnalysisDock):
         self.fig.clear()
         self.fig.set_facecolor("white")
         ax = self.fig.add_subplot(111, projection="polar")
-        render_wind_rose(ax, rose, title=title, text_color=_TEXT_COLOR, grid_color=_GRID_COLOR)
-        self.fig.subplots_adjust(left=0.05, right=0.80, top=0.84, bottom=0.05)
+        render_wind_rose(
+            ax,
+            rose,
+            title=title,
+            text_color=_TEXT_COLOR,
+            grid_color=_GRID_COLOR,
+            show_stats=self._show_stats,
+        )
+        self.fig.subplots_adjust(left=0.05, right=0.80, top=0.84, bottom=0.10)
         self.canvas.draw_idle()
