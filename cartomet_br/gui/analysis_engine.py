@@ -70,6 +70,82 @@ class MeteogramWorker(QThread):
         self.finished_ok.emit(ts)
 
 
+class WindRoseWorker(QThread):
+    """Monta a rosa dos ventos (10 m) num ponto, fora da thread da GUI.
+
+    Reusa ``load_point_timeseries`` (mesmo download cache-first/anti-429 do
+    meteograma) e bina a série de vento previsto em ``compute_wind_rose``.
+    Entrega um ``WindRoseResult`` pronto para o painel. Honestidade: é a
+    distribuição do vento PREVISTO ao longo dos steps da rodada — não uma
+    climatologia (o painel carrega o badge).
+    """
+
+    progress = pyqtSignal(str)
+    finished_ok = pyqtSignal(object)  # WindRoseResult
+    finished_error = pyqtSignal(str)
+
+    def __init__(
+        self,
+        lon: float,
+        lat: float,
+        cycle: int | None,
+        cycle_date: str | None,
+        data_dir,
+        steps=None,
+        n_sectors: int = 16,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.lon = float(lon)
+        self.lat = float(lat)
+        self.cycle = cycle
+        self.cycle_date = cycle_date
+        self.data_dir = data_dir
+        self.steps = steps
+        self.n_sectors = int(n_sectors)
+
+    def run(self) -> None:
+        try:
+            from cartomet_br.data.ecmwf import load_point_timeseries
+            from cartomet_br.data.wind_rose import (
+                WindRoseResult,
+                compute_wind_rose,
+            )
+
+            ts = load_point_timeseries(
+                self.lon,
+                self.lat,
+                steps=self.steps,
+                cycle=self.cycle,
+                cycle_date=self.cycle_date,
+                data_dir=self.data_dir,
+                progress_cb=self.progress.emit,
+            )
+            rose = compute_wind_rose(ts.wind_speed, ts.wind_dir, n_sectors=self.n_sectors)
+            result = WindRoseResult(
+                rose=rose,
+                speed=tuple(float(v) for v in ts.wind_speed),
+                direction=tuple(float(v) for v in ts.wind_dir),
+                lon=self.lon,
+                lat=self.lat,
+                grid_lon=float(ts.grid_lon),
+                grid_lat=float(ts.grid_lat),
+                level="10 m",
+                base_time=ts.base_time,
+                steps=tuple(int(s) for s in ts.steps),
+            )
+        except Exception as e:  # rede, GRIB ausente, etc.
+            logger.warning("Falha ao montar rosa dos ventos (%.2f,%.2f): %s", self.lon, self.lat, e)
+            self.finished_error.emit(
+                "Não foi possível montar a rosa dos ventos neste ponto.\n"
+                "Verifique a rodada/step (rede ou cache).\n\n"
+                f"Detalhe técnico: {e}"
+            )
+            return
+        self.progress.emit("Rosa dos ventos pronta.")
+        self.finished_ok.emit(result)
+
+
 class CrossSectionWorker(QThread):
     """Monta o corte vertical A→B do IFS, fora da thread da GUI (F4)."""
 

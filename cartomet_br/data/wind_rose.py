@@ -51,6 +51,27 @@ class WindRose:
     prevailing_deg: float  # centro do setor dominante (NaN se tudo calmaria)
 
 
+@dataclass(frozen=True)
+class WindRoseResult:
+    """Rosa + série-fonte e metadados do ponto/rodada — o que o worker entrega.
+
+    Guarda ``speed``/``direction`` por step para o painel **re-binar** (mudar o
+    nº de setores) instantaneamente, sem baixar de novo. ``grid_*`` é o ponto de
+    grade do modelo efetivamente amostrado.
+    """
+
+    rose: WindRose
+    speed: tuple[float, ...]  # m/s por step (fonte)
+    direction: tuple[float, ...]  # graus (de onde sopra) por step
+    lon: float
+    lat: float
+    grid_lon: float
+    grid_lat: float
+    level: str
+    base_time: str
+    steps: tuple[int, ...]
+
+
 def _empty_rose(
     sector_centers: tuple[float, ...],
     sector_width: float,
