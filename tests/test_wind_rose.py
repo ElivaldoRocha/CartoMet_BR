@@ -1,5 +1,6 @@
 """Rosa dos ventos: binagem pura direção×velocidade (sem GUI/rede)."""
 
+import json
 import math
 
 import numpy as np
@@ -10,6 +11,8 @@ from cartomet_br.data.wind_rose import (
     DEFAULT_SECTORS,
     DEFAULT_SPEED_BINS,
     compute_wind_rose,
+    wind_rose_from_dict,
+    wind_rose_to_dict,
 )
 
 
@@ -133,3 +136,32 @@ def test_bins_default_seis_faixas():
     assert len(rose.freq[0]) == len(DEFAULT_SPEED_BINS) - 1
     assert rose.sector_centers  # sanity
     assert len(rose.freq) == DEFAULT_SECTORS
+
+
+# ── Serialização (persistência .cmbr) ────────────────────────────────────────
+
+
+def test_roundtrip_preserva_rosa():
+    rng = np.random.default_rng(1)
+    rose = compute_wind_rose(rng.uniform(0, 12, 300), rng.uniform(0, 360, 300))
+    back = wind_rose_from_dict(wind_rose_to_dict(rose))
+    assert back == rose
+
+
+def test_serializacao_e_json_limpo_sem_inf_nan():
+    # Rosa toda calmaria → prevailing_deg = NaN; edges têm inf. O dict não pode
+    # carregar Infinity/NaN (JSON não-padrão) — viram null.
+    rose = compute_wind_rose([0.0, 0.1], [10.0, 200.0])
+    d = wind_rose_to_dict(rose)
+    text = json.dumps(d, allow_nan=False)  # falharia se houvesse inf/nan
+    assert "Infinity" not in text and "NaN" not in text
+    assert d["speed_bin_edges"][-1] is None  # inf → null
+    assert d["prevailing_deg"] is None  # NaN → null
+
+
+def test_roundtrip_calmaria_total():
+    rose = compute_wind_rose([0.0, 0.1], [10.0, 200.0])
+    back = wind_rose_from_dict(wind_rose_to_dict(rose))
+    assert math.isinf(back.speed_bin_edges[-1])
+    assert math.isnan(back.prevailing_deg)
+    assert back.calm_fraction == pytest.approx(1.0)

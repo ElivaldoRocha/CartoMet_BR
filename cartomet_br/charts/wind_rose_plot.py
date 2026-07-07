@@ -53,11 +53,13 @@ def render_wind_rose(
     title: str = "",
     show_legend: bool = True,
     show_calm: bool = True,
+    compact: bool = False,
 ) -> list:
     """Desenha ``rose`` num eixo polar. Devolve os artistas criados (barras/textos).
 
     ``ax`` deve ser um eixo polar (``projection="polar"``). Rosa vazia (sem
-    amostras válidas) vira uma mensagem centralizada.
+    amostras válidas) vira uma mensagem centralizada. ``compact=True`` (usado no
+    inset do mapa): só 4 rumos, sem rótulos radiais e fontes menores.
     """
     ax.clear()
     ax.set_theta_zero_location("N")
@@ -105,10 +107,16 @@ def render_wind_rose(
         artists.append(bars)
         bottom = bottom + heights
 
-    # Rumos cardeais (N/NE/E/…): 8 rótulos independentes do nº de setores.
-    ax.set_xticks(np.radians(np.arange(0, 360, 45)))
-    ax.set_xticklabels(_CARDINAL_8, fontsize=9, color=text_color)
-    ax.tick_params(axis="y", labelsize=7, colors=text_color)
+    # Rumos cardeais: 8 rótulos (padrão) ou só 4 (compacto, p/ o inset do mapa).
+    if compact:
+        ax.set_xticks(np.radians(np.arange(0, 360, 90)))
+        ax.set_xticklabels(["N", "E", "S", "W"], fontsize=7, color=text_color)
+        ax.set_yticklabels([])
+        ax.tick_params(axis="y", length=0)
+    else:
+        ax.set_xticks(np.radians(np.arange(0, 360, 45)))
+        ax.set_xticklabels(_CARDINAL_8, fontsize=9, color=text_color)
+        ax.tick_params(axis="y", labelsize=7, colors=text_color)
     ax.grid(True, color=grid_color, alpha=0.6, linewidth=0.6)
     ax.set_axisbelow(True)
     for spine in ax.spines.values():
@@ -123,19 +131,23 @@ def render_wind_rose(
         calm_txt = ax.text(
             0.5,
             0.5,
-            f"calmo\n{rose.calm_fraction * 100:.0f}%",
+            f"{rose.calm_fraction * 100:.0f}%"
+            if compact
+            else f"calmo\n{rose.calm_fraction * 100:.0f}%",
             transform=ax.transAxes,
             ha="center",
             va="center",
-            fontsize=8,
+            fontsize=6.5 if compact else 8,
             color=text_color,
             zorder=5,
-            bbox={"boxstyle": "round,pad=0.3", "fc": "white", "ec": grid_color, "alpha": 0.85},
+            bbox={"boxstyle": "round,pad=0.2", "fc": "white", "ec": grid_color, "alpha": 0.85},
         )
         artists.append(calm_txt)
 
     if title:
-        ax.set_title(title, fontsize=11, color=text_color, pad=12)
+        ax.set_title(
+            title, fontsize=8 if compact else 11, color=text_color, pad=6 if compact else 12
+        )
 
     if show_legend:
         labels = speed_bin_labels(rose.speed_bin_edges)

@@ -94,6 +94,47 @@ def _empty_rose(
     )
 
 
+def _num_or_none(x: float) -> float | None:
+    """Escala finita → float; ``inf``/``NaN`` → ``None`` (JSON padrão, sem NaN/Infinity)."""
+    return float(x) if math.isfinite(x) else None
+
+
+def wind_rose_to_dict(rose: WindRose) -> dict:
+    """Serializa uma ``WindRose`` em dict JSON-limpo (``inf``/``NaN`` viram ``null``).
+
+    Só os campos JÁ BINADOS — abrir um projeto reconstrói a rosa sem tocar na rede.
+    """
+    return {
+        "sector_centers": [float(c) for c in rose.sector_centers],
+        "sector_width_deg": float(rose.sector_width_deg),
+        "speed_bin_edges": [_num_or_none(e) for e in rose.speed_bin_edges],
+        "freq": [[float(v) for v in row] for row in rose.freq],
+        "calm_fraction": float(rose.calm_fraction),
+        "calm_threshold": float(rose.calm_threshold),
+        "n_total": int(rose.n_total),
+        "mean_speed": _num_or_none(rose.mean_speed),
+        "prevailing_deg": _num_or_none(rose.prevailing_deg),
+    }
+
+
+def wind_rose_from_dict(d: dict) -> WindRose:
+    """Reconstrói uma ``WindRose`` a partir do dict de ``wind_rose_to_dict``."""
+    edges = tuple(math.inf if e is None else float(e) for e in d["speed_bin_edges"])
+    return WindRose(
+        sector_centers=tuple(float(c) for c in d["sector_centers"]),
+        sector_width_deg=float(d["sector_width_deg"]),
+        speed_bin_edges=edges,
+        freq=tuple(tuple(float(v) for v in row) for row in d["freq"]),
+        calm_fraction=float(d["calm_fraction"]),
+        calm_threshold=float(d.get("calm_threshold", CALM_THRESHOLD)),
+        n_total=int(d["n_total"]),
+        mean_speed=float(d["mean_speed"]) if d.get("mean_speed") is not None else math.nan,
+        prevailing_deg=(
+            float(d["prevailing_deg"]) if d.get("prevailing_deg") is not None else math.nan
+        ),
+    )
+
+
 def compute_wind_rose(
     speed: Sequence[float] | np.ndarray,
     direction: Sequence[float] | np.ndarray,

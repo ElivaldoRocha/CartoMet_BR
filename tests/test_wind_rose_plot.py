@@ -46,6 +46,18 @@ def test_render_sem_legenda_e_sem_calmo():
     plt.close(fig)
 
 
+def test_render_compacto_inset():
+    rng = np.random.default_rng(9)
+    rose = compute_wind_rose(rng.uniform(0, 12, 120), rng.uniform(0, 360, 120))
+    fig, ax = _polar_ax()
+    artists = render_wind_rose(ax, rose, show_legend=False, compact=True)
+    assert artists
+    # Modo compacto: 4 rumos e sem rótulos radiais.
+    assert len(ax.get_xticks()) == 4
+    assert all(t.get_text() == "" for t in ax.get_yticklabels())
+    plt.close(fig)
+
+
 def test_speed_bin_labels_formata_infinito():
     labels = speed_bin_labels(DEFAULT_SPEED_BINS)
     assert labels[0] == "0.5–2"
