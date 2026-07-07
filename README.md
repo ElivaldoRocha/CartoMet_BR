@@ -78,6 +78,12 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 - Botão **📈 Meteograma**: clique num ponto e veja a **evolução do modelo IFS em +0…+72 h** num painel docado de 4 eixos — **temperatura** (1000 hPa) + **PNMM**, **vento de 10 m** (intensidade + barbelas), **precipitação por intervalo** e **água precipitável**
 - Download **serializado por step** (cache-first, anti-429) em **thread** — a GUI nunca trava; *badge* de honestidade (previsão **pontual** do modelo, aproximada)
 
+### 🌹 Rosa dos Ventos — distribuição direção×velocidade num ponto
+
+- Botão **🌹 Rosa dos Ventos**: clique num ponto e veja num painel docado a **distribuição do vento previsto** (IFS 10 m) ao longo dos steps da rodada — **de onde sopra**, com que **intensidade** (faixas de velocidade empilhadas) e quanto de **calmaria** (centro)
+- Reusa o download do meteograma (cache-first, anti-429) em **thread**; render **próprio** em eixo polar (**sem** a dependência `windrose`); combo **Setores** (8/16/36) re-bina a série já baixada **sem rede**
+- *Badge* de honestidade: é a distribuição da **previsão**, **não** uma climatologia (mistura padrão sinótico + ciclo diurno de horas locais distintas) — *não confundir* com o **indicador de norte** (triângulo+N) da aba de traçado
+
 ### 🔪 Corte Vertical — seção (cross-section) A→B
 
 - Botão **🔪 Corte Vertical**: **dois cliques** (A → B) definem a reta e o painel desenha a **seção pressão × distância** de **ω** (ascendência/subsidência), **temperatura**, **umidade específica** e **vento**, por interpolação ao longo do caminho (13 níveis)
@@ -339,6 +345,7 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 | **Diagnóstico Baroclínico** | Empilha campos de apoio ao traçado **manual** de frentes no nível escolhido: Gradiente de θe + Eixo TFP (linha-guia) ligados; Advecção de θe, θe e Frontogênese disponíveis — máscara de terreno (Andes); *human-in-the-loop* |
 | **Sonda Vertical (Skew-T)** | Radiossondagem observada (Wyoming) **ou** pseudo-sondagem do modelo IFS em qualquer ponto (oceano/previsão) — Skew-T, hodógrafa e índices via MetPy |
 | **Meteograma** | Série temporal do IFS num ponto (+0…+72 h): T, vento, precipitação, PNMM e água precipitável |
+| **Rosa dos Ventos** | Distribuição direção×velocidade do vento previsto (IFS 10 m) num ponto ao longo dos steps da rodada — setores, faixas de velocidade e calmaria; render próprio (sem `windrose`), previsão e não climatologia |
 | **Corte Vertical (A→B)** | Seção pressão × distância de ω, temperatura, umidade e vento ao longo de uma reta desenhada |
 | **Instabilidade (CAPE/CIN/LI/K)** | Campos de instabilidade derivados do modelo — K-index nativo; LI/CAPE/CIN em grade engrossada; render contínuo (aprox.) |
 | **Carta OMM** | Export com cabeçalho institucional (instituição/analista/validade/logo) + legenda dos símbolos — PNG/PDF entregável |
@@ -646,6 +653,7 @@ CartoMet_BR/
 │   │   ├── blocking_engine.py   # Bloqueio: anomalia de Z500 vs. climatologia ERA5
 │   │   ├── raob_stations.py     # Estações RAOB (snap da Sonda Vertical)
 │   │   ├── wyoming.py           # Radiossondagem UWyo (interface WSGI nova, CSV)
+│   │   ├── wind_rose.py         # Binagem da rosa dos ventos (direção×velocidade, pura)
 │   │   └── stations.py          # Observações SYNOP (OGIMET) e METAR (NOAA AWC)
 │   ├── symbols/
 │   │   ├── base.py              # Classe base e helpers
@@ -654,6 +662,7 @@ CartoMet_BR/
 │   │   └── point_symbols.py     # Ciclone, tempestade tropical, vórtice
 │   ├── charts/
 │   │   ├── synoptic.py          # Geração de carta sinótica
+│   │   ├── wind_rose_plot.py    # Render polar da rosa dos ventos (theme-agnostic)
 │   │   └── interactive.py       # Ferramenta interativa matplotlib
 │   ├── services/
 │   │   ├── data_service.py      # Camada de serviço (validação, logging)
@@ -670,8 +679,9 @@ CartoMet_BR/
 │   │   ├── sounding_engine.py   # Worker da radiossondagem (Wyoming WSGI, QThread)
 │   │   ├── sounding_panel.py    # Painel lateral Skew-T Log-P (MetPy)
 │   │   ├── analysis_panel.py    # Base dos painéis docados (AnalysisDock)
-│   │   ├── analysis_engine.py   # Workers QThread: meteograma, corte vertical, instabilidade
+│   │   ├── analysis_engine.py   # Workers QThread: meteograma, rosa dos ventos, corte vertical, instabilidade
 │   │   ├── meteogram_panel.py   # Painel do meteograma (série temporal num ponto)
+│   │   ├── wind_rose_panel.py   # Painel da rosa dos ventos (distribuição num ponto)
 │   │   ├── cross_section_panel.py # Painel do corte vertical (cross-section A→B)
 │   │   ├── chart_export.py      # Montagem (pura) dos metadados da carta OMM
 │   │   ├── chart_header_dialog.py # Diálogo do cabeçalho da carta OMM
@@ -703,6 +713,8 @@ CartoMet_BR/
 │   ├── test_loczcit_pa.py
 │   ├── test_olr_deaccum_characterization.py
 │   ├── test_point_timeseries.py # Meteograma (puro)
+│   ├── test_wind_rose.py        # Rosa dos ventos: binagem (puro)
+│   ├── test_wind_rose_plot.py   # Rosa dos ventos: render headless (Agg)
 │   ├── test_raob_stations.py
 │   ├── test_spatial_coherence.py
 │   ├── test_stations.py

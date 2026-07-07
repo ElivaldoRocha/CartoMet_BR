@@ -105,6 +105,23 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   poligonais). Sobrevive a troca de tema/região e é legível sobre satélite
   (borda branca + halo).
 
+- **🌹 Rosa dos ventos (distribuição direção×velocidade) — Fase 1.** Botão
+  *"Rosa dos Ventos"* na toolbar (modo de clique exclusivo, como Meteograma/
+  Sonda/Corte): clicar num ponto abre um painel dockável com a **distribuição do
+  vento previsto** (IFS 10 m) ao longo dos steps da rodada — de onde sopra, com
+  que intensidade e quanto de calmaria. Reusa o mesmo download do meteograma
+  (`load_point_timeseries`, cache-first/anti-429) num `WindRoseWorker` em thread;
+  a binagem (`data/wind_rose.py`, pura e testada) é setorial com faixas de
+  velocidade, fração de calmaria no centro e direção dominante. Render **próprio**
+  em eixo polar (`charts/wind_rose_plot.py`) — **sem** a dependência `windrose`,
+  com controle total de tema e sem risco de projeção em GeoAxes. Combo *Setores*
+  (8/16/36) **re-bina a série já baixada sem tocar na rede**. Badge de honestidade
+  explícito: é a distribuição da **previsão**, **não** uma climatologia (mistura
+  padrão sinótico + ciclo diurno de horas locais distintas). *Não confundir* com
+  o indicador de norte acima (triângulo+N): aquele é decoração cartográfica, esta
+  é análise estatística. Inset georreferenciado no mapa e rosa climatológica ERA5
+  ficam para fases seguintes.
+
 - **📤 Boletim de Análise Codificado (CODSAS) — o traçado humano vira arquivo
   compartilhável.** Nenhuma instituição brasileira publica as posições das
   feições sinóticas em arquivo codificado, como o WPC/NOAA faz há décadas
