@@ -609,6 +609,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.context_emphasis_changed.connect(self.canvas.set_context_emphasis)
         self.settings_panel.cities_changed.connect(self.canvas.set_cities_visible)
         self.settings_panel.city_density_changed.connect(self.canvas.set_city_density)
+        self.settings_panel.north_arrow_changed.connect(self.canvas.set_north_arrow_visible)
         self.settings_panel.region_changed.connect(self._on_region_changed)
         # Recorte por UF: apply_extent preserva os dados carregados e replota
         self.settings_panel.uf_extent_requested.connect(self.canvas.apply_extent)

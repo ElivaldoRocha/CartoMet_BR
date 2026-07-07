@@ -286,6 +286,7 @@ class SettingsPanel(QWidget):
     uf_extent_requested = pyqtSignal(list)  # recorte por estado (preserva dados)
     cities_changed = pyqtSignal(bool)  # camada de cidades rotuladas (IBGE)
     city_density_changed = pyqtSignal(float)  # fator de densidade das cidades
+    north_arrow_changed = pyqtSignal(bool)  # rosa dos ventos (indicador de norte)
 
     REGIONS = {
         "América do Sul": EXTENT_AMSUL,
@@ -582,6 +583,17 @@ class SettingsPanel(QWidget):
         )
         city_density_row.addWidget(self.city_density_combo, 1)
         options_layout.addLayout(city_density_row)
+
+        self.north_arrow_check = QCheckBox("🧭 Rosa dos ventos (N)")
+        self.north_arrow_check.setToolTip(
+            "Desenha o indicador de norte geográfico (triângulo preto + N) no\n"
+            "canto superior direito da carta — padrão cartográfico para mapas\n"
+            "exportados. Nesta projeção o norte é sempre o topo da carta."
+        )
+        self.north_arrow_check.stateChanged.connect(
+            lambda state: self.north_arrow_changed.emit(state == Qt.CheckState.Checked.value)
+        )
+        options_layout.addWidget(self.north_arrow_check)
 
         layout.addWidget(options_group)
 

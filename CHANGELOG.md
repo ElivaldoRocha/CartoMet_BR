@@ -96,6 +96,15 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
     **cartopy ≥ 0.24** (FeatureArtist virou Collection — restilização
     in-place com `set_linewidth`/`set_edgecolor`).
 
+- **🧭 Rosa dos ventos (indicador de norte).** Checkbox em *Camadas
+  sinóticas* que desenha o padrão cartográfico clássico — triângulo preto +
+  "N" — no canto superior direito da carta, para os mapas exportados.
+  Implementada como **marker de Line2D + texto com halo** (geometria em
+  pontos: não estica com o aspecto do extent; nada de `annotate(arrowprops=…)`
+  ou patches de seta, proibidos em GeoAxes pela doutrina dos códigos
+  poligonais). Sobrevive a troca de tema/região e é legível sobre satélite
+  (borda branca + halo).
+
 - **📤 Boletim de Análise Codificado (CODSAS) — o traçado humano vira arquivo
   compartilhável.** Nenhuma instituição brasileira publica as posições das
   feições sinóticas em arquivo codificado, como o WPC/NOAA faz há décadas

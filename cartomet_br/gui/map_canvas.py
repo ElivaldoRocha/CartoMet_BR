@@ -24,6 +24,7 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import matplotlib.patheffects as pe
 import matplotlib.ticker as mticker
+import matplotlib.transforms as mtransforms
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -291,6 +292,10 @@ class MapCanvas(FigureCanvas):
         self._cities_enabled: bool = False
         self._city_density_factor: float = CITY_DENSITY_FACTORS[DEFAULT_CITY_DENSITY]
 
+        # Rosa dos ventos (indicador de norte, canto superior direito).
+        self._north_arrow_artists: list = []
+        self._north_arrow_enabled: bool = False
+
         # Imagem de satélite
         self._sat_artist = None
         self._sat_data = None
@@ -397,8 +402,10 @@ class MapCanvas(FigureCanvas):
         self._sst_artist = None
         self._sst_data = None
         self._sst_colorbar = None
-        # ax.clear() abaixo remove os artistas de cidades — só esvazia a lista
+        # ax.clear() abaixo remove os artistas de cidades e da rosa dos ventos
+        # — só esvazia as listas
         self._cities_artists.clear()
+        self._north_arrow_artists.clear()
         self._station_artists = {"metar": [], "synop": []}
         self._station_data = {"metar": None, "synop": None}
         self._loczcit_artist = None
@@ -524,9 +531,11 @@ class MapCanvas(FigureCanvas):
             path_effects=[pe.withStroke(linewidth=2, foreground="white")],
         )
 
-        # Camada de cidades sobrevive à reconstrução (tema/região)
+        # Camada de cidades e rosa dos ventos sobrevivem à reconstrução (tema/região)
         if self._cities_enabled:
             self._replot_cities_for_view()
+        if self._north_arrow_enabled:
+            self._draw_north_arrow()
 
         # Maximiza a carta na "mesa branca" (startup e troca de tema)
         self._reflow_layout()
@@ -569,6 +578,62 @@ class MapCanvas(FigureCanvas):
         else:
             self._clear_cities()
         self.draw_idle()
+
+    def set_north_arrow_visible(self, enabled: bool) -> None:
+        """Liga/desliga a rosa dos ventos (norte geográfico) no canto superior direito."""
+        self._north_arrow_enabled = enabled
+        if enabled:
+            self._draw_north_arrow()
+        else:
+            self._clear_north_arrow()
+        self.draw_idle()
+
+    def _clear_north_arrow(self) -> None:
+        for artist in self._north_arrow_artists:
+            with contextlib.suppress(Exception):
+                artist.remove()
+        self._north_arrow_artists.clear()
+
+    def _draw_north_arrow(self) -> None:
+        """Triângulo preto + "N" ancorados em coordenadas do eixo (transAxes).
+
+        O triângulo é um MARKER de Line2D (renderizado em pontos): não estica
+        com o aspecto do extent e evita patches de seta/annotate(arrowprops=...),
+        proibidos em GeoAxes pela doutrina dos códigos poligonais. O "N" fica
+        um deslocamento FIXO EM PONTOS abaixo da âncora (offset_copy) pelo
+        mesmo motivo. Em PlateCarree sem rotação o norte é sempre "para cima".
+        """
+        self._clear_north_arrow()
+        anchor_x, anchor_y = 0.965, 0.952
+        (tri,) = self.ax.plot(
+            [anchor_x],
+            [anchor_y],
+            marker="^",
+            markersize=13,
+            markerfacecolor="#1A1A1A",
+            markeredgecolor="white",
+            markeredgewidth=1.2,
+            linestyle="none",
+            transform=self.ax.transAxes,
+            zorder=30,
+            clip_on=False,
+        )
+        txt = self.ax.text(
+            anchor_x,
+            anchor_y,
+            "N",
+            transform=mtransforms.offset_copy(
+                self.ax.transAxes, fig=self.fig, x=0, y=-9, units="points"
+            ),
+            ha="center",
+            va="top",
+            fontsize=11,
+            fontweight="bold",
+            color="#1A1A1A",
+            path_effects=[pe.withStroke(linewidth=2.5, foreground="white")],
+            zorder=30,
+        )
+        self._north_arrow_artists.extend([tri, txt])
 
     def set_city_density(self, factor: float) -> None:
         """Ajusta a densidade da camada de cidades e replota na hora (sem rede).
