@@ -87,6 +87,12 @@ CONTEXT_LINEWIDTHS: dict[str, tuple[float, float]] = {
 # linha larga de contraste por baixo + linha forte do tema por cima).
 CONTEXT_HALO_EXTRA: float = 1.8
 
+# Rosas dos ventos fixadas no mapa (insets polares georreferenciados): teto de
+# quantidade (mais que isso pesa o render) e tamanho padrão do inset como fração
+# da largura da vista (em graus — o inset escala com o zoom, ancorado em transData).
+MAX_PINNED_WIND_ROSES: int = 8
+WIND_ROSE_SIZE_FRACTION: float = 0.16
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SISTEMA DE UNDO/REDO (Padrão Command)
@@ -297,6 +303,12 @@ class MapCanvas(FigureCanvas):
         self._north_arrow_artists: list = []
         self._north_arrow_enabled: bool = False
 
+        # Rosas dos ventos FIXADAS (insets polares ancorados em lon/lat). Como as
+        # cidades, o dado puro (lon/lat/size/rose) sobrevive à reconstrução do mapa
+        # base; os eixos vivos são recriados a partir dele.
+        self._wind_rose_data: list[dict] = []
+        self._wind_rose_axes: list = []
+
         # Imagem de satélite
         self._sat_artist = None
         self._sat_data = None
@@ -407,6 +419,9 @@ class MapCanvas(FigureCanvas):
         # — só esvazia as listas
         self._cities_artists.clear()
         self._north_arrow_artists.clear()
+        # Insets são eixos SEPARADOS (não morrem no ax.clear() abaixo) — removê-los
+        # explicitamente; o dado puro fica e os recria no fim do método.
+        self._clear_wind_rose_insets_artists()
         self._station_artists = {"metar": [], "synop": []}
         self._station_data = {"metar": None, "synop": None}
         self._loczcit_artist = None
@@ -537,6 +552,8 @@ class MapCanvas(FigureCanvas):
             self._replot_cities_for_view()
         if self._north_arrow_enabled:
             self._draw_north_arrow()
+        if self._wind_rose_data:
+            self._reapply_wind_rose_insets()
 
         # Maximiza a carta na "mesa branca" (startup e troca de tema)
         self._reflow_layout()
@@ -706,6 +723,150 @@ class MapCanvas(FigureCanvas):
                 path_effects=halo,
             )
             self._cities_artists.extend([dot, txt])
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  ROSAS DOS VENTOS FIXADAS (insets polares georreferenciados)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _default_wind_rose_size(self) -> float:
+        """Tamanho (graus) do inset como fração da largura da vista atual."""
+        try:
+            x0, x1, _, _ = self.ax.get_extent(crs=ccrs.PlateCarree())
+            width = abs(x1 - x0)
+        except Exception:
+            width = 20.0
+        return max(2.0, min(width * WIND_ROSE_SIZE_FRACTION, width * 0.4))
+
+    def add_wind_rose_inset(
+        self,
+        lon: float,
+        lat: float,
+        rose: object,
+        *,
+        level: str = "10 m",
+        base_time: str = "",
+        grid_lon: float | None = None,
+        grid_lat: float | None = None,
+        size_deg: float | None = None,
+    ) -> bool:
+        """Fixa uma rosa como inset polar ancorado em (lon, lat). Falso se no teto."""
+        if len(self._wind_rose_data) >= MAX_PINNED_WIND_ROSES:
+            return False
+        entry = {
+            "lon": float(lon),
+            "lat": float(lat),
+            "grid_lon": float(grid_lon if grid_lon is not None else lon),
+            "grid_lat": float(grid_lat if grid_lat is not None else lat),
+            "level": str(level),
+            "base_time": str(base_time),
+            "size_deg": float(size_deg if size_deg is not None else self._default_wind_rose_size()),
+            "rose": rose,
+        }
+        self._wind_rose_data.append(entry)
+        self._create_wind_rose_inset(entry)
+        self.draw_idle()
+        return True
+
+    def _create_wind_rose_inset(self, entry: dict) -> None:
+        """Cria o eixo polar embutido para uma entrada (ancorado em transData)."""
+        from cartomet_br.charts.wind_rose_plot import render_wind_rose
+
+        s = entry["size_deg"]
+        lon, lat = entry["lon"], entry["lat"]
+        try:
+            inset = self.ax.inset_axes(
+                [lon - s / 2, lat - s / 2, s, s],
+                transform=self.ax.transData,
+                projection="polar",
+                zorder=22,
+            )
+        except Exception:
+            return
+        inset.set_navigate(False)  # pan/zoom da carta não navega o inset
+        inset.patch.set_facecolor("white")
+        inset.patch.set_alpha(0.62)  # translúcido sobre o mapa, ainda legível
+        ns = "N" if lat >= 0 else "S"
+        ew = "E" if lon >= 0 else "W"
+        tag = f"{abs(lat):.1f}°{ns} {abs(lon):.1f}°{ew}"
+        with contextlib.suppress(Exception):
+            render_wind_rose(
+                inset,
+                entry["rose"],
+                text_color="#1A1A1A",
+                grid_color="#7A7A7A",
+                show_legend=False,
+                compact=True,
+                title=tag,
+            )
+        self._wind_rose_axes.append(inset)
+
+    def _clear_wind_rose_insets_artists(self) -> None:
+        """Remove os eixos vivos dos insets (o dado puro é preservado)."""
+        for ax in self._wind_rose_axes:
+            with contextlib.suppress(Exception):
+                ax.remove()
+        self._wind_rose_axes.clear()
+
+    def _reapply_wind_rose_insets(self) -> None:
+        """Recria os insets a partir do dado puro (após reconstrução do mapa base)."""
+        self._clear_wind_rose_insets_artists()
+        for entry in self._wind_rose_data:
+            self._create_wind_rose_inset(entry)
+
+    def clear_wind_rose_insets(self) -> None:
+        """Remove TODAS as rosas fixadas (dado + eixos)."""
+        self._clear_wind_rose_insets_artists()
+        self._wind_rose_data.clear()
+        self.draw_idle()
+
+    def has_wind_rose_insets(self) -> bool:
+        return bool(self._wind_rose_data)
+
+    def export_wind_roses(self) -> list[dict]:
+        """Serializa as rosas fixadas em records puros p/ o projeto (.cmbr)."""
+        from cartomet_br.data.wind_rose import wind_rose_to_dict
+
+        records = []
+        for e in self._wind_rose_data:
+            records.append(
+                {
+                    "lon": e["lon"],
+                    "lat": e["lat"],
+                    "grid_lon": e["grid_lon"],
+                    "grid_lat": e["grid_lat"],
+                    "level": e["level"],
+                    "base_time": e["base_time"],
+                    "size_deg": e["size_deg"],
+                    "rose": wind_rose_to_dict(e["rose"]),
+                }
+            )
+        return records
+
+    def import_wind_roses(self, records: object) -> None:
+        """Reconstrói as rosas fixadas a partir dos records do projeto (nunca baixa)."""
+        from cartomet_br.data.wind_rose import wind_rose_from_dict
+
+        self._clear_wind_rose_insets_artists()
+        self._wind_rose_data.clear()
+        for rec in records or []:
+            if not isinstance(rec, dict):
+                continue
+            try:
+                entry = {
+                    "lon": float(rec["lon"]),
+                    "lat": float(rec["lat"]),
+                    "grid_lon": float(rec.get("grid_lon", rec["lon"])),
+                    "grid_lat": float(rec.get("grid_lat", rec["lat"])),
+                    "level": str(rec.get("level", "10 m")),
+                    "base_time": str(rec.get("base_time", "")),
+                    "size_deg": float(rec.get("size_deg", 4.0)),
+                    "rose": wind_rose_from_dict(rec["rose"]),
+                }
+            except (KeyError, TypeError, ValueError):
+                continue
+            self._wind_rose_data.append(entry)
+        self._reapply_wind_rose_insets()
+        self.draw_idle()
 
     # ═══════════════════════════════════════════════════════════════════════
     #  CAMPOS SINÓTICOS (PNMM, Espessura, Centros H/L)

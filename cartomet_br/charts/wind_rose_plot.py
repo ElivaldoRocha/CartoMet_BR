@@ -13,6 +13,7 @@ import math
 from collections.abc import Sequence
 from typing import Any
 
+import matplotlib.patheffects as pe
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 
@@ -148,6 +149,10 @@ def render_wind_rose(
         ax.set_title(
             title, fontsize=8 if compact else 11, color=text_color, pad=6 if compact else 12
         )
+        if compact:
+            # No inset o título fica sobre o mapa (fora do patch translúcido) —
+            # halo branco garante leitura sobre satélite escuro/campos preenchidos.
+            ax.title.set_path_effects([pe.withStroke(linewidth=2, foreground="white")])
 
     if show_legend:
         labels = speed_bin_labels(rose.speed_bin_edges)
