@@ -1135,6 +1135,18 @@ class MapCanvas(FigureCanvas):
             labels.append("METAR")
         return labels
 
+    def _set_map_title(self, text: str) -> None:
+        """Define o título da carta com posição CRAVADA (``y=1.0``).
+
+        O ``y`` explícito desliga o auto-posicionamento do matplotlib
+        (``_update_title_position``), que sobe o título para ficar acima de
+        TODOS os child axes do GeoAxes — ignorando visibilidade e in_layout.
+        Uma rosa dos ventos fixada, empurrada para cima da borda pelo pan,
+        arremessava o título e o ``_fit_layout_to_figure`` esmagava a carta
+        (vão título↔carta crescendo a cada gesto, visto em campo).
+        """
+        self.ax.set_title(text, fontsize=11, fontweight="bold", loc="left", pad=14, y=1.0)
+
     def _update_map_title(self) -> None:
         """Título dinâmico: reflete a camada visível de maior prioridade.
 
@@ -1201,25 +1213,13 @@ class MapCanvas(FigureCanvas):
                 if obs_labels:
                     line1 += " + " + "/".join(obs_labels)
                 line2 = f"Data: {self._sst_data.time_str}"
-                self.ax.set_title(
-                    f"{line1}\n{line2}",
-                    fontsize=11,
-                    fontweight="bold",
-                    loc="left",
-                    pad=14,
-                )
+                self._set_map_title(f"{line1}\n{line2}")
                 return
 
             # ── Apenas observações (sem modelo/TSM) ──
             obs_labels = self._active_obs_labels()
             if obs_labels:
-                self.ax.set_title(
-                    "Observações de superfície — " + " + ".join(obs_labels),
-                    fontsize=11,
-                    fontweight="bold",
-                    loc="left",
-                    pad=14,
-                )
+                self._set_map_title("Observações de superfície — " + " + ".join(obs_labels))
                 return
 
             # Nenhum dado carregado
@@ -1248,13 +1248,7 @@ class MapCanvas(FigureCanvas):
         chrono_parts = [p for p in (rodada, step_txt, valido) if p]
         line2 = " | ".join(chrono_parts)
 
-        self.ax.set_title(
-            f"{line1}\n{line2}",
-            fontsize=11,
-            fontweight="bold",
-            loc="left",
-            pad=14,
-        )
+        self._set_map_title(f"{line1}\n{line2}")
 
     def _plot_synoptic_fields(self) -> None:
         """Plota campos meteorológicos respeitando o estado dos toggles."""
@@ -3464,13 +3458,7 @@ class MapCanvas(FigureCanvas):
 
         base = f" | OLR base: {result.base_time}" if result.base_time else ""
         vt = f"Válido: {result.valid_time} UTC" if result.valid_time else ""
-        self.ax.set_title(
-            f"ZCIT (LOCZCIT-PA) — Potencial Acoplado\n{vt}{base}",
-            fontsize=11,
-            fontweight="bold",
-            loc="left",
-            pad=14,
-        )
+        self._set_map_title(f"ZCIT (LOCZCIT-PA) — Potencial Acoplado\n{vt}{base}")
         self._reflow_layout()  # motor da mesa: ancora a colorbar e centraliza
         self.draw()
 
@@ -3643,14 +3631,10 @@ class MapCanvas(FigureCanvas):
 
         aprox = " (clim. ≈ horário mais próximo)" if result.meta.get("is_approx") else ""
         vt = f"Válido: {result.valid_time} UTC" if result.valid_time else ""
-        self.ax.set_title(
+        self._set_map_title(
             f"Bloqueio Atmosférico — Anomalia de Z500 (IFS − ERA5 1991–2020)\n"
             f"{vt} · clim {result.clim_mmdd[2:]}/{result.clim_mmdd[:2]} "
-            f"{result.clim_hour:02d}Z{aprox}",
-            fontsize=11,
-            fontweight="bold",
-            loc="left",
-            pad=14,
+            f"{result.clim_hour:02d}Z{aprox}"
         )
         self._reflow_layout()  # motor da mesa: ancora a colorbar e centraliza
         self.draw()
