@@ -128,16 +128,22 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
     como as cidades). **Some sozinha quando a âncora sai da área visível** (zoom-área/
     scroll/mover) — nada de rosa flutuando na "mesa branca" — e é **recortada ao
     retângulo da carta**. *"Limpar"* (painel) e *"🗑 Limpar mapa"* removem as
-    fixadas; teto de 8 para não pesar o *render*. Três acabamentos de campo:
+    fixadas; teto de 8 para não pesar o *render*. Quatro acabamentos de campo:
     o recorte usa **`clip_box` (retângulo vivo da carta)** — o `clip_path` no
     patch do GeoAxes do Cartopy **não é honrado pelo render de texto** do Agg e
     deixava o "N"/título do inset vazarem na mesa perto da borda; o inset fica
     **fora da medição do layout** (`set_in_layout(False)`) — o `get_tightbbox`
     do matplotlib mede textos **ignorando o recorte**, e a medição inflada
     fazia o motor da mesa "empurrar" o título/carta a cada repouso de
-    pan/scroll; e durante o **gesto** de mover/scroll os insets ficam ocultos
+    pan/scroll; durante o **gesto** de mover/scroll os insets ficam ocultos
     (o eixo polar dobrava o custo de cada quadro — 155 → 78 ms medidos),
-    voltando no repouso da vista — o pan segue fluido com rosas fixadas.
+    voltando no repouso da vista — o pan segue fluido com rosas fixadas; e o
+    **título da carta é cravado em `y=1.0`** — o auto-posicionamento do
+    matplotlib (`_update_title_position`) sobe o título acima de **todos** os
+    child axes ignorando visibilidade/`in_layout`, então uma rosa empurrada
+    para cima da borda pelo *mover* arremessava o título e abria um **vão
+    crescente entre o título e a carta** (que persistia mesmo com a rosa já
+    invisível).
   - **Persistência no projeto (`.cmbr`).** As rosas fixadas entram no arquivo de
     projeto como **dado já binado** — abrir **nunca dispara rede**. O esquema do
     `.cmbr` sobe para **v2** (aditivo: projetos v1 continuam abrindo). Entram
