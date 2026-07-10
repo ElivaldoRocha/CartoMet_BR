@@ -42,6 +42,11 @@ from cartomet_br.data.ecmwf import (
 )
 from cartomet_br.data.stations import DEFAULT_OBS_DENSITY, OBS_DENSITY_FACTORS
 from cartomet_br.gui._constants import VALID_STEPS
+from cartomet_br.gui.wind_style import (
+    DEFAULT_WIND_COLOR,
+    DEFAULT_WIND_DENSITY,
+    WindStyleControls,
+)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  PAINEL DE SATÉLITE (esquerda, abaixo das simbologias)
@@ -397,7 +402,15 @@ class SettingsPanel(QWidget):
         theme_row = QHBoxLayout()
         theme_row.addWidget(QLabel("Tema:"))
         self.theme_combo = QComboBox()
-        for name in ["Clássico", "Branco", "Pastel", "Tons de cinza", "Terra", "Escuro"]:
+        for name in [
+            "Clássico",
+            "Branco",
+            "Pastel",
+            "Tons de cinza",
+            "Terra",
+            "Escuro",
+            "Relevo Natural",
+        ]:
             self.theme_combo.addItem(name)
         self.theme_combo.currentTextChanged.connect(lambda name: self.theme_changed.emit(name))
         theme_row.addWidget(self.theme_combo)
@@ -898,9 +911,12 @@ SURFACE_VARS = {"olr", "tcwv", "tmax2m", "tmin2m"}
 class FieldLayerPanel(QWidget):
     """Painel para adicionar/gerenciar campos em altitude e superfície."""
 
-    add_layer_requested = pyqtSignal(str, int, str)  # (var_key, level, wind_type)
+    add_layer_requested = pyqtSignal(
+        str, int, str, str, str
+    )  # (var_key, level, wind_type, color, density)
     toggle_layer_requested = pyqtSignal(str, bool)  # (layer_id, visible)
     remove_layer_requested = pyqtSignal(str)  # (layer_id)
+    restyle_layer_requested = pyqtSignal(str)  # (layer_id) — editar cor/densidade do vento
     preset_requested = pyqtSignal(str)  # (preset_name)
     loczcit_requested = pyqtSignal()  # índice ZCIT (LOCZCIT-PA)
     blocking_requested = pyqtSignal()  # bloqueio atmosférico (anom. Z500)
@@ -1082,6 +1098,30 @@ class FieldLayerPanel(QWidget):
                 ["cape", "cin"],
                 "CAPE e CIN de superfície — grade engrossada (mais lento).",
             ),
+            ("Total Totals", ["totaltotals"], "Índice Total Totals (TT) na grade nativa (rápido)."),
+            (
+                "LCL",
+                ["lcl"],
+                "Nível de Condensação por Levantamento — altura da base da nuvem (m, MSL).",
+            ),
+            (
+                "LFC",
+                ["lfc"],
+                "LFC (m) — Nível de Convecção Livre. Altura a partir da qual a "
+                "parcela sobe sozinha.",
+            ),
+            (
+                "EL",
+                ["el"],
+                "Nível de Equilíbrio — altura do topo convectivo/bigorna (m, MSL).",
+            ),
+            (
+                "Cisalh. 0–6 km",
+                ["shear"],
+                "Cisalhamento do vento 0–6 km — |V(base+6 km) − V(base)| (m/s). "
+                "Organiza tempestades severas; mais relevante no Sul/Sudeste. "
+                "Baixa um 2º GRIB (u, v).",
+            ),
         )
         for i, (label, idxs, tip) in enumerate(instab_buttons):
             btn = QPushButton(label)
@@ -1094,7 +1134,9 @@ class FieldLayerPanel(QWidget):
             """)
             btn.setToolTip(tip + "\n\nModelo IFS, 13 níveis — produto APROXIMADO (não observação).")
             btn.clicked.connect(lambda _checked, idx=idxs: self.instability_requested.emit(idx))
-            instab_layout.addWidget(btn, 0, i)
+            # Grade com quebra: 3 botões por linha (K/LI/CAPE-CIN | TT/LCL/EL).
+            row, col = divmod(i, 3)
+            instab_layout.addWidget(btn, row, col)
         layout.addWidget(instab_group)
 
         # ─── Seção 1: Campos em Altitude ───
@@ -1123,11 +1165,14 @@ class FieldLayerPanel(QWidget):
         self.level_row.addWidget(self.level_combo)
         alt_layout.addLayout(self.level_row)
 
-        # Tipo de vento
+        # Tipo de vento + estilo (cor/densidade)
         self.wind_group = QWidget()
-        wind_layout = QHBoxLayout(self.wind_group)
+        wind_layout = QVBoxLayout(self.wind_group)
         wind_layout.setContentsMargins(0, 0, 0, 0)
         wind_layout.setSpacing(3)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(3)
 
         self.btn_barbs = QPushButton("Barbelas")
         self.btn_barbs.setCheckable(True)
@@ -1151,9 +1196,14 @@ class FieldLayerPanel(QWidget):
         )
         self.btn_stream.clicked.connect(lambda: self._select_wind_type("stream"))
 
-        wind_layout.addWidget(self.btn_barbs)
-        wind_layout.addWidget(self.btn_quiver)
-        wind_layout.addWidget(self.btn_stream)
+        btn_row.addWidget(self.btn_barbs)
+        btn_row.addWidget(self.btn_quiver)
+        btn_row.addWidget(self.btn_stream)
+        wind_layout.addLayout(btn_row)
+
+        # Cor (3 representações) + densidade (só barbelas/vetores)
+        self.wind_style = WindStyleControls()
+        wind_layout.addWidget(self.wind_style)
 
         self.wind_group.setVisible(False)
         alt_layout.addWidget(self.wind_group)
@@ -1262,6 +1312,8 @@ class FieldLayerPanel(QWidget):
         self.btn_barbs.setStyleSheet(self._wind_btn_style(wtype == "barbs"))
         self.btn_quiver.setStyleSheet(self._wind_btn_style(wtype == "quiver"))
         self.btn_stream.setStyleSheet(self._wind_btn_style(wtype == "stream"))
+        # Correntes = só cor (esconde densidade)
+        self.wind_style.set_wind_type(wtype)
 
     def _get_wind_type(self) -> str:
         if self.btn_quiver.isChecked():
@@ -1290,18 +1342,30 @@ class FieldLayerPanel(QWidget):
     def _on_add_clicked(self):
         var_key = self.var_combo.currentData()
         level = self.level_combo.currentData()
-        wind_type = self._get_wind_type() if var_key == "wind" else "barbs"
-        self.add_layer_requested.emit(var_key, level, wind_type)
+        if var_key == "wind":
+            wind_type = self._get_wind_type()
+            color, density = self.wind_style.get_style()
+        else:
+            wind_type, color, density = "barbs", DEFAULT_WIND_COLOR, DEFAULT_WIND_DENSITY
+        self.add_layer_requested.emit(var_key, level, wind_type, color, density)
 
     def _on_add_sfc_clicked(self):
         var_key = self.sfc_var_combo.currentData()
-        self.add_layer_requested.emit(var_key, 0, "barbs")
+        self.add_layer_requested.emit(var_key, 0, "barbs", DEFAULT_WIND_COLOR, DEFAULT_WIND_DENSITY)
 
-    def add_layer_entry(self, layer_id: str, label: str, detail: str, checked: bool = True):
+    def add_layer_entry(
+        self,
+        layer_id: str,
+        label: str,
+        detail: str,
+        checked: bool = True,
+        is_wind: bool = False,
+    ):
         """Adiciona uma entrada na lista de camadas ativas.
 
         ``checked``: estado inicial do toggle (False = camada começa oculta, ex.: o
         overlay opcional do eixo da ZCIT).
+        ``is_wind``: acende o botão 🎨 de edição de cor/densidade (só campos de vento).
         """
         self.no_layers_label.setVisible(False)
 
@@ -1327,6 +1391,24 @@ class FieldLayerPanel(QWidget):
         detail_lbl = QLabel(detail)
         detail_lbl.setStyleSheet("font-size: 10px; color: #3498DB;")
         row_layout.addWidget(detail_lbl)
+
+        if is_wind:
+            style_btn = QPushButton("🎨")
+            style_btn.setMaximumWidth(30)
+            style_btn.setMaximumHeight(22)
+            style_btn.setToolTip("Editar cor/densidade do vento")
+            style_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #9B59B6; color: white;
+                    font-size: 11px; border-radius: 3px;
+                    padding: 2px 4px; border: none;
+                }
+                QPushButton:hover { background-color: #A569BD; }
+            """)
+            style_btn.clicked.connect(
+                lambda _, lid=layer_id: self.restyle_layer_requested.emit(lid)
+            )
+            row_layout.addWidget(style_btn)
 
         remove_btn = QPushButton("Remover")
         remove_btn.setMaximumWidth(55)

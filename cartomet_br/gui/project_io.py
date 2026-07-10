@@ -28,7 +28,9 @@ from cartomet_br.gui.draw_tools import (
     ShapeCommand,
 )
 
-PROJECT_SCHEMA_VERSION = 2  # v2: chave "wind_roses" (rosas fixadas). v1 abre normal.
+# v3: campo com "color"/"density" (estilo do vento). v2: "wind_roses". Versões
+# anteriores abrem normal — as chaves novas são aditivas e defaultadas na leitura.
+PROJECT_SCHEMA_VERSION = 3
 PROJECT_EXTENSION = ".cmbr"
 
 

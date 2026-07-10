@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
 )
 
 from cartomet_br.gui._constants import APP_AUTHOR, APP_VERSION, get_logo_path
+from cartomet_br.gui.color_row import make_color_row
 from cartomet_br.symbols import MODOS
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -554,51 +555,12 @@ class SymbologyPanel(QWidget):
     """
 
     def _make_color_row(self, initial: str, on_color) -> QHBoxLayout:
-        """Linha de swatches de cor (8 presets exclusivos + '⋯' = QColorDialog)."""
-        row = QHBoxLayout()
-        row.setSpacing(3)
-        group = QButtonGroup(self)
-        group.setExclusive(True)
-        for c in self._PRESET_COLORS:
-            b = QPushButton()
-            b.setCheckable(True)
-            b.setFixedSize(22, 22)
-            b.setToolTip(c)
-            b.setStyleSheet(f"""
-                QPushButton {{ background-color: {c}; border: 1px solid #5D6D7E;
-                              border-radius: 3px; }}
-                QPushButton:checked {{ border: 2px solid #F1C40F; }}
-            """)
-            if c.lower() == initial.lower():
-                b.setChecked(True)
-            b.clicked.connect(lambda _, col=c: on_color(col))
-            group.addButton(b)
-            row.addWidget(b)
+        """Linha de swatches de cor (8 presets exclusivos + '⋯' = QColorDialog).
 
-        custom = QPushButton("⋯")
-        custom.setCheckable(True)
-        custom.setFixedSize(22, 22)
-        custom.setToolTip("Cor personalizada…")
-        custom.setStyleSheet("""
-            QPushButton { border: 1px solid #5D6D7E; border-radius: 3px;
-                          font-weight: bold; color: #ECF0F1; }
-            QPushButton:checked { border: 2px solid #F1C40F; }
-        """)
-
-        def _pick_custom() -> None:
-            col = QColorDialog.getColor(QColor(initial), self, "Escolher cor")
-            if col.isValid():
-                custom.setStyleSheet(f"""
-                    QPushButton {{ background-color: {col.name()};
-                                  border: 2px solid #F1C40F; border-radius: 3px; }}
-                """)
-                on_color(col.name())
-
-        custom.clicked.connect(_pick_custom)
-        group.addButton(custom)
-        row.addWidget(custom)
-        row.addStretch()
-        return row
+        Delega ao helper compartilhado ``gui.color_row.make_color_row`` (mesmo
+        widget reutilizado pelos controles de estilo dos campos de vento).
+        """
+        return make_color_row(self, initial, on_color, self._PRESET_COLORS)
 
     @staticmethod
     def _make_opacity_row(initial_pct: int, on_change) -> QHBoxLayout:

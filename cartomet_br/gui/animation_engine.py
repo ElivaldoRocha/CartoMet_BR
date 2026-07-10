@@ -228,7 +228,13 @@ class FrameLoaderWorker(QThread):
                                 technique=spec.technique,
                             )
                             payload["fields"].append(
-                                (layer_id, data, lspec.get("wind_type", "barbs"))
+                                (
+                                    layer_id,
+                                    data,
+                                    lspec.get("wind_type", "barbs"),
+                                    lspec.get("color", "gray"),
+                                    lspec.get("density", "media"),
+                                )
                             )
                 payload["blocking"] = self.prepared.blocking_by_step.get(step)
                 payload["loczcit"] = self.prepared.loczcit_by_step.get(step)
@@ -409,8 +415,8 @@ class AnimationController(QObject):
         canvas._pl_zorder_counter = self._zorder_reset
         if payload.get("synoptic") is not None:
             canvas.set_synoptic_data(payload["synoptic"])
-        for layer_id, data, wind_type in payload.get("fields", []):
-            canvas.add_pl_layer(layer_id, data, wind_type)
+        for layer_id, data, wind_type, color, density in payload.get("fields", []):
+            canvas.add_pl_layer(layer_id, data, wind_type, color=color, density=density)
         # set_synoptic_data limpa o título (no fluxo ao vivo, quem o recompõe é
         # o toggle_layer); recompõe aqui — bloqueio/LOCZCIT sobrescrevem depois,
         # como no comportamento ao vivo.
