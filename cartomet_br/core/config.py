@@ -246,6 +246,11 @@ class Config:
         """Subpasta para a climatologia diária de Z500 (ERA5; cache re-baixável)."""
         return self._subdir("climatologia/z500")
 
+    @property
+    def era5_dir(self) -> Path:
+        """Subpasta para campos ERA5 baixados do CDS (NetCDF; cache re-baixável)."""
+        return self._subdir("era5")
+
     # Subpastas que contêm dados baixados/cache (limpáveis com segurança).
     # NÃO inclui 'cartas/', que guarda o trabalho do usuário.
     CACHE_SUBDIRS: ClassVar[tuple[str, ...]] = (
@@ -254,6 +259,7 @@ class Config:
         "tsm",
         "observacoes",
         "climatologia",
+        "era5",
     )
 
     @classmethod

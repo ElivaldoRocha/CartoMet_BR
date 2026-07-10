@@ -949,6 +949,440 @@ VARIABLE_REGISTRY: dict[str, dict[str, Any]] = {
         "symmetric": False,
         "category": "instability",
     },
+    "totaltotals": {
+        "nome": "Total Totals (modelo IFS, 13 níveis — aprox.)",
+        "param": ["t", "q"],
+        "unit_raw": "°C",
+        "unit_display": "°C",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "instability",
+    },
+    "lcl": {
+        "nome": "LCL — base da nuvem (modelo IFS, 13 níveis — aprox.)",
+        "param": ["t", "q", "gh"],
+        "unit_raw": "m",
+        "unit_display": "m",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlGnBu",
+        "symmetric": False,
+        "category": "instability",
+    },
+    "lfc": {
+        "nome": "LFC — convecção livre (modelo IFS, 13 níveis — aprox.)",
+        "param": ["t", "q", "gh"],
+        "unit_raw": "m",
+        "unit_display": "m",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "PuRd",
+        "symmetric": False,
+        "category": "instability",
+    },
+    "el": {
+        "nome": "EL — topo convectivo (modelo IFS, 13 níveis — aprox.)",
+        "param": ["t", "q", "gh"],
+        "unit_raw": "m",
+        "unit_display": "m",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "instability",
+    },
+    "shear": {
+        "nome": "Cisalhamento 0–6 km (modelo IFS, 13 níveis — aprox.)",
+        "param": ["u", "v", "gh"],
+        "unit_raw": "m/s",
+        "unit_display": "m/s",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "BuPu",
+        "symmetric": False,
+        "category": "instability",
+    },
+    # ── ERA5 (reanálise Copernicus/CDS) — campos de superfície (Single Levels) ──
+    # Entradas de RENDER dedicadas: 'nome' e unidades honestas (reanálise, não
+    # previsão); o campo é baixado por cartomet_br/data/era5.py e renderizado pelo
+    # mesmo pipeline `add_pl_layer`. 'param' guarda o nome curto da variável no
+    # NetCDF do CDS (não usado no download, que vive em ERA5_VARIABLES).
+    "era5_t2m": {
+        "nome": "Temp. 2 m (ERA5)",
+        "param": ["t2m"],
+        "unit_raw": "K",
+        "unit_display": "°C",
+        "conversion": lambda x: x - 273.15,
+        "plot_type": "contourf",
+        "cmap": "RdBu_r",
+        "symmetric": False,
+        "category": "surface",
+    },
+    "era5_wind10m": {
+        "nome": "Vento 10 m (ERA5)",
+        "param": ["u10", "v10"],
+        "unit_raw": "m/s",
+        "unit_display": "m/s",
+        "conversion": None,
+        "plot_type": "wind",
+        "cmap": None,
+        "symmetric": False,
+        "category": "wind",
+    },
+    "era5_mslp": {
+        "nome": "PNMM (ERA5)",
+        "param": ["msl"],
+        "unit_raw": "Pa",
+        "unit_display": "hPa",
+        "conversion": lambda x: x / 100.0,
+        "plot_type": "contour",
+        "cmap": None,
+        "symmetric": False,
+        "category": "surface",
+    },
+    "era5_precip": {
+        "nome": "Precipitação (ERA5)",
+        "param": ["tp"],
+        "unit_raw": "m",
+        "unit_display": "mm",
+        "conversion": lambda x: x * 1000.0,
+        "plot_type": "contourf",
+        "cmap": "precip_classic",
+        "symmetric": False,
+        "category": "surface",
+    },
+    "era5_tcwv": {
+        "nome": "Água Precipitável (ERA5)",
+        "param": ["tcwv"],
+        "unit_raw": "kg/m²",
+        "unit_display": "mm",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlGnBu",
+        "symmetric": False,
+        "category": "surface",
+    },
+    # ── ERA5 (reanálise) — níveis de pressão (Pressure Levels) ──
+    # geopotencial vem em m²/s²; ÷ g0 (9.80665) → altura geopotencial (mgp),
+    # equivalente ao `gh` do IFS.
+    "era5pl_gh": {
+        "nome": "Alt. Geopotencial (ERA5)",
+        "param": ["z"],
+        "unit_raw": "m²/s²",
+        "unit_display": "mgp",
+        "conversion": lambda x: x / 9.80665,
+        "plot_type": "contour",
+        "cmap": None,
+        "symmetric": False,
+        "category": "scalar",
+    },
+    "era5pl_t": {
+        "nome": "Temperatura (ERA5)",
+        "param": ["t"],
+        "unit_raw": "K",
+        "unit_display": "°C",
+        "conversion": lambda x: x - 273.15,
+        "plot_type": "contourf",
+        "cmap": "RdBu_r",
+        "symmetric": False,
+        "category": "scalar",
+    },
+    "era5pl_wind": {
+        "nome": "Vento (ERA5)",
+        "param": ["u", "v"],
+        "unit_raw": "m/s",
+        "unit_display": "m/s",
+        "conversion": None,
+        "plot_type": "wind",
+        "cmap": None,
+        "symmetric": False,
+        "category": "wind",
+    },
+    "era5pl_r": {
+        "nome": "Umidade Relativa (ERA5)",
+        "param": ["r"],
+        "unit_raw": "%",
+        "unit_display": "%",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "BrBG",
+        "symmetric": False,
+        "category": "scalar",
+    },
+    "era5pl_w": {
+        "nome": "Vel. Vertical ω (ERA5)",
+        "param": ["w"],
+        "unit_raw": "Pa/s",
+        "unit_display": "hPa/h",
+        "conversion": lambda x: x * 36.0,
+        "plot_type": "contourf",
+        "cmap": "RdBu",
+        "symmetric": True,
+        "category": "scalar",
+    },
+    # ── ERA5 — Extremos de Temp. 2 m (extremo horário; agg máx/mín → diário) ──
+    "era5_tmax": {
+        "nome": "Temp. Máxima 2 m (ERA5)",
+        "param": ["mx2t"],
+        "unit_raw": "K",
+        "unit_display": "°C",
+        "conversion": lambda x: x - 273.15,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "surface",
+    },
+    "era5_tmin": {
+        "nome": "Temp. Mínima 2 m (ERA5)",
+        "param": ["mn2t"],
+        "unit_raw": "K",
+        "unit_display": "°C",
+        "conversion": lambda x: x - 273.15,
+        "plot_type": "contourf",
+        "cmap": "YlGnBu_r",
+        "symmetric": False,
+        "category": "surface",
+    },
+    # ── ERA5 — Radiação (fluxos médios já em W/m²; OLR = −saldo de onda longa) ──
+    "era5_olr": {
+        "nome": "OLR (ERA5)",
+        "param": ["avg_tnlwrf"],
+        "unit_raw": "W/m²",
+        "unit_display": "W/m²",
+        "conversion": lambda x: -x,
+        "plot_type": "contourf",
+        "cmap": "olr_classic",
+        "symmetric": False,
+        "category": "radiation",
+    },
+    "era5_toa_sw": {
+        "nome": "Onda Curta no Topo (ERA5)",
+        "param": ["avg_tnswrf"],
+        "unit_raw": "W/m²",
+        "unit_display": "W/m²",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "radiation",
+    },
+    "era5_ssrd": {
+        "nome": "Onda Curta à Superfície ↓ (ERA5)",
+        "param": ["avg_sdswrf"],
+        "unit_raw": "W/m²",
+        "unit_display": "W/m²",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "radiation",
+    },
+    "era5_strd": {
+        "nome": "Onda Longa à Superfície ↓ (ERA5)",
+        "param": ["avg_sdlwrf"],
+        "unit_raw": "W/m²",
+        "unit_display": "W/m²",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "radiation",
+    },
+    # ── ERA5 — Oceano + umidade de superfície ──
+    "era5_sst": {
+        "nome": "TSM bulk (ERA5)",
+        "param": ["sst"],
+        "unit_raw": "K",
+        "unit_display": "°C",
+        "conversion": lambda x: x - 273.15,
+        "plot_type": "contourf",
+        "cmap": "sst_classic",
+        "symmetric": False,
+        "category": "ocean",
+    },
+    "era5_d2m": {
+        "nome": "Ponto de Orvalho 2 m (ERA5)",
+        "param": ["d2m"],
+        "unit_raw": "K",
+        "unit_display": "°C",
+        "conversion": lambda x: x - 273.15,
+        "plot_type": "contourf",
+        "cmap": "RdBu_r",
+        "symmetric": False,
+        "category": "surface",
+    },
+    "era5_tcc": {
+        "nome": "Cobertura de Nuvens (ERA5)",
+        "param": ["tcc"],
+        "unit_raw": "0–1",
+        "unit_display": "%",
+        "conversion": lambda x: x * 100.0,
+        "plot_type": "contourf",
+        "cmap": "Blues",
+        "symmetric": False,
+        "category": "surface",
+    },
+    # ── ERA5 — Convecção / vento ──
+    "era5_cape": {
+        "nome": "CAPE (ERA5)",
+        "param": ["cape"],
+        "unit_raw": "J/kg",
+        "unit_display": "J/kg",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "instability",
+    },
+    "era5_kindex": {
+        "nome": "Índice K (ERA5)",
+        "param": ["kx"],
+        "unit_raw": "°C",
+        "unit_display": "°C",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "instability",
+    },
+    "era5_totalx": {
+        "nome": "Total Totals (ERA5)",
+        "param": ["totalx"],
+        "unit_raw": "°C",
+        "unit_display": "°C",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "instability",
+    },
+    "era5_gust": {
+        "nome": "Rajada de Vento 10 m (ERA5)",
+        "param": ["fg10"],
+        "unit_raw": "m/s",
+        "unit_display": "m/s",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "surface",
+    },
+    # ── ERA5 — Índices de evento (reduções do período; valor em dias/mm) ──
+    # O motor (data/era5.py) computa o índice e remapeia a chave de render para
+    # cá; conversion=None (o valor já está em dias/mm, não é a variável-fonte).
+    "era5_idx_cdd": {
+        "nome": "Dias Secos Consec. (CDD, ERA5)",
+        "param": ["cdd"],
+        "unit_raw": "dias",
+        "unit_display": "dias",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "index",
+    },
+    "era5_idx_cwd": {
+        "nome": "Dias Úmidos Consec. (CWD, ERA5)",
+        "param": ["cwd"],
+        "unit_raw": "dias",
+        "unit_display": "dias",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "GnBu",
+        "symmetric": False,
+        "category": "index",
+    },
+    "era5_idx_wetdays": {
+        "nome": "Dias Úmidos ≥1 mm (ERA5)",
+        "param": ["wetdays"],
+        "unit_raw": "dias",
+        "unit_display": "dias",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "GnBu",
+        "symmetric": False,
+        "category": "index",
+    },
+    "era5_idx_rx5day": {
+        "nome": "Chuva Máx. 5 dias (Rx5day, ERA5)",
+        "param": ["rx5day"],
+        "unit_raw": "mm",
+        "unit_display": "mm",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "precip_classic",
+        "symmetric": False,
+        "category": "index",
+    },
+    "era5_idx_hotdays": {
+        "nome": "Dias Quentes (ERA5)",
+        "param": ["hotdays"],
+        "unit_raw": "dias",
+        "unit_display": "dias",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "index",
+    },
+    "era5_idx_warmspell": {
+        "nome": "Onda de Calor (dias consec., ERA5)",
+        "param": ["warmspell"],
+        "unit_raw": "dias",
+        "unit_display": "dias",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "index",
+    },
+    "era5_idx_tropicalnights": {
+        "nome": "Noites Quentes (Tmin>20 °C, ERA5)",
+        "param": ["tropicalnights"],
+        "unit_raw": "dias",
+        "unit_display": "dias",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlOrRd",
+        "symmetric": False,
+        "category": "index",
+    },
+    # ── ERA5 — Níveis de pressão extra ──
+    "era5pl_q": {
+        "nome": "Umidade Específica (ERA5)",
+        "param": ["q"],
+        "unit_raw": "kg/kg",
+        "unit_display": "g/kg",
+        "conversion": lambda x: x * 1000.0,
+        "plot_type": "contourf",
+        "cmap": "BrBG",
+        "symmetric": False,
+        "category": "scalar",
+    },
+    "era5pl_vo": {
+        "nome": "Vorticidade Relativa (ERA5)",
+        "param": ["vo"],
+        "unit_raw": "s⁻¹",
+        "unit_display": "×10⁻⁵ s⁻¹",
+        "conversion": lambda x: x * 1e5,
+        "plot_type": "contourf",
+        "cmap": "RdBu_r",
+        "symmetric": True,
+        "category": "scalar",
+    },
+    "era5pl_d": {
+        "nome": "Divergência (ERA5)",
+        "param": ["d"],
+        "unit_raw": "s⁻¹",
+        "unit_display": "×10⁻⁵ s⁻¹",
+        "conversion": lambda x: x * 1e5,
+        "plot_type": "contourf",
+        "cmap": "RdBu_r",
+        "symmetric": True,
+        "category": "scalar",
+    },
 }
 
 
@@ -972,6 +1406,12 @@ class PLFieldData:
     valid_time: str = ""
     base_time: str = ""
     step: int = 0
+    # Fonte do dado: "ifs" (ECMWF Open Data, previsão) ou "era5" (CDS, reanálise).
+    # Governa o prefixo do título do mapa (honestidade científica: reanálise ≠ previsão).
+    source: str = "ifs"
+    # Metadados livres p/ reconstruir a camada no round-trip do projeto
+    # (ERA5: data_start/data_end/hora/agg). None para campos IFS.
+    extra: dict[str, Any] | None = None
 
 
 @dataclass
@@ -1718,13 +2158,15 @@ def load_cross_section(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  CAMPOS DE INSTABILIDADE (CAPE/CIN/LI/K) — camadas de grade cheia (F9)
+#  CAMPOS DE INSTABILIDADE (K/TT/LI/CAPE/CIN + níveis LCL/LFC/EL) — cheia (F9)
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# Derivados do perfil (t,q,gh nos 13 níveis). K-index é vetorizado na grade
-# NATIVA (barato). LI/CAPE/CIN exigem ascensão de parcela por célula (caro) →
-# grade ENGROSSADA por stride e interpolada de volta. Render contínuo — SEM
-# classes/limiares inventados (não há doc de metodologia p/ estes índices).
+# Derivados do perfil (t,q,gh nos 13 níveis). K-index e Total Totals são
+# vetorizados na grade NATIVA (baratos, 3 níveis). LI/CAPE/CIN e os níveis
+# termodinâmicos LCL/LFC/EL exigem ascensão de parcela por célula (caro) → grade
+# ENGROSSADA por stride e interpolada de volta; LCL/EL saem da MESMA ascensão e
+# viram altura (m, MSL) pela coluna de gh. Render contínuo — SEM classes/limiares
+# inventados (não há doc de metodologia p/ estes índices).
 
 
 def _dewpoint_2d(pressure_hpa: float, q2d: np.ndarray):
@@ -1735,6 +2177,25 @@ def _dewpoint_2d(pressure_hpa: float, q2d: np.ndarray):
     mixing = mpcalc.mixing_ratio_from_specific_humidity(q2d * units("kg/kg"))
     e = mpcalc.vapor_pressure(pressure_hpa * units.hPa, mixing)
     return mpcalc.dewpoint(e).to("degC").magnitude
+
+
+def _pressure_to_height_gh(p_hpa: float, pcol_hpa: np.ndarray, ghcol_m: np.ndarray | None) -> float:
+    """Altura (m, MSL) de um nível de pressão via a coluna de geopotencial (gh).
+
+    Interpola ``gh`` em log-pressão na coluna do próprio ponto — mais fiel que a
+    atmosfera-padrão porque usa a altura do modelo. Devolve ``NaN`` se a pressão
+    for indefinida (ex.: LFC/EL inexistentes), se não houver coluna de gh, ou se
+    a coluna não tiver ≥2 pares finitos. ``np.interp`` satura nas bordas
+    (aceitável: LCL~superfície, EL~topo ficam dentro da coluna 1000→50 hPa).
+    """
+    if ghcol_m is None or not np.isfinite(p_hpa):
+        return float("nan")
+    m = np.isfinite(pcol_hpa) & np.isfinite(ghcol_m)
+    if int(m.sum()) < 2:
+        return float("nan")
+    lp = np.log(pcol_hpa[m])
+    o = np.argsort(lp)  # log-p crescente (np.interp exige xp crescente)
+    return float(np.interp(np.log(p_hpa), lp[o], ghcol_m[m][o]))
 
 
 # ── Campos do preset "Diagnóstico Baroclínico" (helpers PUROS/testáveis) ─────
@@ -1796,12 +2257,17 @@ def _instability_from_dataset(
     stride: int,
     step: int,
     progress_cb=None,
+    wind_ds: xr.Dataset | None = None,
 ) -> dict:
     """Calcula os campos de instabilidade de um Dataset isobárico (PURO/testável).
 
-    K-index na grade nativa (vetorizado); LI/CAPE/CIN na grade engrossada
-    (``stride``) com MetPy por coluna, interpolados de volta à grade do extent.
-    Devolve ``{nome: PLFieldData}`` só para os ``indices`` pedidos.
+    K-index e Total Totals na grade nativa (vetorizados); LI/CAPE/CIN, os níveis
+    LCL/LFC/EL e o cisalhamento 0–6 km na grade engrossada (``stride``) com MetPy
+    por coluna, interpolados de volta à grade do extent. LCL/LFC/EL saem da mesma
+    ascensão de parcela e viram altura (m, MSL) via a coluna de ``gh`` (omitidos
+    se ``gh`` faltar). O cisalhamento exige ``wind_ds`` (u,v nos mesmos níveis) e
+    ``gh``; é omitido se qualquer um faltar. Devolve ``{nome: PLFieldData}`` só
+    para os ``indices`` pedidos.
     """
     import metpy.calc as mpcalc
     from metpy.units import units
@@ -1819,9 +2285,38 @@ def _instability_from_dataset(
     q3d = np.asarray(
         ds["q"].transpose("isobaricInhPa", "latitude", "longitude").values, dtype=float
     )[order]
+    # gh (altura geopotencial, m) — já baixado no mesmo GRIB; usado para converter
+    # os níveis termodinâmicos (LCL/EL) de pressão para altura MSL. Ausente → None
+    # (os campos de altura são simplesmente omitidos, sem quebrar os demais).
+    gh3d = (
+        np.asarray(
+            ds["gh"].transpose("isobaricInhPa", "latitude", "longitude").values, dtype=float
+        )[order]
+        if "gh" in ds
+        else None
+    )
     lats = np.asarray(ds["latitude"].values, dtype=float)
     lons = np.asarray(ds["longitude"].values, dtype=float)
     vt, bt = _time_labels(ds)
+
+    # u,v (m/s) do 2º GRIB — só p/ o cisalhamento 0–6 km. Mesmo pré-processo e
+    # ordenação por pressão do ds termodinâmico; se a grade divergir, descarta
+    # (o cisalhamento é então omitido, sem quebrar os demais campos).
+    u3d = v3d = None
+    if wind_ds is not None and "u" in wind_ds and "v" in wind_ds:
+        wds = wind_ds.assign_coords(longitude=(wind_ds.longitude + 180) % 360 - 180)
+        wds = wds.sortby("longitude").sortby("latitude")
+        wds = wds.sel(longitude=slice(extent[0], extent[2]), latitude=slice(extent[1], extent[3]))
+        worder = np.argsort(np.asarray(wds["isobaricInhPa"].values, dtype=float))[::-1]
+        u3d = np.asarray(
+            wds["u"].transpose("isobaricInhPa", "latitude", "longitude").values, dtype=float
+        )[worder]
+        v3d = np.asarray(
+            wds["v"].transpose("isobaricInhPa", "latitude", "longitude").values, dtype=float
+        )[worder]
+        if u3d.shape != t3d.shape:
+            logger.warning("Grade do vento difere da termodinâmica — cisalhamento omitido.")
+            u3d = v3d = None
 
     out: dict = {}
 
@@ -1844,35 +2339,57 @@ def _instability_from_dataset(
             step=step,
         )
 
-    # ── K-index (nativo, vetorizado) ─────────────────────────────────────────
-    if "kindex" in indices:
+    # ── Índices de 3 níveis (nativos, vetorizados): K e Total Totals ─────────
+    # Ambos saem das fatias 850/700/500; computa-as uma vez se qualquer um foi
+    # pedido. Só t,q (já em memória) — custo desprezível ante o laço de parcela.
+    if "kindex" in indices or "totaltotals" in indices:
         if progress_cb:
-            progress_cb("Calculando Índice K (nativo)…")
+            progress_cb("Calculando índices nativos (K/TT)…")
         i850 = int(np.argmin(np.abs(pressures - 850)))
-        i700 = int(np.argmin(np.abs(pressures - 700)))
         i500 = int(np.argmin(np.abs(pressures - 500)))
         td850 = _dewpoint_2d(float(pressures[i850]), q3d[i850])
-        td700 = _dewpoint_2d(float(pressures[i700]), q3d[i700])
         t850 = t3d[i850] - 273.15
-        t700 = t3d[i700] - 273.15
         t500 = t3d[i500] - 273.15
-        kindex = (t850 - t500) + td850 - (t700 - td700)
-        _make("kindex", kindex, "°C")
+        if "kindex" in indices:
+            i700 = int(np.argmin(np.abs(pressures - 700)))
+            td700 = _dewpoint_2d(float(pressures[i700]), q3d[i700])
+            t700 = t3d[i700] - 273.15
+            kindex = (t850 - t500) + td850 - (t700 - td700)
+            _make("kindex", kindex, "°C")
+        if "totaltotals" in indices:
+            # TT = VT + CT = (T850 − T500) + (Td850 − T500)
+            totaltotals = (t850 - t500) + (td850 - t500)
+            _make("totaltotals", totaltotals, "°C")
 
-    # ── LI/CAPE/CIN (engrossado por stride + interp de volta) ────────────────
-    want_parcel = [n for n in ("li", "cape", "cin") if n in indices]
-    if want_parcel:
+    # ── Bloco engrossado (stride + interp): LI/CAPE/CIN, níveis LCL/LFC/EL e ───
+    # ── cisalhamento 0–6 km. LCL/LFC/EL reusam a MESMA ascensão de parcela e a
+    # coluna de gh (altura MSL); o cisalhamento reusa a coluna de gh + u,v. Só
+    # entram se gh existir; o cisalhamento também exige u,v (wind_ds).
+    want_coarse = [n for n in ("li", "cape", "cin", "lcl", "lfc", "el", "shear") if n in indices]
+    if gh3d is None:
+        want_coarse = [n for n in want_coarse if n not in ("lcl", "lfc", "el", "shear")]
+    if u3d is None or v3d is None:
+        want_coarse = [n for n in want_coarse if n != "shear"]
+    if want_coarse:
         # Inclui o último índice p/ cobrir a borda (evita extrapolação no interp).
         ci = np.unique(np.append(np.arange(0, lats.size, stride), lats.size - 1))
         cj = np.unique(np.append(np.arange(0, lons.size, stride), lons.size - 1))
         cape_c = np.full((ci.size, cj.size), np.nan)
         cin_c = np.full((ci.size, cj.size), np.nan)
         li_c = np.full((ci.size, cj.size), np.nan)
+        lcl_c = np.full((ci.size, cj.size), np.nan)
+        lfc_c = np.full((ci.size, cj.size), np.nan)
+        el_c = np.full((ci.size, cj.size), np.nan)
+        shear_c = np.full((ci.size, cj.size), np.nan)
         ps = pressures * units.hPa
         total = ci.size
+        want_el = "el" in want_coarse
+        want_lcl = "lcl" in want_coarse
+        want_lfc = "lfc" in want_coarse
+        want_shear = "shear" in want_coarse
         for a, ii in enumerate(ci):
             if progress_cb and total > 1:
-                progress_cb(f"Ascensão de parcela (CAPE/LI)… {int(100 * a / total)}%")
+                progress_cb(f"Perfil por coluna (CAPE/LI/níveis/shear)… {int(100 * a / total)}%")
             for b, jj in enumerate(cj):
                 tcol = t3d[:, ii, jj]
                 qcol = q3d[:, ii, jj]
@@ -1883,15 +2400,49 @@ def _instability_from_dataset(
                 temp = (tcol[valid] * units.kelvin).to("degC")
                 mixing = mpcalc.mixing_ratio_from_specific_humidity(qcol[valid] * units("kg/kg"))
                 dew = mpcalc.dewpoint(mpcalc.vapor_pressure(p_c, mixing))
+                gcol = gh3d[valid, ii, jj] if gh3d is not None else None
                 try:
                     if "cape" in indices or "cin" in indices:
                         cape, cin = mpcalc.surface_based_cape_cin(p_c, temp, dew)
                         cape_c[a, b] = float(cape.to("J/kg").magnitude)
                         cin_c[a, b] = float(cin.to("J/kg").magnitude)
-                    if "li" in indices:
+                    # Parcela compartilhada por LI e EL (uma ascensão por coluna).
+                    parcel = None
+                    if "li" in indices or want_el or want_lfc:
                         parcel = mpcalc.parcel_profile(p_c, temp[0], dew[0]).to("degC")
+                    if "li" in indices:
                         li = mpcalc.lifted_index(p_c, temp, parcel)
                         li_c[a, b] = float(np.atleast_1d(li.magnitude)[0])
+                    if want_lcl:
+                        lcl_p = mpcalc.lcl(p_c[0], temp[0], dew[0])[0]
+                        lcl_c[a, b] = _pressure_to_height_gh(
+                            float(lcl_p.to("hPa").magnitude), p_c.magnitude, gcol
+                        )
+                    if want_lfc:
+                        # LFC indefinido (coluna estável) → pressão NaN → altura NaN
+                        # (honesto: célula fica vazia, sem preenchimento artificial).
+                        lfc_p = mpcalc.lfc(p_c, temp, dew, parcel)[0]
+                        lfc_c[a, b] = _pressure_to_height_gh(
+                            float(lfc_p.to("hPa").magnitude), p_c.magnitude, gcol
+                        )
+                    if want_el:
+                        el_p = mpcalc.el(p_c, temp, dew, parcel)[0]
+                        el_c[a, b] = _pressure_to_height_gh(
+                            float(el_p.to("hPa").magnitude), p_c.magnitude, gcol
+                        )
+                    if want_shear:
+                        # Cisalhamento vetorial 0–6 km: |V(base+6km) − V(base)|.
+                        # bulk_shear usa a altura (MSL) da coluna e a base = nível
+                        # mais baixo válido → 0–6 km a partir da superfície do modelo.
+                        assert u3d is not None and v3d is not None  # gate garante u,v
+                        u_c = u3d[valid, ii, jj] * units("m/s")
+                        v_c = v3d[valid, ii, jj] * units("m/s")
+                        us, vs = mpcalc.bulk_shear(
+                            p_c, u_c, v_c, height=gcol * units.m, depth=6000 * units.m
+                        )
+                        shear_c[a, b] = float(
+                            np.hypot(us.to("m/s").magnitude, vs.to("m/s").magnitude)
+                        )
                 except Exception as e:  # noqa: BLE001 — coluna ruim não derruba o campo
                     logger.debug("Instabilidade falhou numa coluna: %s", e)
 
@@ -1910,6 +2461,14 @@ def _instability_from_dataset(
             _make("cin", _interp(cin_c), "J/kg")
         if "li" in indices:
             _make("li", _interp(li_c), "°C")
+        if want_lcl:
+            _make("lcl", _interp(lcl_c), "m")
+        if want_lfc:
+            _make("lfc", _interp(lfc_c), "m")
+        if want_el:
+            _make("el", _interp(el_c), "m")
+        if want_shear:
+            _make("shear", _interp(shear_c), "m/s")
 
     return out
 
@@ -1926,11 +2485,12 @@ def compute_instability_fields(
     force_download: bool = False,
     progress_cb=None,
 ) -> dict:
-    """Campos de instabilidade do IFS (CAPE/CIN/LI/K) sobre o extent — F9.
+    """Campos de instabilidade do IFS (K/TT/LI/CAPE/CIN + LCL/LFC/EL/shear) — F9.
 
-    Um ÚNICO GRIB (t,q,gh × 13 níveis, cache-first). Roda no worker (CPU pesada
-    no CAPE/LI) com ``progress_cb``. Devolve ``{nome: PLFieldData}`` pronto para
-    ``MapCanvas.add_pl_layer``. Tudo em ``data_dir`` (config.grib_dir).
+    Um GRIB t,q,gh × 13 níveis (cache-first). Se ``shear`` for pedido, baixa um 2º
+    GRIB u,v (cache próprio, serializado após o 1º) para o cisalhamento 0–6 km.
+    Roda no worker (CPU pesada no CAPE/LI) com ``progress_cb``. Devolve
+    ``{nome: PLFieldData}`` pronto para ``MapCanvas.add_pl_layer``.
     """
     if data_dir is None:
         raise ValueError("data_dir não pode ser None")
@@ -1960,6 +2520,32 @@ def compute_instability_fields(
             "errors": "ignore",
         },
     )
+    # 2º GRIB (u,v) só p/ o cisalhamento — cache próprio, baixado APÓS o 1º
+    # (fila serializada = uma requisição por vez, reaproveita o 429 do downloader).
+    wind_ds = None
+    if "shear" in indices:
+        if progress_cb:
+            progress_cb("Baixando vento (u, v) para o cisalhamento 0–6 km…")
+        wind_file = download_ecmwf(
+            variables=["u", "v"],
+            levels=PL_LEVELS,
+            step=step,
+            cycle=cycle,
+            output_path=data_dir / f"ecmwf_instabwind_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+            data_dir=data_dir,
+            source=source,
+            force_download=force_download,
+            levtype="pl",
+            date=cycle_date,
+        )
+        wind_ds = xr.open_dataset(
+            wind_file,
+            engine="cfgrib",
+            backend_kwargs={
+                "filter_by_keys": {"typeOfLevel": "isobaricInhPa"},
+                "errors": "ignore",
+            },
+        )
     try:
         return _instability_from_dataset(
             ds,
@@ -1968,9 +2554,12 @@ def compute_instability_fields(
             int(coarsen_stride),
             step,
             progress_cb,
+            wind_ds=wind_ds,
         )
     finally:
         ds.close()
+        if wind_ds is not None:
+            wind_ds.close()
 
 
 def load_pl_variable(

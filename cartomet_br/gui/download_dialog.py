@@ -296,6 +296,114 @@ class PLDownloadThread(QThread):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  THREAD DE DOWNLOAD ERA5 (reanálise Copernicus/CDS)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class ERA5DownloadThread(QThread):
+    """Thread para download de campos ERA5 via DataService (CDS API).
+
+    Espelha ``PLDownloadThread`` (mesmos sinais), mas a fila do CDS não fornece
+    porcentagem de progresso confiável — a barra roda em modo indeterminado e o
+    status é textual. Todo o trabalho de rede fica aqui; a GUI nunca trava.
+    """
+
+    progress = pyqtSignal(str)
+    finished_ok = pyqtSignal(str, object)  # (layer_id, PLFieldData)
+    finished_error = pyqtSignal(str)
+
+    def __init__(
+        self,
+        variable_key: str,
+        date_start: str,
+        date_end: str,
+        hour: int,
+        agg: str,
+        config: Config,
+        level: int = 0,
+        thresh: float = 0.0,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.service = DataService(config)
+        self.variable_key = variable_key
+        self.date_start = date_start
+        self.date_end = date_end
+        self.hour = hour
+        self.agg = agg
+        self.level = level
+        self.thresh = thresh
+
+    def run(self):
+        try:
+            var_info = VARIABLE_REGISTRY.get(self.variable_key, {})
+            nome = var_info.get("nome", self.variable_key)
+            self.progress.emit(f"Consultando o CDS (fila do ERA5) — {nome}...")
+            layer_id, data = self.service.load_era5_field(
+                variable_key=self.variable_key,
+                date_start=self.date_start,
+                date_end=self.date_end,
+                hour=self.hour,
+                agg=self.agg,
+                level=self.level,
+                thresh=self.thresh,
+            )
+            self.progress.emit(f"Camada {nome} carregada!")
+            self.finished_ok.emit(layer_id, data)
+        except (ValidationError, DownloadError) as e:
+            self.finished_error.emit(str(e))
+        except Exception as e:  # noqa: BLE001 — qualquer falha vira mensagem na GUI
+            self.finished_error.emit(str(e))
+
+
+class ERA5SeriesThread(QThread):
+    """Thread para a série temporal ERA5 num ponto (Fase 3) via DataService."""
+
+    progress = pyqtSignal(str)
+    finished_ok = pyqtSignal(object)  # ERA5Series
+    finished_error = pyqtSignal(str)
+
+    def __init__(
+        self,
+        variable_key: str,
+        date_start: str,
+        date_end: str,
+        lon: float,
+        lat: float,
+        config: Config,
+        level: int = 0,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.service = DataService(config)
+        self.variable_key = variable_key
+        self.date_start = date_start
+        self.date_end = date_end
+        self.lon = lon
+        self.lat = lat
+        self.level = level
+
+    def run(self):
+        try:
+            var_info = VARIABLE_REGISTRY.get(self.variable_key, {})
+            nome = var_info.get("nome", self.variable_key)
+            self.progress.emit(f"Consultando o CDS (série ERA5) — {nome}...")
+            series = self.service.load_era5_series(
+                variable_key=self.variable_key,
+                date_start=self.date_start,
+                date_end=self.date_end,
+                lon=self.lon,
+                lat=self.lat,
+                level=self.level,
+            )
+            self.finished_ok.emit(series)
+        except (ValidationError, DownloadError) as e:
+            self.finished_error.emit(str(e))
+        except Exception as e:  # noqa: BLE001 — qualquer falha vira mensagem na GUI
+            self.finished_error.emit(str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  THREAD DE DOWNLOAD GOES-EAST
 # ═══════════════════════════════════════════════════════════════════════════════
 

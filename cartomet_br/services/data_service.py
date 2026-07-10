@@ -9,10 +9,11 @@ interface, não das funções internas de download/processamento.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from cartomet_br.core.config import Config
+from cartomet_br.data.cds_credentials import ERA5_MIN_DELAY_DAYS
 from cartomet_br.data.ecmwf import (
     PL_LEVELS,
     VARIABLE_REGISTRY,
@@ -29,6 +30,16 @@ from cartomet_br.data.ecmwf import (
     load_synoptic_data,
     load_t2_extreme,
     load_tcwv,
+)
+from cartomet_br.data.era5 import (
+    AGG_INDEX_MODES,
+    AGG_MODES,
+    ERA5_VARIABLES,
+    INDEX_RENDER_KEY,
+    ERA5Series,
+    load_era5_field,
+    load_era5_timeseries,
+    profile_modes,
 )
 
 logger = logging.getLogger(__name__)
@@ -275,6 +286,176 @@ class DataService:
             raise
         except Exception as exc:
             raise DownloadError(self._format_download_error(exc, step)) from exc
+
+    # ─── ERA5 (reanálise Copernicus/CDS) ─────────────────────────────────────
+
+    @staticmethod
+    def validate_era5_request(
+        variable_key: str,
+        date_start: str,
+        date_end: str,
+        hour: int,
+        agg: str,
+        level: int = 0,
+    ) -> None:
+        """Valida um pedido ERA5 antes de tocar a rede.
+
+        Raises
+        ------
+        ValidationError
+            Variável/agg desconhecidos, datas malformadas, intervalo invertido,
+            hora fora de 0–23, nível ausente/ inválido para variáveis de nível de
+            pressão, ou data recente demais (< hoje − atraso do ERA5T).
+        """
+        var = ERA5_VARIABLES.get(variable_key)
+        if var is None:
+            raise ValidationError(f"Variável ERA5 desconhecida: {variable_key!r}")
+        if agg not in AGG_MODES:
+            raise ValidationError(f"Modo de agregação inválido: {agg!r}")
+        # Modos de acumulação (somar/total diário) só fazem sentido para chuva.
+        if agg in ("soma", "soma_diaria", "max_soma_diaria") and var.agg_profile != "accumulation":
+            raise ValidationError("Modos de total (soma) só fazem sentido para precipitação.")
+        # Índices de evento só valem para a variável cujo perfil os oferece
+        # (defesa em profundidade — a UI já filtra pelo perfil).
+        if agg in AGG_INDEX_MODES and agg not in profile_modes(var.agg_profile):
+            raise ValidationError(f"O índice {agg!r} não se aplica a {variable_key}.")
+        if not 0 <= int(hour) <= 23:
+            raise ValidationError(f"Hora fora do intervalo 0–23: {hour}")
+        if var.pressure_level and int(level) not in PL_LEVELS:
+            raise ValidationError(
+                f"{variable_key} exige um nível de pressão válido (hPa). Escolha um de {PL_LEVELS}."
+            )
+        try:
+            d0 = date.fromisoformat(date_start)
+            d1 = date.fromisoformat(date_end)
+        except ValueError as exc:
+            raise ValidationError(f"Data inválida (use AAAA-MM-DD): {exc}") from exc
+        if d1 < d0:
+            raise ValidationError("A data final é anterior à inicial.")
+
+        latest_ok = datetime.now(UTC).date() - timedelta(days=ERA5_MIN_DELAY_DAYS)
+        if d1 > latest_ok:
+            raise ValidationError(
+                "O ERA5 é reanálise, publicada com ~5 dias de atraso (ERA5T).\n\n"
+                f"A data mais recente disponível é {latest_ok.isoformat()}.\n"
+                "Escolha um período que termine nessa data ou antes."
+            )
+
+    def load_era5_field(
+        self,
+        variable_key: str,
+        date_start: str,
+        date_end: str,
+        hour: int,
+        agg: str,
+        level: int = 0,
+        thresh: float = 0.0,
+    ) -> tuple[str, PLFieldData]:
+        """Baixa (cache-first) um campo ERA5 e devolve ``(layer_id, PLFieldData)``.
+
+        O ``layer_id`` é a chave da variável (``era5_t2m``) para campos de
+        superfície, ``{chave}_{nível}`` (``era5pl_t_500``) para níveis de pressão,
+        e a chave de render do índice (``era5_idx_cdd``) para índices de evento —
+        assim índices distintos da MESMA variável-fonte coexistem como camadas.
+        ``thresh`` (°C) só é usado pelos índices de dias quentes/onda de calor.
+        """
+        self.validate_era5_request(variable_key, date_start, date_end, hour, agg, level)
+        var = ERA5_VARIABLES[variable_key]
+        out_level = int(level) if var.pressure_level else 0
+        logger.info(
+            "Solicitando ERA5: %s %s→%s %02dZ agg=%s nível=%s",
+            variable_key,
+            date_start,
+            date_end,
+            hour,
+            agg,
+            out_level,
+        )
+        try:
+            data = load_era5_field(
+                variable_key=variable_key,
+                date_start=date_start,
+                date_end=date_end,
+                hour=hour,
+                agg=agg,
+                extent=self._config.extent,
+                level=out_level,
+                data_dir=self._config.era5_dir,
+                smoothing_sigma=self._config.smoothing_sigma,
+                thresh=thresh,
+            )
+        except (ValidationError, DataServiceError):
+            raise
+        except Exception as exc:
+            raise DownloadError(self._format_era5_error(exc)) from exc
+        if agg in AGG_INDEX_MODES:
+            layer_id = INDEX_RENDER_KEY[agg]
+        elif var.pressure_level:
+            layer_id = f"{variable_key}_{out_level}"
+        else:
+            layer_id = variable_key
+        return layer_id, data
+
+    def load_era5_series(
+        self,
+        variable_key: str,
+        date_start: str,
+        date_end: str,
+        lon: float,
+        lat: float,
+        level: int = 0,
+    ) -> ERA5Series:
+        """Baixa (cache-first) a série temporal horária de um campo ERA5 num ponto."""
+        # Reusa a validação de campo (guarda do ERA5T, nível); a série não agrega,
+        # então usa agg="hora" só para passar pela checagem de datas/nível.
+        self.validate_era5_request(variable_key, date_start, date_end, 0, "hora", level)
+        var = ERA5_VARIABLES[variable_key]
+        out_level = int(level) if var.pressure_level else 0
+        logger.info(
+            "Série ERA5: %s %s→%s @(%.2f, %.2f) nível=%s",
+            variable_key,
+            date_start,
+            date_end,
+            lon,
+            lat,
+            out_level,
+        )
+        try:
+            return load_era5_timeseries(
+                variable_key=variable_key,
+                date_start=date_start,
+                date_end=date_end,
+                lon=lon,
+                lat=lat,
+                level=out_level,
+                data_dir=self._config.era5_dir,
+            )
+        except (ValidationError, DataServiceError):
+            raise
+        except Exception as exc:
+            raise DownloadError(self._format_era5_error(exc)) from exc
+
+    @staticmethod
+    def _format_era5_error(exc: Exception) -> str:
+        """Traduz erros do CDS/cdsapi para mensagens acionáveis ao usuário."""
+        msg = str(exc)
+        low = msg.lower()
+        if "não configurada" in low or "ausente" in low or "somente-cache" in low:
+            return msg  # mensagens de make_cds_client / cache já são instrutivas
+        if "licence" in low or "license" in low or "not been accepted" in low:
+            return (
+                "É preciso aceitar os termos do dataset ERA5 no site do CDS.\n\n"
+                "Acesse a página do 'ERA5 hourly data on single levels' em\n"
+                "https://cds.climate.copernicus.eu e clique em 'Accept terms'."
+            )
+        if "401" in msg or "403" in msg or "authoriz" in low or "authentic" in low:
+            return (
+                "Chave do CDS inválida ou sem permissão (HTTP 401/403).\n\n"
+                "Reconfigure em Arquivo → 'Chave ERA5 (CDS)...' e teste a conexão."
+            )
+        if "connection" in low or "timeout" in low or "ssl" in low:
+            return "Erro de conexão com o CDS.\n\nVerifique sua internet e tente novamente."
+        return f"Falha ao baixar ERA5:\n{msg}"
 
     def load_satellite(
         self,

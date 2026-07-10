@@ -57,6 +57,11 @@ from cartomet_br.data.ecmwf import (
     load_synoptic_data,
     load_tcwv,
 )
+from cartomet_br.data.era5 import (
+    _SINGLE_HOUR_AGGS,
+    ERA5_LONG_PERIOD_DAYS,
+    era5_period_days,
+)
 from cartomet_br.data.wind_rose import level_label
 from cartomet_br.gui._constants import (
     APP_AUTHOR,
@@ -78,6 +83,8 @@ from cartomet_br.gui.download_dialog import (
     BlockingThread,
     DownloadProgressDialog,
     DownloadThread,
+    ERA5DownloadThread,
+    ERA5SeriesThread,
     LoczcitThread,
     PLDownloadThread,
     SatDownloadThread,
@@ -85,6 +92,8 @@ from cartomet_br.gui.download_dialog import (
     StationDownloadThread,
 )
 from cartomet_br.gui.drawing_panel import SymbologyPanel
+from cartomet_br.gui.era5_panel import ERA5Panel
+from cartomet_br.gui.era5_series_panel import ERA5SeriesPanel
 from cartomet_br.gui.layer_panel import FieldLayerPanel, SatellitePanel, SettingsPanel, SSTPanel
 from cartomet_br.gui.map_canvas import MapCanvas
 from cartomet_br.gui.meteogram_panel import MeteogramPanel
@@ -93,6 +102,7 @@ from cartomet_br.gui.sounding_panel import SoundingPanel
 from cartomet_br.gui.themes import DARK_STYLE
 from cartomet_br.gui.wind_rose_config_dialog import WindRoseConfigDialog, load_wind_rose_config
 from cartomet_br.gui.wind_rose_panel import WindRosePanel
+from cartomet_br.gui.wind_style import WindStyleDialog
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +122,9 @@ class MainWindow(QMainWindow):
         self.config = Config(data_dir=data_dir, output_dir=data_dir / "output")
         self.download_thread = None
         self.pl_download_thread = None
+        self.era5_download_thread = None
+        self._era5_series_worker = None
+        self._active_era5_series_point = None  # (lon, lat) da série ativa
         self.sat_download_thread = None
         self.sst_download_thread = None
         self.station_download_thread = None
@@ -216,6 +229,14 @@ class MainWindow(QMainWindow):
         self.field_panel = FieldLayerPanel()
         right_layout.addWidget(self.field_panel)
 
+        sep_era5 = QFrame()
+        sep_era5.setFrameShape(QFrame.Shape.HLine)
+        sep_era5.setStyleSheet("background-color: #5D6D7E; margin: 4px 8px;")
+        right_layout.addWidget(sep_era5)
+
+        self.era5_panel = ERA5Panel()
+        right_layout.addWidget(self.era5_panel)
+
         right_layout.addStretch()
 
         scroll = QScrollArea()
@@ -251,6 +272,13 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.wind_rose_panel)
         self.wind_rose_panel.set_show_stats(bool(self._wind_rose_config["show_stats"]))
         self.wind_rose_panel.hide()
+
+        # Série ERA5 (Fase 3) — dock direito deslizante, oculto até o 1º clique.
+        self.era5_series_panel = ERA5SeriesPanel("Série ERA5 (Ponto)", self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.era5_series_panel)
+        self.era5_series_panel.hide()
+        # Alias para o sistema de exclusividade de modos de clique (botão vive no ERA5Panel).
+        self.era5_series_mode_btn = self.era5_panel.series_btn
 
     def _setup_menu(self):
         menubar = self.menuBar()
@@ -647,11 +675,16 @@ class MainWindow(QMainWindow):
         self.field_panel.add_layer_requested.connect(self._on_add_pl_layer)
         self.field_panel.toggle_layer_requested.connect(self._on_toggle_pl_layer)
         self.field_panel.remove_layer_requested.connect(self._on_remove_pl_layer)
+        self.field_panel.restyle_layer_requested.connect(self._on_restyle_pl_layer)
         self.field_panel.preset_requested.connect(self._on_preset_requested)
         self.field_panel.loczcit_requested.connect(self._on_loczcit_requested)
         self.field_panel.blocking_requested.connect(self._on_blocking_requested)
         self.field_panel.instability_requested.connect(self._launch_instability)
         self.field_panel.baroclinic_requested.connect(self._on_baroclinic_requested)
+
+        self.era5_panel.add_era5_layer_requested.connect(self._on_add_era5_layer)
+        self.era5_panel.series_mode_toggled.connect(self._toggle_era5_series_mode)
+        self.canvas.era5_series_requested.connect(self._on_era5_series_point)
 
         self.canvas.annotation_requested.connect(self._on_annotation_requested)
 
@@ -857,6 +890,7 @@ class MainWindow(QMainWindow):
             ("meteogram_mode_btn", self.canvas.set_meteogram_mode),
             ("wind_rose_mode_btn", self.canvas.set_wind_rose_mode),
             ("xsec_mode_btn", self.canvas.set_cross_section_mode),
+            ("era5_series_mode_btn", self.canvas.set_era5_series_mode),
         )
         for attr, setter in analysis:
             btn = getattr(self, attr, None)
@@ -895,6 +929,7 @@ class MainWindow(QMainWindow):
             "meteogram": ("meteogram_mode_btn", self.canvas.set_meteogram_mode),
             "wind_rose": ("wind_rose_mode_btn", self.canvas.set_wind_rose_mode),
             "cross_section": ("xsec_mode_btn", self.canvas.set_cross_section_mode),
+            "era5_series": ("era5_series_mode_btn", self.canvas.set_era5_series_mode),
         }
         for key, (attr, setter) in analysis.items():
             if key == keep:
@@ -991,6 +1026,116 @@ class MainWindow(QMainWindow):
             self.canvas.set_cross_section_mode(False)
             self.status_label.setText("● Pronto")
             self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _toggle_era5_series_mode(self, checked: bool) -> None:
+        """Liga/desliga a Série ERA5 (Fase 3), exclusiva dos demais modos de clique."""
+        if checked:
+            self._disable_other_click_modes(keep="era5_series")
+            self.canvas.set_era5_series_mode(True)
+            self.era5_series_panel.show()
+            self.era5_series_panel.raise_()
+            self.status_label.setText(
+                "● Série ERA5 — clique num ponto para a série horária (reanálise)"
+            )
+            self.status_label.setStyleSheet("color: #16A085;")
+        else:
+            self.canvas.set_era5_series_mode(False)
+            self.status_label.setText("● Pronto")
+            self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _confirm_era5_long_period(
+        self, date_start: str, date_end: str, kind: str, hours_per_day: int = 24
+    ) -> bool:
+        """True se o período é curto OU o usuário confirmou um pedido longo ao CDS.
+
+        O volume cresce com nº de dias × horas/dia (24 nos modos que varrem o dia;
+        1 nos modos de hora fixa). Acima de ``ERA5_LONG_PERIOD_DAYS`` a GUI avisa.
+        """
+        days = era5_period_days(date_start, date_end)
+        if days <= ERA5_LONG_PERIOD_DAYS:
+            return True
+        resp = QMessageBox.question(
+            self,
+            "Período longo no ERA5",
+            f"O período tem {days} dias — este pedido de {kind} baixa cerca de "
+            f"{days * hours_per_day} horas do CDS.\n\n"
+            "Pode demorar bastante na fila do Copernicus (e ocupar espaço em cache).\n\n"
+            "Deseja continuar mesmo assim?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return resp == QMessageBox.StandardButton.Yes
+
+    # ── Série temporal ERA5 num ponto (Fase 3) ───────────────────────────────
+    def _on_era5_series_point(self, lon: float, lat: float) -> None:
+        """Clique no modo Série ERA5 → abre o painel e dispara a série no ponto."""
+        self._active_era5_series_point = (float(lon), float(lat))
+        self.era5_series_panel.show()
+        self.era5_series_panel.raise_()
+        self._launch_era5_series()
+
+    def _launch_era5_series(self) -> None:
+        """Dispara o ERA5SeriesThread no ponto ativo com a variável/período do painel."""
+        if self._active_era5_series_point is None:
+            return
+        if self._era5_series_worker is not None and self._era5_series_worker.isRunning():
+            QMessageBox.information(
+                self, "Aguarde", "Uma série ERA5 já está em andamento. Aguarde concluir."
+            )
+            return
+
+        lon, lat = self._active_era5_series_point
+        var_key = self.era5_panel.current_variable()
+        level = self.era5_panel.current_level()
+        date_start, date_end = self.era5_panel.current_period()
+
+        # A série baixa todas as horas do período; avisa se o período for longo.
+        if not self._confirm_era5_long_period(date_start, date_end, "série"):
+            return
+
+        # Região atual (não usada no download por ponto, mas mantém a config coerente).
+        self.config.extent = self.settings_panel.get_extent()
+
+        nome = VARIABLE_REGISTRY.get(var_key, {}).get("nome", var_key)
+        ns = "N" if lat >= 0 else "S"
+        ew = "E" if lon >= 0 else "W"
+        label = f"{abs(lat):.2f}°{ns} {abs(lon):.2f}°{ew}"
+        self.era5_series_panel.show_loading(f"Série ERA5 — {nome}", label)
+        self.status_label.setText(f"● Série ERA5 em {label} — consultando o CDS…")
+        self.status_label.setStyleSheet("color: #16A085;")
+
+        worker = ERA5SeriesThread(
+            variable_key=var_key,
+            date_start=date_start,
+            date_end=date_end,
+            lon=lon,
+            lat=lat,
+            config=self.config,
+            level=level,
+            parent=self,
+        )
+        worker.progress.connect(self._on_era5_series_progress)
+        worker.finished_ok.connect(self._on_era5_series_ok)
+        worker.finished_error.connect(self._on_era5_series_error)
+        self._era5_series_worker = worker
+        worker.start()
+
+    def _on_era5_series_progress(self, msg: str) -> None:
+        self.status_label.setText(f"● {msg}")
+        self.status_label.setStyleSheet("color: #16A085;")
+
+    def _on_era5_series_ok(self, series) -> None:
+        self.era5_series_panel.render(series)
+        self.era5_series_panel.show()
+        self.era5_series_panel.raise_()
+        self.status_label.setText("● Série ERA5 carregada")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_era5_series_error(self, error_msg: str) -> None:
+        self.era5_series_panel.show_error(error_msg)
+        self.status_label.setText("● Erro na série ERA5")
+        self.status_label.setStyleSheet("color: #E74C3C;")
+        QMessageBox.warning(self, "Erro na Série ERA5 (CDS)", error_msg)
 
     # ═══════════════════════════════════════════════════════════════════════
     #  SONDA VERTICAL (RADIOSSONDAGEM / SKEW-T)
@@ -2031,8 +2176,20 @@ class MainWindow(QMainWindow):
     #  HANDLERS PARA CAMPOS EM ALTITUDE (PL / OLR)
     # ═══════════════════════════════════════════════════════════════════════
 
-    def _on_add_pl_layer(self, var_key: str, level: int, wind_type: str):
-        """Usuário clicou 'Adicionar camada' no FieldLayerPanel."""
+    def _on_add_pl_layer(
+        self,
+        var_key: str,
+        level: int,
+        wind_type: str,
+        color: str = "gray",
+        density: str = "media",
+    ):
+        """Usuário clicou 'Adicionar camada' no FieldLayerPanel.
+
+        ``color``/``density`` só afetam campos de vento; presets e campos de
+        superfície chamam este slot com 3 args e caem nos defaults (cinza/média),
+        preservando a aparência histórica.
+        """
         if self.pl_download_thread and self.pl_download_thread.isRunning():
             QMessageBox.information(
                 self, "Aguarde", "Um download já está em andamento. Aguarde concluir."
@@ -2103,7 +2260,9 @@ class MainWindow(QMainWindow):
         self.pl_download_thread.progress.connect(self._on_pl_progress)
         self.pl_download_thread.download_percent.connect(self._pl_dl_dialog.update_percent)
         self.pl_download_thread.finished_ok.connect(
-            lambda lid, data, wt=wind_type: self._on_pl_download_ok(lid, data, wt)
+            lambda lid, data, wt=wind_type, c=color, d=density: self._on_pl_download_ok(
+                lid, data, wt, c, d
+            )
         )
         self.pl_download_thread.finished_error.connect(self._on_pl_download_error)
         self.pl_download_thread.start()
@@ -2118,7 +2277,9 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_pl_dl_dialog") and self._pl_dl_dialog:
             self._pl_dl_dialog.update_status(msg)
 
-    def _on_pl_download_ok(self, layer_id: str, data, wind_type: str):
+    def _on_pl_download_ok(
+        self, layer_id: str, data, wind_type: str, color: str = "gray", density: str = "media"
+    ):
         self.progress_bar.setVisible(False)
 
         # As linhas de corrente (streamplot) são pesadas e renderizam na thread da
@@ -2139,7 +2300,7 @@ class MainWindow(QMainWindow):
 
         try:
             self.field_panel.remove_layer_entry(layer_id)
-            self.canvas.add_pl_layer(layer_id, data, wind_type)
+            self.canvas.add_pl_layer(layer_id, data, wind_type, color=color, density=density)
         finally:
             QApplication.restoreOverrideCursor()
             if getattr(self, "_pl_dl_dialog", None):
@@ -2155,7 +2316,7 @@ class MainWindow(QMainWindow):
         if data.variable == "wind":
             detail = wind_type
 
-        self.field_panel.add_layer_entry(layer_id, label, detail)
+        self.field_panel.add_layer_entry(layer_id, label, detail, is_wind=(data.variable == "wind"))
 
         self.status_label.setText(f"● {label} carregado  |  {data.valid_time} UTC")
         self.status_label.setStyleSheet("color: #27AE60;")
@@ -2174,6 +2335,98 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Limite de Requisições (429)", error_msg)
         else:
             QMessageBox.warning(self, "Erro ao Baixar Campo", error_msg)
+
+    # ─── ERA5 (reanálise Copernicus/CDS) ─────────────────────────────────────
+
+    def _on_add_era5_layer(
+        self,
+        var_key: str,
+        date_start: str,
+        date_end: str,
+        hour: int,
+        level: int,
+        agg: str,
+        thresh: float = 0.0,
+    ):
+        """Usuário clicou 'Baixar campo ERA5' no ERA5Panel.
+
+        A região vem do painel de Configurações (mesma régua do app). A fila do
+        CDS não dá porcentagem → barra indeterminada + status textual.
+        """
+        if self.era5_download_thread and self.era5_download_thread.isRunning():
+            QMessageBox.information(
+                self, "Aguarde", "Um download ERA5 já está em andamento. Aguarde concluir."
+            )
+            return
+
+        # Campos agregados baixam horas do período; avisa se for longo (hora fixa = 1 h/dia).
+        if agg != "hora":
+            hpd = 1 if agg in _SINGLE_HOUR_AGGS else 24
+            if not self._confirm_era5_long_period(date_start, date_end, "campo", hpd):
+                return
+
+        # Região atual (spinboxes de extent) aplicada ao motor ERA5.
+        self.config.extent = self.settings_panel.get_extent()
+
+        nome = VARIABLE_REGISTRY.get(var_key, {}).get("nome", var_key)
+        self.era5_panel.set_downloading(True)
+        self.status_label.setText("● Consultando o CDS (fila do ERA5)...")
+        self.status_label.setStyleSheet("color: #16A085;")
+
+        self._era5_dl_dialog = DownloadProgressDialog(f"Baixando {nome}", parent=self)
+        self._era5_dl_dialog.setStyleSheet(DARK_STYLE)
+        self._era5_dl_dialog.set_indeterminate()
+        # A fila do CDS não é cancelável de forma limpa; ocultamos o botão.
+        self._era5_dl_dialog.cancel_btn.setEnabled(False)
+
+        self.era5_download_thread = ERA5DownloadThread(
+            variable_key=var_key,
+            date_start=date_start,
+            date_end=date_end,
+            hour=hour,
+            agg=agg,
+            config=self.config,
+            level=level,
+            thresh=thresh,
+            parent=self,
+        )
+        self.era5_download_thread.progress.connect(self._on_era5_progress)
+        self.era5_download_thread.finished_ok.connect(self._on_era5_download_ok)
+        self.era5_download_thread.finished_error.connect(self._on_era5_download_error)
+        self.era5_download_thread.start()
+
+        self._era5_dl_dialog.show()
+
+    def _on_era5_progress(self, msg: str):
+        self.status_label.setText(f"● {msg}")
+        self.status_label.setStyleSheet("color: #16A085;")
+        if getattr(self, "_era5_dl_dialog", None):
+            self._era5_dl_dialog.update_status(msg)
+
+    def _on_era5_download_ok(self, layer_id: str, data):
+        self.era5_panel.set_downloading(False)
+        try:
+            self.field_panel.remove_layer_entry(layer_id)
+            self.canvas.add_pl_layer(layer_id, data, "barbs")
+        finally:
+            if getattr(self, "_era5_dl_dialog", None):
+                self._era5_dl_dialog.finish_ok()
+                self._era5_dl_dialog = None
+
+        nome = VARIABLE_REGISTRY.get(data.variable, {}).get("nome", data.variable)
+        label = f"{nome} {data.level} hPa" if data.level > 0 else nome
+        self.field_panel.add_layer_entry(layer_id, label, data.unit)
+        self.status_label.setText(f"● {label} carregado  |  {data.valid_time}")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_era5_download_error(self, error_msg: str):
+        self.era5_panel.set_downloading(False)
+        if getattr(self, "_era5_dl_dialog", None):
+            self._era5_dl_dialog.finish_error()
+            self._era5_dl_dialog = None
+        self.status_label.setText("● Erro ao baixar ERA5")
+        self.status_label.setStyleSheet("color: #E74C3C;")
+        QMessageBox.warning(self, "Erro ao Baixar ERA5 (CDS)", error_msg)
 
     def _on_toggle_pl_layer(self, layer_id: str, visible: bool):
         if layer_id == "loczcit":
@@ -2215,6 +2468,19 @@ class MainWindow(QMainWindow):
             self.canvas.draw()
         else:
             self.canvas.remove_pl_layer(layer_id)
+
+    def _on_restyle_pl_layer(self, layer_id: str):
+        """Botão 🎨: edita cor/densidade de um campo de vento já plotado.
+
+        Aplica a partir do cache (re-render), sem novo download.
+        """
+        wind_type = self.canvas._pl_wind_types.get(layer_id, "barbs")
+        color, density = self.canvas.get_wind_style(layer_id)
+        dlg = WindStyleDialog(wind_type, color=color, density=density, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        new_color, new_density = dlg.get_style()
+        self.canvas.restyle_wind_layer(layer_id, new_color, new_density)
 
     # ═══════════════════════════════════════════════════════════════════════
     #  PRESETS DE ANÁLISE
@@ -3302,7 +3568,7 @@ class MainWindow(QMainWindow):
         label = f"{nome} {data.level} hPa" if data.level > 0 else nome
         detail = wind_type if data.variable == "wind" else data.unit
         self.field_panel.remove_layer_entry(layer_id)
-        self.field_panel.add_layer_entry(layer_id, label, detail)
+        self.field_panel.add_layer_entry(layer_id, label, detail, is_wind=(data.variable == "wind"))
 
     def _restore_satellite_from_cache(self, filename: str) -> bool:
         """Relê o GOES do .nc em cache (sem rede) e replota. True se restaurou.
@@ -3392,6 +3658,9 @@ class MainWindow(QMainWindow):
                             restored += 1
                         elif kind == "field":
                             wind_type = spec.get("wind_type", "barbs")
+                            # Chaves de estilo são aditivas (.cmbr antigos não as têm)
+                            color = spec.get("color", "gray")
+                            density = spec.get("density", "media")
                             layer_id, data = svc.load_field(
                                 spec.get("variable", ""),
                                 spec.get("level") or None,
@@ -3401,8 +3670,23 @@ class MainWindow(QMainWindow):
                                 wind_type=wind_type,
                                 technique=technique,
                             )
-                            self.canvas.add_pl_layer(layer_id, data, wind_type)
+                            self.canvas.add_pl_layer(
+                                layer_id, data, wind_type, color=color, density=density
+                            )
                             self._add_field_panel_entry(layer_id, data, wind_type)
+                            restored += 1
+                        elif kind == "era5":
+                            layer_id, data = svc.load_era5_field(
+                                spec.get("variable", ""),
+                                spec.get("date_start", ""),
+                                spec.get("date_end", ""),
+                                int(spec.get("hour", 0)),
+                                spec.get("agg", "hora"),
+                                int(spec.get("level", 0)),
+                                float(spec.get("thresh", 0.0)),
+                            )
+                            self.canvas.add_pl_layer(layer_id, data, "barbs")
+                            self._add_field_panel_entry(layer_id, data, "barbs")
                             restored += 1
                         elif kind == "satellite":
                             if self._restore_satellite_from_cache(spec.get("filename", "")):
@@ -3560,7 +3844,7 @@ class MainWindow(QMainWindow):
             "Limpar Dados Baixados",
             f"Isso vai liberar aproximadamente {self._format_bytes(size)} "
             f"apagando os dados baixados em cache:\n\n"
-            f"  • GRIB do ECMWF  • Satélite  • TSM  • Observações\n\n"
+            f"  • GRIB do ECMWF  • ERA5 (CDS)  • Satélite  • TSM  • Observações\n\n"
             f"As cartas salvas (pasta 'cartas') NÃO serão afetadas.\n"
             f"Os dados podem ser baixados novamente quando necessário.\n\n"
             f"Deseja continuar?",
@@ -3843,7 +4127,7 @@ class MainWindow(QMainWindow):
         if data.variable == "wind":
             detail = wind_type
 
-        self.field_panel.add_layer_entry(layer_id, label, detail)
+        self.field_panel.add_layer_entry(layer_id, label, detail, is_wind=(data.variable == "wind"))
 
         self.status_label.setText(f"● Importado: {label}  |  {data.valid_time} UTC")
         self.status_label.setStyleSheet("color: #27AE60;")
