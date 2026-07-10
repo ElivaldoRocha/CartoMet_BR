@@ -29,7 +29,7 @@ from cartomet_br.gui.analysis_panel import AnalysisDock
 logger = logging.getLogger(__name__)
 
 _PLACEHOLDER = (
-    "🌹 Ative a Rosa dos Ventos e clique num ponto do mapa.\n\n"
+    "Ative a Rosa dos Ventos e clique num ponto do mapa.\n\n"
     "Distribuição do vento previsto (IFS, 10 m ou nível de pressão) ao longo\n"
     "dos steps da rodada naquele ponto: de onde sopra e com que intensidade."
 )

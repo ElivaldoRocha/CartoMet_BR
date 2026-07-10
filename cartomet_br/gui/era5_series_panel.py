@@ -19,7 +19,7 @@ from cartomet_br.gui.analysis_panel import AnalysisDock
 logger = logging.getLogger(__name__)
 
 _PLACEHOLDER = (
-    "📉 Ative a Série ERA5 e clique num ponto do mapa.\n\n"
+    "Ative a Série ERA5 e clique num ponto do mapa.\n\n"
     "Evolução horária da variável selecionada naquele ponto,\n"
     "ao longo do período escolhido (reanálise Copernicus)."
 )

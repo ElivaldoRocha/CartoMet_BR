@@ -19,7 +19,7 @@ from cartomet_br.gui.analysis_panel import AnalysisDock
 logger = logging.getLogger(__name__)
 
 _PLACEHOLDER = (
-    "🔪 Ative o Corte Vertical e clique em DOIS pontos (A → B).\n\n"
+    "Ative o Corte Vertical e clique em DOIS pontos (A → B).\n\n"
     "Seção distância × pressão do modelo IFS: ω (ascendência),\n"
     "temperatura, umidade e vento ao longo da reta."
 )

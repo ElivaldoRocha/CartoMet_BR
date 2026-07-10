@@ -18,7 +18,7 @@ from cartomet_br.gui.analysis_panel import AnalysisDock
 logger = logging.getLogger(__name__)
 
 _PLACEHOLDER = (
-    "📈 Ative o Meteograma e clique num ponto do mapa.\n\n"
+    "Ative o Meteograma e clique num ponto do mapa.\n\n"
     "Série do modelo IFS (+0…+72h) naquele ponto: temperatura, vento,\n"
     "precipitação, PNMM e água precipitável."
 )
