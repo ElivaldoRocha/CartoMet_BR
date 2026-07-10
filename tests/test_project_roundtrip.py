@@ -158,6 +158,8 @@ def test_export_layers_state_builds_restore_manifest(canvas):
         lats=np.array([0.0, -5.0, -10.0]), variable="wind", level=850, step=24,
     )
     canvas._pl_wind_types["wind_850_barbs"] = "barbs"
+    canvas._pl_wind_color["wind_850_barbs"] = "#E74C3C"
+    canvas._pl_wind_density["wind_850_barbs"] = "alta"
 
     # Satélite GOES em cache.
     class _Sat:
@@ -173,6 +175,7 @@ def test_export_layers_state_builds_restore_manifest(canvas):
     field = by_kind["field"]
     assert field["variable"] == "wind" and field["level"] == 850
     assert field["step"] == 24 and field["wind_type"] == "barbs"
+    assert field["color"] == "#E74C3C" and field["density"] == "alta"
 
     assert by_kind["satellite"]["filename"] == "OR_ABI-L2-CMIPF-M6C13_G19_s2026.nc"
 

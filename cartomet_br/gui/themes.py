@@ -279,4 +279,20 @@ MAP_THEMES = {
         "emphasis_line": "#F5F6FA",
         "emphasis_halo": "#000000",
     },
+    # Fundo raster de relevo sombreado (Natural Earth 1) via ax.stock_img() —
+    # embutido na Cartopy, offline. Troca os preenchimentos sólidos de
+    # oceano/terra/lagos pelo raster; os contornos e o halo continuam por cima.
+    # land/ocean/lakes ficam aqui por uniformidade e fallback, mas NÃO são
+    # consumidos no ramo stock_img de MapCanvas._setup_base_map.
+    "Relevo Natural": {
+        "land": "#E8DCC8",
+        "ocean": "#C5D8E8",
+        "lakes": "#C5D8E8",
+        "coastline": "#1A1A1A",
+        "borders": "#455A64",
+        "states": "#78909C",
+        "emphasis_line": "#0D0D0D",
+        "emphasis_halo": "#FFFFFF",
+        "stock_img": True,
+    },
 }

@@ -74,6 +74,26 @@ from cartomet_br.symbols import MODOS
 
 logger = logging.getLogger(__name__)
 
+# Piso seco da precipitação (limiar de visualização): abaixo dele, o pixel fica
+# 100% transparente em vez de pintar o oceano com um véu de "quase-zero". O limiar
+# é POR UNIDADE, porque a precip. tem naturezas distintas: taxa horária (mm/h),
+# acumulação de 3 h do IFS (mm/3h), total diário (mm/dia) e total do período (mm).
+# Ancoragem: precipitação MENSURÁVEL (resolução de pluviômetro / traço) ≈ 0,1 mm;
+# "dia com chuva" (OMM / rain day) ≥ 1,0 mm/dia. São valores calibráveis de RENDER,
+# não limiares científicos de domínio.
+PRECIP_DRY_FLOOR: dict[str, float] = {
+    "mm/h": 0.1,  # ERA5 horário — precip. mensurável
+    "mm/3h": 0.1,  # IFS (acumulação de 3 h)
+    "mm/dia": 1.0,  # ERA5 diário (total/médio/máx) — dia com chuva (OMM)
+    "mm": 1.0,  # ERA5 total do período
+}
+
+
+def precip_dry_floor(unit: str) -> float:
+    """Limiar (piso seco) de precipitação para a unidade dada; 0,1 mm como fallback."""
+    return PRECIP_DRY_FLOOR.get(unit, 0.1)
+
+
 # Larguras dos contornos de contexto (costa, países, estados): (normal, realçada).
 # O modo "Destacar contornos" (set_context_emphasis) engrossa as linhas e acende
 # um halo de contraste por baixo — pedido operacional: sobre satélite ou campo
@@ -92,6 +112,13 @@ CONTEXT_HALO_EXTRA: float = 1.8
 # da largura da vista (em graus — o inset escala com o zoom, ancorado em transData).
 MAX_PINNED_WIND_ROSES: int = 8
 WIND_ROSE_SIZE_FRACTION: float = 0.16
+
+# Densidade de barbelas/vetores → passo de amostragem (stride) da malha. "media"
+# reproduz o comportamento histórico (skip=8); menor stride = mais setas na carta.
+# Só se aplica a barbelas/vetores — correntes (streamplot) não usam este mapa.
+WIND_DENSITY_SKIP: dict[str, int] = {"baixa": 12, "media": 8, "alta": 5}
+DEFAULT_WIND_COLOR: str = "gray"
+DEFAULT_WIND_DENSITY: str = "media"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -190,6 +217,7 @@ class MapCanvas(FigureCanvas):
     model_sounding_requested = pyqtSignal(float, float)  # (lon, lat) p/ pseudo-sondagem do modelo
     meteogram_requested = pyqtSignal(float, float)  # (lon, lat) p/ meteograma (F6)
     wind_rose_requested = pyqtSignal(float, float)  # (lon, lat) p/ rosa dos ventos
+    era5_series_requested = pyqtSignal(float, float)  # (lon, lat) p/ série temporal ERA5
     cross_section_requested = pyqtSignal(
         float, float, float, float
     )  # (lon_a,lat_a,lon_b,lat_b) p/ corte vertical (F4)
@@ -269,6 +297,8 @@ class MapCanvas(FigureCanvas):
         self._pl_data = {}
         self._pl_artists = {}
         self._pl_wind_types = {}
+        self._pl_wind_color: dict[str, str] = {}
+        self._pl_wind_density: dict[str, str] = {}
         self._pl_colorbars = {}
         self._pl_zorder_counter = 7
 
@@ -386,6 +416,8 @@ class MapCanvas(FigureCanvas):
         self._synoptic_artists = {k: [] for k in self._synoptic_artists}
         self._pl_artists.clear()
         self._pl_wind_types.clear()
+        self._pl_wind_color.clear()
+        self._pl_wind_density.clear()
         self._pl_data.clear()
         self._pl_colorbars.clear()
         self._pl_zorder_counter = 7
@@ -440,26 +472,33 @@ class MapCanvas(FigureCanvas):
         self.ax.set_extent([extent[0], extent[2], extent[1], extent[3]], crs=ccrs.PlateCarree())
 
         theme = MAP_THEMES.get(self.current_theme, MAP_THEMES["Clássico"])
-        self.ax.set_facecolor(theme["ocean"])
-
-        self.ax.add_feature(
-            cfeature.NaturalEarthFeature(
-                "physical", "ocean", "50m", facecolor=theme["ocean"], edgecolor="none"
-            ),
-            zorder=0,
-        )
-        self.ax.add_feature(
-            cfeature.NaturalEarthFeature(
-                "physical", "land", "50m", facecolor=theme["land"], edgecolor="none"
-            ),
-            zorder=1,
-        )
-        self.ax.add_feature(
-            cfeature.NaturalEarthFeature(
-                "physical", "lakes", "50m", facecolor=theme["lakes"], edgecolor="none"
-            ),
-            zorder=1,
-        )
+        if theme.get("stock_img"):
+            # Fundo raster Natural Earth (relevo sombreado) embutido na Cartopy.
+            # Cobre [-180,180,-90,90] em PlateCarree → recortado ao extent atual
+            # (sobrevive a zoom/pan sem rebuild). Fica abaixo dos contornos
+            # (zorder 15/16) e dos campos de dado (2–14).
+            img = self.ax.stock_img()
+            img.set_zorder(0)
+        else:
+            self.ax.set_facecolor(theme["ocean"])
+            self.ax.add_feature(
+                cfeature.NaturalEarthFeature(
+                    "physical", "ocean", "50m", facecolor=theme["ocean"], edgecolor="none"
+                ),
+                zorder=0,
+            )
+            self.ax.add_feature(
+                cfeature.NaturalEarthFeature(
+                    "physical", "land", "50m", facecolor=theme["land"], edgecolor="none"
+                ),
+                zorder=1,
+            )
+            self.ax.add_feature(
+                cfeature.NaturalEarthFeature(
+                    "physical", "lakes", "50m", facecolor=theme["lakes"], edgecolor="none"
+                ),
+                zorder=1,
+            )
         # Contornos geográficos (costa, fronteiras, estados) ficam ACIMA dos
         # campos preenchidos em altitude (PL contourf vai até zorder 14) para
         # que o usuário continue se localizando mesmo com a temperatura/umidade
@@ -1181,10 +1220,15 @@ class MapCanvas(FigureCanvas):
             if unit:
                 field_desc += f" ({unit})"
 
+            # Reanálise ≠ previsão: o prefixo do título nunca deve dizer "IFS"
+            # sobre um campo ERA5 (honestidade científica).
+            source = getattr(top_data, "source", "ifs")
+            prefix = "ERA5 (reanálise)" if source == "era5" else "ECMWF IFS"
+
             if has_synoptic:
-                line1 = f"ECMWF IFS — {field_desc} + PNMM (hPa)"
+                line1 = f"{prefix} — {field_desc} + PNMM (hPa)"
             else:
-                line1 = f"ECMWF IFS — {field_desc}"
+                line1 = f"{prefix} — {field_desc}"
 
             # Tempo: prefere metadados da camada PL
             ref_data = top_data
@@ -1241,9 +1285,15 @@ class MapCanvas(FigureCanvas):
             line1 += " + " + "/".join(obs_labels)
 
         # ── Monta Linha 2: informações cronológicas padronizadas ──
-        rodada = f"Rodada: {ref_data.base_time}" if ref_data.base_time else ""
-        step_txt = f"Step: +{ref_data.step}h"
-        valido = f"Válido: {ref_data.valid_time} UTC" if ref_data.valid_time else ""
+        # ERA5 é reanálise indexada por data/hora absolutas — não tem rodada/step.
+        if getattr(ref_data, "source", "ifs") == "era5":
+            rodada = f"{ref_data.base_time}" if ref_data.base_time else ""
+            step_txt = ""
+            valido = f"Válido: {ref_data.valid_time} UTC" if ref_data.valid_time else ""
+        else:
+            rodada = f"Rodada: {ref_data.base_time}" if ref_data.base_time else ""
+            step_txt = f"Step: +{ref_data.step}h"
+            valido = f"Válido: {ref_data.valid_time} UTC" if ref_data.valid_time else ""
 
         chrono_parts = [p for p in (rodada, step_txt, valido) if p]
         line2 = " | ".join(chrono_parts)
@@ -1399,6 +1449,15 @@ class MapCanvas(FigureCanvas):
             self.interaction_mode = "wind_rose"
             self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
         elif self.interaction_mode == "wind_rose":
+            self.interaction_mode = None
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+
+    def set_era5_series_mode(self, enabled: bool) -> None:
+        """Modo 'Série ERA5' — o clique dispara a série temporal (reanálise) no ponto."""
+        if enabled:
+            self.interaction_mode = "era5_series"
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+        elif self.interaction_mode == "era5_series":
             self.interaction_mode = None
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
 
@@ -1866,6 +1925,10 @@ class MapCanvas(FigureCanvas):
         elif self.interaction_mode == "wind_rose":
             self._mark_sounding_point(event.xdata, event.ydata, color="#8E44AD")
             self.wind_rose_requested.emit(float(event.xdata), float(event.ydata))
+
+        elif self.interaction_mode == "era5_series":
+            self._mark_sounding_point(event.xdata, event.ydata, color="#16A085")
+            self.era5_series_requested.emit(float(event.xdata), float(event.ydata))
 
         elif self.interaction_mode == "cross_section":
             self._on_xsec_click(event.xdata, event.ydata)
@@ -2477,6 +2540,23 @@ class MapCanvas(FigureCanvas):
                 }
             )
         for layer_id, data in self._pl_data.items():
+            # ERA5 (reanálise): indexada por data/hora/agg, não por rodada+step.
+            if getattr(data, "source", "ifs") == "era5":
+                meta = getattr(data, "extra", None) or {}
+                layers.append(
+                    {
+                        "kind": "era5",
+                        "layer_id": str(layer_id),
+                        "variable": str(meta.get("variable", getattr(data, "variable", ""))),
+                        "date_start": str(meta.get("date_start", "")),
+                        "date_end": str(meta.get("date_end", "")),
+                        "hour": int(meta.get("hour", 0)),
+                        "level": int(meta.get("level", getattr(data, "level", 0))),
+                        "agg": str(meta.get("agg", "hora")),
+                        "thresh": float(meta.get("thresh", 0.0)),
+                    }
+                )
+                continue
             layers.append(
                 {
                     "kind": "field",
@@ -2485,6 +2565,8 @@ class MapCanvas(FigureCanvas):
                     "level": int(getattr(data, "level", 0)),
                     "step": int(getattr(data, "step", 0)),
                     "wind_type": str(self._pl_wind_types.get(layer_id, "barbs")),
+                    "color": str(self._pl_wind_color.get(layer_id, DEFAULT_WIND_COLOR)),
+                    "density": str(self._pl_wind_density.get(layer_id, DEFAULT_WIND_DENSITY)),
                 }
             )
         if self._sat_data is not None and getattr(self._sat_data, "filename", ""):
@@ -2523,6 +2605,8 @@ class MapCanvas(FigureCanvas):
             "plot_options": dict(self.plot_options),
             "pl_data": dict(self._pl_data),
             "wind_types": dict(self._pl_wind_types),
+            "wind_colors": dict(self._pl_wind_color),
+            "wind_density": dict(self._pl_wind_density),
             "zorder_base": self._pl_zorder_counter,
             "extent_xyxy": list(self.ax.get_extent(crs=ccrs.PlateCarree())),
         }
@@ -2551,10 +2635,19 @@ class MapCanvas(FigureCanvas):
                 self.synoptic_data = None
 
             pl_data = snap.get("pl_data") or {}
+            wind_types = snap.get("wind_types") or {}
+            wind_colors = snap.get("wind_colors") or {}
+            wind_density = snap.get("wind_density") or {}
             # Rebobina o contador para reproduzir a ordem relativa (zorder) original
             self._pl_zorder_counter = max(7, int(snap.get("zorder_base", 7)) - len(pl_data))
             for lid, data in pl_data.items():
-                self.add_pl_layer(lid, data, (snap.get("wind_types") or {}).get(lid, "barbs"))
+                self.add_pl_layer(
+                    lid,
+                    data,
+                    wind_types.get(lid, "barbs"),
+                    color=wind_colors.get(lid),
+                    density=wind_density.get(lid),
+                )
 
             self.ax.set_extent(snap["extent_xyxy"], crs=ccrs.PlateCarree())
 
@@ -3835,13 +3928,27 @@ class MapCanvas(FigureCanvas):
     #  CAMPOS EM NÍVEIS DE PRESSÃO / OLR
     # ═══════════════════════════════════════════════════════════════════════
 
-    def add_pl_layer(self, layer_id: str, data: PLFieldData, wind_type: str = "barbs"):
-        """Adiciona uma camada PL/OLR ao mapa."""
+    def add_pl_layer(
+        self,
+        layer_id: str,
+        data: PLFieldData,
+        wind_type: str = "barbs",
+        color: str | None = None,
+        density: str | None = None,
+    ):
+        """Adiciona uma camada PL/OLR ao mapa.
+
+        ``color``/``density`` são o estilo do campo de vento (kwargs opcionais para
+        preservar chamadores posicionais — animação, restauração de projeto). Quando
+        ``None``, caem nos defaults históricos (cinza / stride 8).
+        """
         # Substituição in-place: limpa SEM renderizar (o render vem no replot)
         self._remove_pl_layer_state(layer_id)
         self._pl_zorder_counter = min(self._pl_zorder_counter + 1, 14)
         self._pl_data[layer_id] = data
         self._pl_wind_types[layer_id] = wind_type
+        self._pl_wind_color[layer_id] = color if color is not None else DEFAULT_WIND_COLOR
+        self._pl_wind_density[layer_id] = density if density is not None else DEFAULT_WIND_DENSITY
         self._plot_pl_layer(layer_id)
         self._update_map_title()
 
@@ -3857,7 +3964,9 @@ class MapCanvas(FigureCanvas):
 
         if var_info.get("category") == "wind":
             wind_type = self._pl_wind_types.get(layer_id, "barbs")
-            artists = self._plot_wind_field(data, wind_type)
+            color = self._pl_wind_color.get(layer_id, DEFAULT_WIND_COLOR)
+            density = self._pl_wind_density.get(layer_id, DEFAULT_WIND_DENSITY)
+            artists = self._plot_wind_field(data, wind_type, color, density)
         elif var_info.get("plot_type") == "axis_line":
             artists = self._plot_axis_line(data, var_info)
         elif var_info.get("plot_type") == "contour":
@@ -3958,6 +4067,15 @@ class MapCanvas(FigureCanvas):
 
         cmap_name = var_info.get("cmap", "viridis")
         symmetric = var_info.get("symmetric", False)
+        is_precip = data.variable in ("precip", "era5_precip")
+
+        # Piso seco: abaixo do limiar (por unidade) a chuva vira NaN → o contourf
+        # deixa transparente, sem véu de quase-zero sobre o oceano. Máscara aplicada
+        # aqui garante o piso em TODOS os caminhos (inclusive animação/fixed_levels)
+        # e nas isolinhas (que usam o mesmo ``values``).
+        if is_precip:
+            floor = precip_dry_floor(data.unit)
+            values = np.where(np.asarray(values, dtype=float) < floor, np.nan, values)
 
         if cmap_name == "olr_classic":
             import matplotlib.colors as mcolors
@@ -3978,11 +4096,13 @@ class MapCanvas(FigureCanvas):
 
         if fixed_levels is not None:
             levels = fixed_levels
-        elif data.variable == "olr":
+        elif data.variable in ("olr", "era5_olr"):
             levels = np.linspace(100, 310, 22)
-        elif data.variable == "precip":
-            # Níveis fixos de precipitação (mm); evita preencher áreas secas
-            levels = self._PRECIP_LEVELS
+        elif is_precip:
+            # Níveis fixos de precipitação; o menor nível é o piso seco (por unidade),
+            # e o extend="max" (abaixo) não pinta nada sob ele → área seca transparente.
+            floor = precip_dry_floor(data.unit)
+            levels = [floor, *[lv for lv in self._PRECIP_LEVELS if lv > floor]]
         elif symmetric:
             vmax = max(abs(np.nanmin(values)), abs(np.nanmax(values)))
             vmax = vmax * 0.9
@@ -3995,7 +4115,7 @@ class MapCanvas(FigureCanvas):
             lv_min = vmin - margin
             lv_max = vmax + margin
 
-            if var_info.get("category") == "wind_speed" or data.variable in (
+            if var_info.get("category") in ("wind_speed", "index") or data.variable in (
                 "r",
                 "q",
                 "wind_speed",
@@ -4003,6 +4123,18 @@ class MapCanvas(FigureCanvas):
                 "theta_e_grad",
                 "tcwv",
                 "sst_grad",
+                "era5_tcwv",
+                "era5_precip",
+                "era5pl_r",
+                "era5pl_q",
+                "era5_toa_sw",
+                "era5_ssrd",
+                "era5_strd",
+                "era5_tcc",
+                "era5_cape",
+                "era5_kindex",
+                "era5_totalx",
+                "era5_gust",
             ):
                 lv_min = max(0, lv_min)
 
@@ -4019,7 +4151,8 @@ class MapCanvas(FigureCanvas):
             values,
             levels=levels,
             cmap=cmap,
-            extend="both",
+            # precip: "max" não pinta abaixo do 1º nível (piso seco) → seco transparente.
+            extend="max" if is_precip else "both",
             transform=ccrs.PlateCarree(),
             zorder=self._pl_zorder_counter,
             alpha=0.85,
@@ -4038,7 +4171,21 @@ class MapCanvas(FigureCanvas):
         )
         artists.append(cs_lines)
 
-        if data.variable in ("wind_speed", "r", "gh", "olr", "tcwv"):
+        if var_info.get("category") == "index" or data.variable in (
+            "wind_speed",
+            "r",
+            "gh",
+            "olr",
+            "tcwv",
+            "era5pl_r",
+            "era5_tcwv",
+            "era5_olr",
+            "era5_toa_sw",
+            "era5_ssrd",
+            "era5_strd",
+            "era5_tcc",
+            "era5_cape",
+        ):
             label_fmt = "%1.0f"
         else:
             label_fmt = "%1.1f"
@@ -4127,8 +4274,19 @@ class MapCanvas(FigureCanvas):
 
         return artists
 
-    def _plot_wind_field(self, data: PLFieldData, wind_type: str) -> list:
-        """Plota campo de vento: barbelas, vetores ou linhas de corrente."""
+    def _plot_wind_field(
+        self,
+        data: PLFieldData,
+        wind_type: str,
+        color: str = DEFAULT_WIND_COLOR,
+        density: str = DEFAULT_WIND_DENSITY,
+    ) -> list:
+        """Plota campo de vento: barbelas, vetores ou linhas de corrente.
+
+        ``color`` vale para as três representações. ``density`` (baixa/media/alta)
+        só afeta barbelas/vetores via ``WIND_DENSITY_SKIP``; correntes (streamplot)
+        são qualitativas e permanecem intocadas.
+        """
         artists = []
 
         if data.u_values is None or data.v_values is None:
@@ -4140,7 +4298,7 @@ class MapCanvas(FigureCanvas):
         lats = data.lats
 
         if wind_type == "barbs":
-            skip = 8
+            skip = WIND_DENSITY_SKIP.get(density, WIND_DENSITY_SKIP[DEFAULT_WIND_DENSITY])
             lon2d, lat2d = np.meshgrid(lons, lats)
             u_kt = u * 1.94384
             v_kt = v * 1.94384
@@ -4157,7 +4315,7 @@ class MapCanvas(FigureCanvas):
                 sizes={"emptybarb": 0.0, "spacing": 0.2, "height": 0.5},
                 linewidth=0.8,
                 pivot="middle",
-                barbcolor="gray",
+                barbcolor=color,
                 flip_barb=flip_flag[::skip, ::skip],
                 transform=ccrs.PlateCarree(),
                 zorder=self._pl_zorder_counter,
@@ -4165,7 +4323,7 @@ class MapCanvas(FigureCanvas):
             artists.append(barb)
 
         elif wind_type == "quiver":
-            skip = 8
+            skip = WIND_DENSITY_SKIP.get(density, WIND_DENSITY_SKIP[DEFAULT_WIND_DENSITY])
             lon2d, lat2d = np.meshgrid(lons, lats)
 
             qv = self.ax.quiver(
@@ -4173,7 +4331,7 @@ class MapCanvas(FigureCanvas):
                 lat2d[::skip, ::skip],
                 u[::skip, ::skip],
                 v[::skip, ::skip],
-                color="gray",
+                color=color,
                 scale=300,
                 width=0.002,
                 transform=ccrs.PlateCarree(),
@@ -4207,7 +4365,7 @@ class MapCanvas(FigureCanvas):
                 v_stream,
                 density=[2, 2],
                 linewidth=0.7,
-                color="gray",
+                color=color,
                 transform=ccrs.PlateCarree(),
                 zorder=self._pl_zorder_counter,
             )
@@ -4253,6 +4411,8 @@ class MapCanvas(FigureCanvas):
             del self._pl_data[layer_id]
         if layer_id in self._pl_wind_types:
             del self._pl_wind_types[layer_id]
+        self._pl_wind_color.pop(layer_id, None)
+        self._pl_wind_density.pop(layer_id, None)
 
     def remove_pl_layer(self, layer_id: str):
         """Remove completamente uma camada PL."""
@@ -4263,6 +4423,31 @@ class MapCanvas(FigureCanvas):
     def is_stream_layer(self, layer_id: str) -> bool:
         """True se a camada PL é vento em modo 'stream' (re-render pesado)."""
         return self._pl_wind_types.get(layer_id) == "stream"
+
+    def get_wind_style(self, layer_id: str) -> tuple[str, str]:
+        """Cor/densidade atuais de uma camada de vento (defaults se ausente)."""
+        return (
+            self._pl_wind_color.get(layer_id, DEFAULT_WIND_COLOR),
+            self._pl_wind_density.get(layer_id, DEFAULT_WIND_DENSITY),
+        )
+
+    def restyle_wind_layer(self, layer_id: str, color: str, density: str) -> None:
+        """Re-estiliza um campo de vento já plotado — SEM re-baixar (re-render do cache).
+
+        Atualiza cor/densidade, remove os artistas atuais (mesmo caminho do
+        toggle-ocultar) e re-plota a partir dos dados em ``_pl_data``.
+        """
+        if layer_id not in self._pl_data:
+            return
+        self._pl_wind_color[layer_id] = color
+        self._pl_wind_density[layer_id] = density
+        if layer_id in self._pl_artists:
+            for artist in self._pl_artists[layer_id]:
+                with contextlib.suppress(ValueError, AttributeError, NotImplementedError):
+                    artist.remove()
+            self._pl_artists[layer_id] = []
+        self._remove_pl_colorbar(layer_id)
+        self._plot_pl_layer(layer_id)
 
     def toggle_pl_layer(self, layer_id: str, visible: bool):
         """Liga/desliga uma camada PL sem re-download."""

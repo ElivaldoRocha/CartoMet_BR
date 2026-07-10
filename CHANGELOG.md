@@ -63,6 +63,86 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **🌍 ERA5 (reanálise Copernicus/CDS) — Fases 1–2.** Nova fonte de dados de
+  **reanálise** (não previsão), ao lado do IFS operacional, para estudo de casos,
+  climatologia e verificação. Painel dedicado **"ERA5 — Reanálise (CDS)"**
+  (`gui/era5_panel.py`) com seleção por **data/hora absolutas** (não rodada+step),
+  período inicial/final, hora UTC e **agregação** (instantâneo ou média/máx/mín do
+  período; **soma** para precipitação).
+  - **Fase 1 (Single Levels):** Temp. 2 m, vento 10 m, PNMM, precipitação e água
+    precipitável.
+  - **Fase 2 (Pressure Levels):** geopotencial (z→altura, mgp), temperatura, vento
+    (u, v), umidade relativa e velocidade vertical ω nos **13 níveis isobáricos**
+    já usados no IFS — com seletor de nível que aparece só para essas variáveis.
+    Como ERA5 e IFS compartilham o `add_pl_layer` com `layer_id` distintos, é
+    possível **sobrepor** o mesmo campo das duas fontes para **verificação visual**.
+  - **Fase 3 (série temporal num ponto):** botão **📉 "Série no ponto (clique)"** que,
+    como o Meteograma, ativa um modo de clique exclusivo — clicar no mapa abre um
+    painel docado com a **evolução horária** da variável/nível selecionados naquele
+    ponto ao longo do período (reanálise, não previsão). Motor `load_era5_timeseries`
+    (`data/era5.py`) baixa todas as horas do período sobre uma caixa pequena e
+    amostra o nó de grade mais próximo; painel `ERA5SeriesPanel` reusa o
+    `AnalysisDock`. Agregação multi-dia (média/máx/mín/soma **de todo o período
+    escolhido**) já vinha das Fases 1–2. A **Data final** fica sempre editável (só o
+    máximo é travado no limite do ERA5T), permitindo períodos de semanas/meses.
+  - **Fase 4 (robustez):** aviso antes de enfileirar no CDS um pedido **longo**
+    (> 31 dias × 24 h, campo agregado ou série) — evita esperas/surpresas sem
+    bloquear. A limpeza de cache ("Limpar Dados Baixados") já cobre o ERA5.
+  - **Fase 5 (catálogo expandido):** +16 variáveis, reusando o motor genérico.
+    **Temp. máxima/mínima 2 m** (`mx2t`/`mn2t`, extremo pós-processado — captam o
+    pico sub-horário real; a média das diárias é a Tmáx/Tmín climatológica).
+    **Radiação** (fluxos médios já em W/m², sem desacumular): OLR, onda curta no
+    topo, onda curta e longa à superfície. **Oceano/umidade:** TSM *bulk* (que o IFS
+    gratuito não tem), ponto de orvalho 2 m, cobertura de nuvens. **Convecção:**
+    CAPE, Índice K, Total Totals, rajada de vento 10 m. **Níveis de pressão:**
+    umidade específica, vorticidade e divergência. Short-names do NetCDF confirmados
+    contra o CDS-Beta (radiação usa prefixo `avg_*`; rajada é `fg10`).
+  - **Agregação cientificamente correta — perfis por variável.** A agregação
+    temporal não é neutra em relação à física do campo, então cada variável passa a
+    oferecer **apenas os modos que fazem sentido**, com **default** e **unidade**
+    corretos — some, antes de o usuário ver, "somar temperatura", "média das máximas
+    diárias de geopotencial" e afins. Precipitação → **Total do período** (mm,
+    padrão), *total diário médio* e *dia mais chuvoso* (mm/dia), e 1 h (mm/h) — a
+    **unidade acompanha o modo** (não é mais sempre "mm"); rajada → **Máxima**
+    (pico, padrão); Tmáx/Tmín → **média das máximas/mínimas diárias** (padrão,
+    exclusiva das variáveis dedicadas — resolve a redundância com a Temp. 2 m
+    comum); estado → média/instantâneo/extremo; campos de ciclo diurno (t2m, CAPE,
+    orvalho, radiação) ainda oferecem **média à hora fixa** (ex.: média só das
+    12 UTC — baixa 1 h/dia, bem mais leve). Os perfis filtram só a criação na
+    interface; o motor segue aceitando qualquer modo, então **projetos antigos
+    reabrem** de cache mesmo com um modo que saiu do menu. O título do mapa descreve
+    a sumarização e a unidade aplicadas.
+  - **Índices de evento (ERA5) — chuva + temperatura.** Uma família enxuta de
+    índices de **período** (significativos numa janela curta, ≠ índices de 30 anos),
+    calculada sobre a ERA5 já baixada e reusando o *resample* diário: **chuva** —
+    Dias Secos Consecutivos (CDD/veranico), Dias Úmidos Consecutivos (CWD), Dias
+    Úmidos (≥1 mm) e Chuva Máx. em 5 dias (Rx5day); **temperatura** — Dias Quentes
+    e Onda de Calor (Tmax > limiar **definido pelo usuário**, regional) e Noites
+    Quentes (Tmin > 20 °C, ETCCDI TR). Aparecem como modos de agregação no perfil da
+    variável (chuva/Tmáx/Tmín); o resultado é um mapa em **dias** (ou mm no Rx5day)
+    com paleta e unidade próprias. Limiares de chuva/noite tropical seguem o padrão
+    **ETCCDI/OMM** (1 mm; 20 °C); o de calor é um spinbox regional (default 30 °C).
+    *Nota de escopo:* avaliei o **xclim** e o preteri como dependência-base — é
+    voltado a séries multidecadais (SDBA/ensembles/retorno) e pesa no empacotamento
+    (pint/cf-xarray) contra o instalador Windows; os índices de evento são reduções
+    simples em xarray. Um extra opcional `climate` com o catálogo ETCCDI completo
+    fica como possibilidade futura, fora do instalador.
+  - **Piso seco na precipitação (IFS e ERA5).** Abaixo de um limiar a chuva fica
+    **100% transparente** — acaba o véu azul de "quase-zero" que cobria o oceano
+    inteiro. O limiar é **por unidade**: `0,1 mm` para taxa horária (`mm/h`) e para a
+    acumulação de 3 h do IFS (`mm/3h`) — a **precipitação mensurável** de pluviômetro;
+    `1,0 mm` para total diário (`mm/dia`) e do período (`mm`) — o **"dia com chuva"**
+    da OMM. A área seca não é pintada (`extend="max"`, menor nível = piso) e as
+    isolinhas também não descem abaixo dele; a banda real (ZCIT etc.) permanece
+    intacta.
+  - Motor `data/era5.py` recorta **no servidor** (`area=[N,W,S,E]`), baixa
+    **NetCDF** e agrega no cliente; devolve o mesmo `PLFieldData` do IFS — a
+    renderização (`add_pl_layer`) não muda. Cache-first determinístico em
+    `data/era5/` (respeita o modo somente-cache ao abrir projetos) e round-trip de
+    camada (`kind="era5"`, com nível). Credencial reusa `make_cds_client` (nunca
+    escreve `~/.cdsapirc`); guarda do atraso do ERA5T (~5 dias) no `DataService`.
+    Título do mapa marca **"ERA5 (reanálise)"** — nunca "IFS" — preservando a
+    honestidade científica (reanálise ≠ previsão).
 - **🗺 "Mapinha" regional de um clique (feedback de usuário operacional —
   fluxo do antigo editor de cartas do SIPAM).** Três peças novas que juntas
   reproduzem o mapa-base regional georreferenciado sobre o qual o previsor
