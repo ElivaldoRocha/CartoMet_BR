@@ -18,7 +18,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -48,6 +48,10 @@ from cartomet_br.services.animation_service import (
     mp4_available,
 )
 
+# Após pedir cancelamento, se o worker não parar em N ms (preso num download
+# bloqueante), o diálogo oferece uma escotilha de escape ("Fechar assim mesmo").
+ESCAPE_GRACE_MS = 5000
+
 FPS_OPTIONS = (1.0, 2.0, 4.0, 6.0)
 DPI_OPTIONS = ((100, "100 DPI — leve"), (150, "150 DPI — padrão"))
 STRIDE_OPTIONS = (
@@ -64,6 +68,7 @@ class AnimationDialog(QDialog):
 
     generate_requested = pyqtSignal()
     cancel_requested = pyqtSignal()
+    escape_requested = pyqtSignal()  # fechar à força quando um download travou
 
     def __init__(
         self,
@@ -89,6 +94,7 @@ class AnimationDialog(QDialog):
         self._dest_user_edited = False
         self._in_progress = False
         self._allow_close = True
+        self._escape_offered = False
 
         self._cap = max_step_for_composition(layer_specs, cycle)
         self._min_start = min_start_for_composition(layer_specs, technique)
@@ -479,9 +485,27 @@ class AnimationDialog(QDialog):
         self.close()
 
     def _on_cancel_clicked(self) -> None:
+        # Após a escotilha aparecer, o botão vira "Fechar assim mesmo" — o clique
+        # (ou o X/Esc, que caem aqui) força a saída em vez de re-pedir cancelamento.
+        if self._escape_offered:
+            self.escape_requested.emit()
+            return
         self.cancel_btn.setEnabled(False)
         self.status_label.setText("Cancelando...")
         self.cancel_requested.emit()
+        QTimer.singleShot(ESCAPE_GRACE_MS, self._maybe_offer_escape)
+
+    def _maybe_offer_escape(self) -> None:
+        """Se o cancelamento não fez efeito (download preso), abre a escotilha."""
+        if self._escape_offered or self._allow_close or not self._in_progress:
+            return
+        self._escape_offered = True
+        self.status_label.setText(
+            "O download parece travado (rede lenta). Você pode fechar — "
+            "ele continua em 2º plano e não trava o programa."
+        )
+        self.cancel_btn.setText("Fechar assim mesmo")
+        self.cancel_btn.setEnabled(True)
 
     def closeEvent(self, event) -> None:  # noqa: N802 (API Qt)
         if self._in_progress and not self._allow_close:

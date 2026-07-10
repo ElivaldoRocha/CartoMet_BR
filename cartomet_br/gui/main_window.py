@@ -2941,6 +2941,7 @@ class MainWindow(QMainWindow):
         controller.finished_error.connect(self._on_animation_error)
         controller.finished_cancelled.connect(self._on_animation_cancelled)
         dlg.cancel_requested.connect(controller.cancel)
+        dlg.escape_requested.connect(controller.abandon)
 
         self._animation_controller = controller
         self._animation_dialog = dlg

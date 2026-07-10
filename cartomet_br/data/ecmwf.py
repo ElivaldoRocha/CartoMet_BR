@@ -71,6 +71,38 @@ def cache_only_mode():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+# Timeout de stall do download ECMWF (segundos). O ecmwf-opendata Client não
+# expõe timeout e o multiurl repassa a sessão sem um — então uma conexão parada
+# travaria a thread do worker para SEMPRE (o cancelamento cooperativo só é
+# checado ENTRE steps, nunca durante o download). São timeouts POR OPERAÇÃO de
+# socket do requests (connect, read): um download lento porém vivo NÃO é morto;
+# só um stall real (sem bytes por ECMWF_READ_TIMEOUT_S) vira ReadTimeout.
+ECMWF_CONNECT_TIMEOUT_S = 30
+ECMWF_READ_TIMEOUT_S = 60
+
+
+def _bound_session_timeout(client, connect: float, read: float) -> None:
+    """Injeta um timeout padrão no ``requests.Session`` interno do cliente.
+
+    Envolve ``session.request`` para preencher ``timeout=(connect, read)`` quando
+    o chamador (multiurl) não passa nenhum. Escopado a ESTA instância de client
+    (sem ``socket.setdefaulttimeout`` global). Silencioso se a estrutura interna
+    do cliente mudar numa versão futura da lib.
+    """
+    session = getattr(client, "session", None)
+    if session is None:
+        return
+    request = getattr(session, "request", None)
+    if request is None:
+        return
+
+    def _request_with_timeout(method, url, **kwargs):
+        kwargs.setdefault("timeout", (connect, read))
+        return request(method, url, **kwargs)
+
+    session.request = _request_with_timeout
+
+
 def download_ecmwf(
     variables: list[str],
     levels: list[int] | None = None,
@@ -171,6 +203,11 @@ def download_ecmwf(
     except Exception as e:
         raise ConnectionError(f"Erro ao conectar ao ECMWF: {e}") from e
 
+    # Blindagem contra download travado: uma conexão parada vira ReadTimeout em
+    # vez de prender a thread do worker (deixando o "Cancelar" da animação sem
+    # efeito). Ver nota em ECMWF_READ_TIMEOUT_S.
+    _bound_session_timeout(client, ECMWF_CONNECT_TIMEOUT_S, ECMWF_READ_TIMEOUT_S)
+
     # IFS Cycle 50r1 (13/05/2026): 06Z/18Z migraram de 'scda' para 'oper'. NÃO
     # forçamos stream="oper" aqui — a ecmwf-opendata >= 0.3.29 já infere o stream
     # correto. Forçá-lo quebrava o filtro de alguns params em nível de pressão
@@ -258,6 +295,13 @@ def download_ecmwf(
             ) from e
         elif "SSL" in error_msg or "certificate" in error_msg.lower():
             raise ConnectionError("Erro de conexão SSL. Verifique sua internet.") from e
+        elif "timed out" in error_msg.lower() or "timeout" in error_msg.lower():
+            raise ConnectionError(
+                "A conexão com o ECMWF ficou parada (sem resposta).\n\n"
+                "Pode ser internet lenta/instável ou o servidor sobrecarregado.\n"
+                "Tente novamente em instantes.\n\n"
+                "Dica: os dados também estão disponíveis via AWS, Azure e Google Cloud."
+            ) from e
         else:
             raise RuntimeError(f"Erro no download ECMWF: {error_msg}") from e
 

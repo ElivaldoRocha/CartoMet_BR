@@ -363,6 +363,23 @@ class AnimationController(QObject):
         if idle:
             self._on_worker_cancelled()
 
+    def abandon(self):
+        """Escotilha de escape: o usuário forçou a saída porque um worker está
+        preso num download bloqueante (rede travada) e o cancelamento cooperativo
+        não pôde agir. Restaura o mapa e desiste de esperar — o worker segue
+        órfão até o download retornar/dar timeout. É inofensivo: continua
+        parented ao controller (não é coletado no meio), não toca mais no canvas,
+        e seus sinais tardios são ignorados porque ``_done`` já está True."""
+        if self._done:
+            return
+        self._cancelled = True
+        self._done = True
+        for worker in (self._prepare_worker, self._loader_worker):
+            if worker is not None and worker.isRunning():
+                worker.cancel()
+        self._restore()
+        self.finished_cancelled.emit()
+
     # ─── fase 1 → fase 2 ─────────────────────────────────────────────────
 
     def _on_prepare_ok(self, prepared: PreparedData):
