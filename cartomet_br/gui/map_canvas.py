@@ -224,7 +224,7 @@ class MapCanvas(FigureCanvas):
 
     def __init__(self, parent: QSizePolicy | None = None, config: Config | None = None) -> None:
         self.config: Config = config or Config()
-        self.current_theme: str = "Clássico"
+        self.current_theme: str = "Relevo Natural"
 
         self.fig = Figure(figsize=(12, 8), facecolor="white", dpi=100)
         super().__init__(self.fig)

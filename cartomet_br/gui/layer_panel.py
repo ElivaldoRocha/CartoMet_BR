@@ -412,6 +412,8 @@ class SettingsPanel(QWidget):
             "Relevo Natural",
         ]:
             self.theme_combo.addItem(name)
+        # Seleciona o tema padrão antes de conectar o sinal (não dispara emit na construção).
+        self.theme_combo.setCurrentText("Relevo Natural")
         self.theme_combo.currentTextChanged.connect(lambda name: self.theme_changed.emit(name))
         theme_row.addWidget(self.theme_combo)
         region_layout.addLayout(theme_row)
