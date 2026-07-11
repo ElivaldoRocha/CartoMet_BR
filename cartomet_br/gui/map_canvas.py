@@ -1433,6 +1433,7 @@ class MapCanvas(FigureCanvas):
         elif self.interaction_mode == "vertical_sounding":
             self.interaction_mode = None
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+            self.clear_sounding_marker()  # desativar a feature some com a estrela na carta
 
     def set_meteogram_mode(self, enabled: bool) -> None:
         """Modo 'Meteograma' (F6) — o clique dispara a série temporal do IFS no ponto."""
