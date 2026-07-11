@@ -9,17 +9,13 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("MPLBACKEND", "Agg")
 
+
 import pytest
-import tempfile
-from pathlib import Path
 
 from cartomet_br.core.config import (
-    Config,
-    EXTENT_BRASIL,
     EXTENT_AMSUL,
-    EXTENT_NORDESTE,
-    EXTENT_SUDESTE,
-    EXTENT_SUL,
+    EXTENT_BRASIL,
+    Config,
 )
 
 

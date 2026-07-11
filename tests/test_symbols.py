@@ -1,40 +1,36 @@
 """Testes para cartomet_br.symbols — símbolos meteorológicos WMO."""
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-import matplotlib.pyplot as plt
-import matplotlib.patheffects as pe
 from matplotlib.path import Path
-from matplotlib.figure import Figure
 
+from cartomet_br.symbols import MODOS
 from cartomet_br.symbols.base import (
     _FrenteBase,
-    make_triangle,
-    make_semicircle,
     make_circle,
-    draw_filled,
-    draw_open,
-)
-from cartomet_br.symbols.fronts import (
-    FrenteFria,
-    FrenteQuente,
-    FrenteEstacionaria,
-    FrenteOclusa,
+    make_semicircle,
+    make_triangle,
 )
 from cartomet_br.symbols.effects import (
-    ZCASEffect,
-    ZCITEffect,
     CavadoEffect,
     Crista,
     LinhaInstabilidade,
     LinhaSeca,
+    ZCASEffect,
+    ZCITEffect,
 )
-from cartomet_br.symbols import MODOS
-
+from cartomet_br.symbols.fronts import (
+    FrenteEstacionaria,
+    FrenteFria,
+    FrenteOclusa,
+    FrenteQuente,
+)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Formas geométricas
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestMakeTriangle:
     def test_returns_verts_and_codes(self):
@@ -95,6 +91,7 @@ class TestMakeCircle:
 #  Classe base _FrenteBase
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestFrenteBase:
     def test_flip_sign_default(self):
         fb = FrenteFria(flip=False)
@@ -140,15 +137,19 @@ class TestFrenteBase:
 #  Frentes (instanciação e rendering via matplotlib)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestFrontInstantiation:
     """Testa que todas as classes de frente podem ser instanciadas."""
 
-    @pytest.mark.parametrize("cls,default_color", [
-        (FrenteFria, "#1a6faf"),
-        (FrenteQuente, "#c0392b"),
-        (FrenteEstacionaria, "#6a0dad"),
-        (FrenteOclusa, "#8e44ad"),
-    ])
+    @pytest.mark.parametrize(
+        "cls,default_color",
+        [
+            (FrenteFria, "#1a6faf"),
+            (FrenteQuente, "#c0392b"),
+            (FrenteEstacionaria, "#6a0dad"),
+            (FrenteOclusa, "#8e44ad"),
+        ],
+    )
     def test_instantiation(self, cls, default_color):
         obj = cls()
         assert obj.color == default_color
@@ -156,17 +157,28 @@ class TestFrontInstantiation:
         assert obj.symbol_size > 0
         assert obj.spacing > 0
 
-    @pytest.mark.parametrize("cls", [
-        FrenteFria, FrenteQuente, FrenteOclusa,
-    ])
+    @pytest.mark.parametrize(
+        "cls",
+        [
+            FrenteFria,
+            FrenteQuente,
+            FrenteOclusa,
+        ],
+    )
     def test_flip_parameter(self, cls):
         obj = cls(flip=True)
         assert obj.flip is True
         assert obj._flip_sign() == -1
 
-    @pytest.mark.parametrize("cls", [
-        FrenteFria, FrenteQuente, FrenteEstacionaria, FrenteOclusa,
-    ])
+    @pytest.mark.parametrize(
+        "cls",
+        [
+            FrenteFria,
+            FrenteQuente,
+            FrenteEstacionaria,
+            FrenteOclusa,
+        ],
+    )
     def test_renders_on_plot(self, cls):
         """Verifica que o path effect pode ser aplicado a um plot sem erro."""
         fig, ax = plt.subplots()
@@ -180,25 +192,36 @@ class TestFrontInstantiation:
 #  Efeitos meteorológicos
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestEffectInstantiation:
     """Testa instanciação de todos os efeitos meteorológicos."""
 
-    @pytest.mark.parametrize("cls,default_color", [
-        (ZCASEffect, "#008000"),
-        (ZCITEffect, "darkorange"),
-        (CavadoEffect, "saddlebrown"),
-        (Crista, "#005500"),
-        (LinhaInstabilidade, "#8B0000"),
-        (LinhaSeca, "#b5651d"),
-    ])
+    @pytest.mark.parametrize(
+        "cls,default_color",
+        [
+            (ZCASEffect, "#008000"),
+            (ZCITEffect, "darkorange"),
+            (CavadoEffect, "saddlebrown"),
+            (Crista, "#005500"),
+            (LinhaInstabilidade, "#8B0000"),
+            (LinhaSeca, "#b5651d"),
+        ],
+    )
     def test_instantiation(self, cls, default_color):
         obj = cls()
         assert obj.color == default_color
 
-    @pytest.mark.parametrize("cls", [
-        ZCASEffect, ZCITEffect, CavadoEffect,
-        Crista, LinhaInstabilidade, LinhaSeca,
-    ])
+    @pytest.mark.parametrize(
+        "cls",
+        [
+            ZCASEffect,
+            ZCITEffect,
+            CavadoEffect,
+            Crista,
+            LinhaInstabilidade,
+            LinhaSeca,
+        ],
+    )
     def test_renders_on_plot(self, cls):
         """Verifica que o path effect pode ser aplicado sem erro."""
         fig, ax = plt.subplots()
@@ -212,6 +235,7 @@ class TestEffectInstantiation:
 #  MODOS (tabela de modos interativos)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestModos:
     """Testa o dicionário MODOS usado pela interface interativa."""
 
@@ -220,7 +244,7 @@ class TestModos:
         assert len(MODOS) >= 10
 
     def test_keys_are_single_chars(self):
-        assert all(isinstance(k, str) and len(k) == 1 for k in MODOS.keys())
+        assert all(isinstance(k, str) and len(k) == 1 for k in MODOS)
 
     def test_each_mode_has_required_keys(self):
         for key, modo in MODOS.items():
@@ -237,7 +261,7 @@ class TestModos:
                 assert "efeito" in modo, f"Modo de linha '{key}' sem 'efeito'"
 
     def test_efeito_is_callable_for_line_modes(self):
-        for key, modo in MODOS.items():
+        for _key, modo in MODOS.items():
             if modo["ponto"]:
                 continue
             effects = modo["efeito"]()
@@ -245,7 +269,7 @@ class TestModos:
             assert len(effects) >= 1
 
     def test_flip_modes_accept_flip(self):
-        for key, modo in MODOS.items():
+        for _key, modo in MODOS.items():
             if modo["tem_flip"] and not modo["ponto"]:
                 effects = modo["efeito"](flip=True)
                 assert isinstance(effects, list)

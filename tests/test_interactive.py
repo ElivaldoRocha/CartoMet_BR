@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cartomet_br.charts.interactive import interpolar_pontos, N_INTERP
+from cartomet_br.charts.interactive import N_INTERP, interpolar_pontos
 
 
 class TestInterpolarPontos:

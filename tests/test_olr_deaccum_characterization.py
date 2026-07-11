@@ -20,9 +20,9 @@ from cartomet_br.data.loczcit_pa_engine import plan_olr_deaccumulation
 # Estes NÃO mudam na Fase 1 (o snapping pós-144h não os afeta). São a âncora.
 #   cycle, date,        step, base_cycle, base_date,    step_hi, step_lo, Δt
 CANONICAL = [
-    (12, "20260531", 0,   0, "20260531", 12,  9, 10800.0),   # run 12Z análise → base 00Z, 12−9
-    (12, "20260531", 3,   0, "20260531", 15, 12, 10800.0),   # run 12Z +3h     → base 00Z, 15−12
-    (0,  "20260531", 0,  12, "20260530", 12,  9, 10800.0),   # run 00Z análise → base 12Z ontem
+    (12, "20260531", 0, 0, "20260531", 12, 9, 10800.0),  # run 12Z análise → base 00Z, 12−9
+    (12, "20260531", 3, 0, "20260531", 15, 12, 10800.0),  # run 12Z +3h     → base 00Z, 15−12
+    (0, "20260531", 0, 12, "20260530", 12, 9, 10800.0),  # run 00Z análise → base 12Z ontem
 ]
 
 
@@ -54,12 +54,12 @@ class TestDirectUnchanged:
 
     def test_direct_window_is_selected_run(self):
         rc, rd, hi, lo, label = _resolve_accum_window("direct", 12, "20260531", 12)
-        assert (rc, rd, hi, lo) == (12, "20260531", 12, 9)   # janela [step-3, step] da rodada
+        assert (rc, rd, hi, lo) == (12, "20260531", 12, 9)  # janela [step-3, step] da rodada
         assert "Direta" in label
 
     def test_direct_step0_nao_fica_negativo(self):
         _, _, hi, lo, _ = _resolve_accum_window("direct", 0, "20260531", 0)
-        assert (hi, lo) == (0, 0)                              # step_lo travado em 0
+        assert (hi, lo) == (0, 0)  # step_lo travado em 0
 
 
 class TestImplementationsAgree:
@@ -69,15 +69,18 @@ class TestImplementationsAgree:
     Fase 1 — incl. casos pós-144h, onde ambos passam a snapar de forma idêntica.
     """
 
-    @pytest.mark.parametrize("cyc,date,step", [
-        (12, "20260531", 0),
-        (12, "20260531", 3),
-        (0, "20260531", 0),
-        (6, "20260531", 6),
-        (18, "20260101", 24),    # vira o ano no recuo de 12 h
-        (0, "20260301", 48),     # vira o mês (fev→mar)
-        (12, "20260531", 138),   # janela de 6 h (target=150)
-    ])
+    @pytest.mark.parametrize(
+        "cyc,date,step",
+        [
+            (12, "20260531", 0),
+            (12, "20260531", 3),
+            (0, "20260531", 0),
+            (6, "20260531", 6),
+            (18, "20260101", 24),  # vira o ano no recuo de 12 h
+            (0, "20260301", 48),  # vira o mês (fev→mar)
+            (12, "20260531", 138),  # janela de 6 h (target=150)
+        ],
+    )
     def test_engine_matches_ecmwf(self, cyc, date, step):
         p = plan_olr_deaccumulation(cyc, date, step)
         rc, rd, hi, lo, _ = _resolve_accum_window("stabilized", cyc, date, step)
@@ -116,4 +119,4 @@ class TestPost144Snapping:
         assert p.step_hi in _IFS_GRID, f"step_hi {p.step_hi} fora da grade"
         assert p.step_lo in _IFS_GRID, f"step_lo {p.step_lo} fora da grade"
         rc, rd, hi, lo, _ = _resolve_accum_window("stabilized", 0, "20260531", step)
-        assert (hi, lo) == (p.step_hi, p.step_lo)   # delegação consistente
+        assert (hi, lo) == (p.step_hi, p.step_lo)  # delegação consistente

@@ -45,9 +45,14 @@ def _plotted_values(ax) -> set[int]:
 
 def _run(ax, field, **kwargs):
     lon2d, lat2d = np.meshgrid(np.linspace(-80, -30, 100), np.linspace(-40, 10, 100))
-    defaults = dict(
-        extrema="max", nsize=5, symbol="H", min_distance=3, threshold=None, max_points=2
-    )
+    defaults = {
+        "extrema": "max",
+        "nsize": 5,
+        "symbol": "H",
+        "min_distance": 3,
+        "threshold": None,
+        "max_points": 2,
+    }
     defaults.update(kwargs)
     plot_maxmin_points(ax, lon2d, lat2d, field, **defaults)
 

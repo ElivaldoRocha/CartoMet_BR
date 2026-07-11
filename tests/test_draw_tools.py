@@ -5,7 +5,6 @@ Cobrem: estilo (round-trip + mapeamento de linestyle), construtores de geometria
 matplotlib comum, e os novos comandos no DrawingHistory (push/undo/redo).
 """
 
-
 import matplotlib
 
 matplotlib.use("Agg")
@@ -45,17 +44,19 @@ def ax():
 #  DrawStyle
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestDrawStyle:
     def test_roundtrip(self):
-        st = DrawStyle(edge_color="#123456", fill_color="#abcdef",
-                       linewidth=3.5, linestyle="dashed", alpha=0.7)
+        st = DrawStyle(
+            edge_color="#123456", fill_color="#abcdef", linewidth=3.5, linestyle="dashed", alpha=0.7
+        )
         assert DrawStyle.from_dict(st.to_dict()) == st
 
     def test_mpl_linestyle_mapping(self):
         assert DrawStyle(linestyle="solid").mpl_linestyle() == "-"
         assert DrawStyle(linestyle="dashed").mpl_linestyle() == "--"
         assert DrawStyle(linestyle="dotted").mpl_linestyle() == ":"
-        assert DrawStyle(linestyle="???").mpl_linestyle() == "-"   # fallback seguro
+        assert DrawStyle(linestyle="???").mpl_linestyle() == "-"  # fallback seguro
 
     def test_no_fill_default(self):
         assert DrawStyle().fill_color is None
@@ -64,6 +65,7 @@ class TestDrawStyle:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Geometria
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestGeometry:
     def test_rectangle_ring_closed(self):
@@ -76,7 +78,7 @@ class TestGeometry:
     def test_ellipse_ring_closed_and_bounded(self):
         xs, ys = build_ellipse_ring(-10, -6, 10, 6, n=120)
         assert len(xs) == 120
-        assert (xs[0], ys[0]) == (xs[-1], ys[-1])           # fechamento exato
+        assert (xs[0], ys[0]) == (xs[-1], ys[-1])  # fechamento exato
         # Amostragem paramétrica: extremos aproximam a caixa sem extrapolá-la
         assert min(xs) >= -10 and max(xs) <= 10
         assert min(ys) >= -6 and max(ys) <= 6
@@ -89,10 +91,10 @@ class TestGeometry:
         # seta horizontal oeste→leste: ponta em (10,0), base atrás (x < 10)
         shaft_xs, shaft_ys, head = build_arrow_geometry(0, 0, 10, 0, head_size_deg=1.0)
         assert shaft_xs[0] == 0 and shaft_ys == [0, 0]
-        assert shaft_xs[1] < 10                              # haste para na base da ponta
-        assert head[0] == (10, 0) and head[-1] == (10, 0)    # triângulo fechado na ponta
+        assert shaft_xs[1] < 10  # haste para na base da ponta
+        assert head[0] == (10, 0) and head[-1] == (10, 0)  # triângulo fechado na ponta
         for bx, _by in head[1:3]:
-            assert bx < 10                                   # base atrás da ponta
+            assert bx < 10  # base atrás da ponta
         # simetria vertical das duas bases
         assert head[1][1] == pytest.approx(-head[2][1])
 
@@ -116,15 +118,16 @@ class TestGeometry:
     def test_preview_ring_per_tool(self):
         for tool in ("rect", "ellipse"):
             xs, ys = build_preview_ring(tool, 0, 0, 10, 5)
-            assert (xs[0], ys[0]) == (xs[-1], ys[-1])        # anel fechado
+            assert (xs[0], ys[0]) == (xs[-1], ys[-1])  # anel fechado
         for tool in ("line", "arrow"):
             xs, ys = build_preview_ring(tool, 0, 0, 10, 5)
-            assert xs == [0, 10] and ys == [0, 5]            # segmento simples
+            assert xs == [0, 10] and ys == [0, 5]  # segmento simples
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Fábricas de artistas (Axes matplotlib comum; no canvas o transform é PlateCarree)
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestArtistFactories:
     def test_pen_artist_style(self, ax):
@@ -132,32 +135,32 @@ class TestArtistFactories:
         line = create_pen_artist(ax, [0, 1, 2], [0, 1, 0], st)
         assert line.get_linewidth() == 4.0
         assert line.get_alpha() == 0.5
-        line.remove()                                         # ciclo de undo
+        line.remove()  # ciclo de undo
 
     def test_simple_shapes_return_line(self, ax):
         for tool in ("rect", "ellipse", "line"):
-            artist = create_shape_artist(ax, tool, [0, 10], [0, 5],
-                                         DrawStyle(fill_color=None))
+            artist = create_shape_artist(ax, tool, [0, 10], [0, 5], DrawStyle(fill_color=None))
             assert hasattr(artist, "remove")
             artist.remove()
 
     def test_filled_shape_returns_group(self, ax):
-        artist = create_shape_artist(ax, "rect", [0, 10], [0, 5],
-                                     DrawStyle(fill_color="#00ff00", alpha=0.4))
+        artist = create_shape_artist(
+            ax, "rect", [0, 10], [0, 5], DrawStyle(fill_color="#00ff00", alpha=0.4)
+        )
         assert isinstance(artist, ShapeArtistGroup)
         artist.set_visible(False)
         artist.remove()
-        artist.remove()                                       # idempotente, sem exceção
+        artist.remove()  # idempotente, sem exceção
 
     def test_arrow_is_group_with_head(self, ax):
-        artist = create_shape_artist(ax, "arrow", [0, 10], [0, 0],
-                                     DrawStyle(), head_size_deg=1.0)
+        artist = create_shape_artist(ax, "arrow", [0, 10], [0, 0], DrawStyle(), head_size_deg=1.0)
         assert isinstance(artist, ShapeArtistGroup)
         artist.remove()
 
     def test_polygon_closed_and_filled(self, ax):
-        artist = create_shape_artist(ax, "polygon", [0, 5, 5], [0, 0, 5],
-                                     DrawStyle(fill_color="#0000ff"))
+        artist = create_shape_artist(
+            ax, "polygon", [0, 5, 5], [0, 0, 5], DrawStyle(fill_color="#0000ff")
+        )
         assert isinstance(artist, ShapeArtistGroup)
         artist.remove()
 
@@ -182,20 +185,26 @@ class TestArtistFactories:
 #  de pilha com uma réplica mínima de interface via os próprios comandos.)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestCommands:
     def test_pen_command_pure_data(self):
-        cmd = PenCommand(points_x=[0, 1], points_y=[2, 3],
-                         style=DrawStyle().to_dict())
-        assert cmd.pressures is None                          # gancho p/ pressão futura
+        cmd = PenCommand(points_x=[0, 1], points_y=[2, 3], style=DrawStyle().to_dict())
+        assert cmd.pressures is None  # gancho p/ pressão futura
         assert cmd.artist is None
         import dataclasses
-        d = dataclasses.asdict(cmd)                           # serializável
+
+        d = dataclasses.asdict(cmd)  # serializável
         assert d["points_x"] == [0, 1]
 
     def test_shape_command_pure_data(self):
-        cmd = ShapeCommand(tool="arrow", points_x=[0, 10], points_y=[0, 0],
-                           style=DrawStyle().to_dict(), head_size_deg=1.25)
-        assert cmd.head_size_deg == 1.25                      # congelado p/ redo estável
+        cmd = ShapeCommand(
+            tool="arrow",
+            points_x=[0, 10],
+            points_y=[0, 0],
+            style=DrawStyle().to_dict(),
+            head_size_deg=1.25,
+        )
+        assert cmd.head_size_deg == 1.25  # congelado p/ redo estável
         assert cmd.tool in SHAPE_TOOLS
 
     def test_constants_sane(self):

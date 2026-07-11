@@ -31,6 +31,7 @@ pytestmark = pytest.mark.skipif(
 #  Helpers de rede falsa
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class _FakeResponse:
     def __init__(self, content: bytes):
         self.content = content
@@ -47,12 +48,13 @@ def _patch_requests(monkeypatch, get_func):
         ConnectionError=real_requests.ConnectionError,
     )
     monkeypatch.setattr(be, "requests", ns)
-    monkeypatch.setattr(be, "_sleep", lambda s: None)   # backoff instantâneo
+    monkeypatch.setattr(be, "_sleep", lambda s: None)  # backoff instantâneo
 
 
 def _offline(monkeypatch):
     def _get(url, timeout=None):
         raise real_requests.ConnectionError("offline (teste)")
+
     _patch_requests(monkeypatch, _get)
 
 
@@ -64,20 +66,24 @@ def _online_manifest_only(monkeypatch):
         if url.endswith("manifest.json"):
             return _FakeResponse(manifest_bytes)
         raise AssertionError(f"cache-first violado: tentou baixar {url}")
+
     _patch_requests(monkeypatch, _get)
 
 
 def _online_full(monkeypatch):
     """Serve manifest e NetCDFs reais a partir da cópia local."""
+
     def _get(url, timeout=None):
         name = url.rsplit("/", 1)[-1]
         return _FakeResponse((CLIM_DIR / name).read_bytes())
+
     _patch_requests(monkeypatch, _get)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Constantes e slot climatológico
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestConstants:
     def test_clim_extent_ordem_config(self):
@@ -99,7 +105,7 @@ class TestResolveClimSlot:
             ("2026-06-11T09:00", "0611", 12, True),
             ("2026-06-11T12:00", "0611", 12, False),
             ("2026-06-11T15:00", "0611", 12, True),
-            ("2026-06-11T18:00", "0611", 0, True),    # MMDD do PRÓPRIO dia
+            ("2026-06-11T18:00", "0611", 0, True),  # MMDD do PRÓPRIO dia
             ("2026-06-11T21:00", "0611", 0, True),
             ("2024-02-29T12:00", "0229", 12, False),  # bissexto coberto
         ],
@@ -121,30 +127,33 @@ class TestResolveClimSlot:
 #  ensure_climatology_file — cache-first + sha256 + offline
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestEnsureClimatology:
     def test_cache_valido_zero_download(self, tmp_path, monkeypatch):
         shutil.copy(CLIM_DIR / SAMPLE_NAME, tmp_path / SAMPLE_NAME)
-        _online_manifest_only(monkeypatch)   # AssertionError se tentar baixar o .nc
+        _online_manifest_only(monkeypatch)  # AssertionError se tentar baixar o .nc
         path, info = be.ensure_climatology_file(SAMPLE_MMDD, tmp_path)
         assert path == tmp_path / SAMPLE_NAME
         assert info == {"sha_verified": True, "from_cache": True}
-        assert (tmp_path / "manifest.json").exists()   # manifest cacheado
+        assert (tmp_path / "manifest.json").exists()  # manifest cacheado
 
     def test_corrompido_rebaixa_e_verifica(self, tmp_path, monkeypatch):
         good = (CLIM_DIR / SAMPLE_NAME).read_bytes()
-        (tmp_path / SAMPLE_NAME).write_bytes(good[: len(good) // 2])   # truncado
+        (tmp_path / SAMPLE_NAME).write_bytes(good[: len(good) // 2])  # truncado
         _online_full(monkeypatch)
         path, info = be.ensure_climatology_file(SAMPLE_MMDD, tmp_path)
         assert info == {"sha_verified": True, "from_cache": False}
         assert path.read_bytes() == good
-        assert not list(tmp_path.glob("*.part"))   # sem órfãos
+        assert not list(tmp_path.glob("*.part"))  # sem órfãos
 
     def test_offline_com_cache_sem_manifest(self, tmp_path, monkeypatch):
         shutil.copy(CLIM_DIR / SAMPLE_NAME, tmp_path / SAMPLE_NAME)
         _offline(monkeypatch)
         avisos: list[str] = []
         path, info = be.ensure_climatology_file(
-            SAMPLE_MMDD, tmp_path, progress_callback=avisos.append,
+            SAMPLE_MMDD,
+            tmp_path,
+            progress_callback=avisos.append,
         )
         assert path == tmp_path / SAMPLE_NAME
         assert info == {"sha_verified": False, "from_cache": True}
@@ -166,7 +175,9 @@ class TestEnsureClimatology:
         _online_full(monkeypatch)
         with pytest.raises(be.BlockingCancelled):
             be.ensure_climatology_file(
-                SAMPLE_MMDD, tmp_path, cancel_check=lambda: True,
+                SAMPLE_MMDD,
+                tmp_path,
+                cancel_check=lambda: True,
             )
 
 
@@ -174,14 +185,15 @@ class TestEnsureClimatology:
 #  load_climatology — estrutura real do NetCDF publicado
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestLoadClimatology:
     def test_estrutura_real(self):
         values, lats, lons = be.load_climatology(CLIM_DIR / SAMPLE_NAME, 0)
         assert values.shape == (361, 721)
         assert lats[0] == pytest.approx(15.0) and lats[-1] == pytest.approx(-75.0)
-        assert np.all(np.diff(lats) < 0)   # decrescente (ordem ECMWF)
+        assert np.all(np.diff(lats) < 0)  # decrescente (ordem ECMWF)
         assert lons[0] == pytest.approx(-150.0) and lons[-1] == pytest.approx(30.0)
-        assert np.nanmin(values) > 4500.0 and np.nanmax(values) < 6100.0   # gpm
+        assert np.nanmin(values) > 4500.0 and np.nanmax(values) < 6100.0  # gpm
 
     def test_horas_00_e_12_diferem(self):
         v00, _, _ = be.load_climatology(CLIM_DIR / SAMPLE_NAME, 0)
@@ -196,6 +208,7 @@ class TestLoadClimatology:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  compute_anomaly — subtração + travas de alinhamento
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestComputeAnomaly:
     @pytest.fixture(scope="class")
@@ -227,13 +240,12 @@ class TestComputeAnomaly:
 #  compute_blocking — guard de rodada (sem rede: falha ANTES de qualquer download)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestComputeBlockingGuards:
     def test_rodada_indeterminada(self, tmp_path):
         with pytest.raises(be.BlockingDataError, match="Verificar Rodadas"):
-            be.compute_blocking(cycle=None, cycle_date=None, data_dir=tmp_path,
-                                clim_dir=tmp_path)
+            be.compute_blocking(cycle=None, cycle_date=None, data_dir=tmp_path, clim_dir=tmp_path)
 
     def test_data_vazia(self, tmp_path):
         with pytest.raises(be.BlockingDataError, match="Verificar Rodadas"):
-            be.compute_blocking(cycle=0, cycle_date="", data_dir=tmp_path,
-                                clim_dir=tmp_path)
+            be.compute_blocking(cycle=0, cycle_date="", data_dir=tmp_path, clim_dir=tmp_path)

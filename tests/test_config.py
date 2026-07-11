@@ -1,24 +1,23 @@
 """Testes para cartomet_br.core.config."""
 
 import pytest
-from pathlib import Path
 
 from cartomet_br.core.config import (
-    Config,
-    validate_extent,
-    EXTENT_BRASIL,
+    COLORS,
     EXTENT_AMSUL,
+    EXTENT_BRASIL,
     EXTENT_NORDESTE,
     EXTENT_SUDESTE,
     EXTENT_SUL,
-    COLORS,
     LEVELS,
+    Config,
+    validate_extent,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  validate_extent
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestValidateExtent:
     """Testes para a função validate_extent."""
@@ -73,6 +72,7 @@ class TestValidateExtent:
 #  Config
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestConfig:
     """Testes para a dataclass Config."""
 
@@ -113,7 +113,7 @@ class TestConfig:
     def test_directories_created(self, tmp_path):
         data = tmp_path / "newdata"
         output = tmp_path / "newoutput"
-        config = Config(data_dir=data, output_dir=output)
+        Config(data_dir=data, output_dir=output)  # cria os diretórios (efeito colateral)
         assert data.exists()
         assert output.exists()
 
@@ -139,14 +139,22 @@ class TestConfig:
 #  Constantes
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestConstants:
     """Testes para constantes de estilo e níveis."""
 
     def test_colors_has_required_keys(self):
         required = [
-            "pnmm_contour", "high_pressure", "low_pressure",
-            "cold_front", "warm_front", "zcas", "zcit",
-            "ocean", "land", "coastline",
+            "pnmm_contour",
+            "high_pressure",
+            "low_pressure",
+            "cold_front",
+            "warm_front",
+            "zcas",
+            "zcit",
+            "ocean",
+            "land",
+            "coastline",
         ]
         for key in required:
             assert key in COLORS, f"Chave '{key}' ausente em COLORS"

@@ -28,7 +28,8 @@ def _grid(varname: str, value: float) -> xr.Dataset:
     return xr.Dataset(
         {varname: (("latitude", "longitude"), data)},
         coords={
-            "latitude": _LATS, "longitude": _LONS,
+            "latitude": _LATS,
+            "longitude": _LONS,
             "valid_time": np.datetime64("2026-06-14T12:00"),
             "time": np.datetime64("2026-06-14T00:00"),
         },
@@ -40,9 +41,12 @@ def _wind_ds(u: float, v: float) -> xr.Dataset:
     v2 = np.full((len(_LATS), len(_LONS)), float(v))
     return xr.Dataset(
         {"u10": (("latitude", "longitude"), u2), "v10": (("latitude", "longitude"), v2)},
-        coords={"latitude": _LATS, "longitude": _LONS,
-                "valid_time": np.datetime64("2026-06-14T12:00"),
-                "time": np.datetime64("2026-06-14T00:00")},
+        coords={
+            "latitude": _LATS,
+            "longitude": _LONS,
+            "valid_time": np.datetime64("2026-06-14T12:00"),
+            "time": np.datetime64("2026-06-14T00:00"),
+        },
     )
 
 
@@ -60,8 +64,12 @@ def test_sample_nearest_normalizes_longitude_and_picks_point():
 
 
 def test_sample_surface_collects_vars_across_datasets():
-    datasets = [_grid("msl", 101300.0), _wind_ds(3.0, -4.0),
-                _grid("tcwv", 45.0), _grid("tp", 0.002)]
+    datasets = [
+        _grid("msl", 101300.0),
+        _wind_ds(3.0, -4.0),
+        _grid("tcwv", 45.0),
+        _grid("tp", 0.002),
+    ]
     out = _sample_surface(datasets, -37.0, 0.4)
     assert out["msl"] == pytest.approx(101300.0)
     assert out["u10"] == pytest.approx(3.0)
@@ -87,8 +95,20 @@ def test_assemble_units_and_precip_deaccumulation():
     tp_m = [0.0, 0.001, 0.003, 0.003]  # acumulado (m) desde t=0
 
     ts = _assemble_point_timeseries(
-        -35.0, 0.0, -35.0, 0.0, steps, ["a", "b", "c", "d"],
-        t_k, u10, v10, msl_pa, tcwv, tp_m, "00Z 14/06/2026", 0,
+        -35.0,
+        0.0,
+        -35.0,
+        0.0,
+        steps,
+        ["a", "b", "c", "d"],
+        t_k,
+        u10,
+        v10,
+        msl_pa,
+        tcwv,
+        tp_m,
+        "00Z 14/06/2026",
+        0,
     )
     assert isinstance(ts, PointTimeseries)
     np.testing.assert_allclose(ts.t, [26.85, 25.85, 24.85, 23.85], atol=1e-6)
@@ -102,8 +122,20 @@ def test_assemble_units_and_precip_deaccumulation():
 
 def test_assemble_wind_direction_from_east():
     ts = _assemble_point_timeseries(
-        0.0, 0.0, 0.0, 0.0, [0], [""],
-        [300.0], [-5.0], [0.0], [101300.0], [40.0], [0.0], "", 0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        [0],
+        [""],
+        [300.0],
+        [-5.0],
+        [0.0],
+        [101300.0],
+        [40.0],
+        [0.0],
+        "",
+        0,
     )
     # u<0 (sopra p/ oeste) → vem DE leste → 90°.
     assert ts.wind_dir[0] == pytest.approx(90.0)

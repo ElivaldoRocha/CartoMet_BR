@@ -1,30 +1,29 @@
 """Testes para cartomet_br.data.ecmwf — download e processamento de dados."""
 
 import contextlib
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
 
-import pytest
 import numpy as np
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+import pytest
 
 from cartomet_br.data.ecmwf import (
-    download_ecmwf,
-    load_synoptic_data,
-    estimate_available_cycles,
-    SynopticData,
+    CYCLE_SCHEDULE,
+    PL_LEVELS,
+    VARIABLE_REGISTRY,
     PLFieldData,
     SatelliteData,
-    VARIABLE_REGISTRY,
-    PL_LEVELS,
-    CYCLE_SCHEDULE,
+    SynopticData,
+    download_ecmwf,
+    estimate_available_cycles,
     get_ir_colormap,
+    load_synoptic_data,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Dataclasses
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestSynopticData:
     def test_creation(self):
@@ -114,30 +113,50 @@ class TestSatelliteData:
 #  VARIABLE_REGISTRY
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestVariableRegistry:
     def test_has_expected_variables(self):
         expected = [
-            "gh", "t", "wind", "wind_speed", "w", "q", "r",
-            "d", "vo", "olr", "temp_adv", "temp_grad",
-            "frontogenesis", "tcwv",
+            "gh",
+            "t",
+            "wind",
+            "wind_speed",
+            "w",
+            "q",
+            "r",
+            "d",
+            "vo",
+            "olr",
+            "temp_adv",
+            "temp_grad",
+            "frontogenesis",
+            "tcwv",
         ]
         for var in expected:
             assert var in VARIABLE_REGISTRY, f"Variável '{var}' ausente"
 
     def test_each_variable_has_required_fields(self):
-        required = ["nome", "param", "unit_raw", "unit_display",
-                     "plot_type", "cmap", "symmetric", "category"]
+        required = [
+            "nome",
+            "param",
+            "unit_raw",
+            "unit_display",
+            "plot_type",
+            "cmap",
+            "symmetric",
+            "category",
+        ]
         for key, info in VARIABLE_REGISTRY.items():
             for field in required:
                 assert field in info, f"Variável '{key}' sem campo '{field}'"
 
     def test_param_is_list_of_strings(self):
-        for key, info in VARIABLE_REGISTRY.items():
+        for _key, info in VARIABLE_REGISTRY.items():
             assert isinstance(info["param"], list)
             assert all(isinstance(p, str) for p in info["param"])
 
     def test_conversion_callable_or_none(self):
-        for key, info in VARIABLE_REGISTRY.items():
+        for _key, info in VARIABLE_REGISTRY.items():
             conv = info["conversion"]
             if conv is not None:
                 assert callable(conv)
@@ -211,12 +230,13 @@ class TestPLLevels:
             assert level in PL_LEVELS
 
     def test_sorted_descending(self):
-        assert PL_LEVELS == sorted(PL_LEVELS, reverse=True)
+        assert sorted(PL_LEVELS, reverse=True) == PL_LEVELS
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  estimate_available_cycles
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestEstimateAvailableCycles:
     def test_returns_expected_structure(self):
@@ -252,7 +272,7 @@ class TestEstimateAvailableCycles:
     def test_at_specific_time(self, mock_dt):
         """Simula um horário conhecido para verificar lógica."""
         # 20 UTC do dia X → rodada 12Z já disponível (publica ~19:30)
-        fake_now = datetime(2026, 3, 20, 20, 0, tzinfo=timezone.utc)
+        fake_now = datetime(2026, 3, 20, 20, 0, tzinfo=UTC)
         mock_dt.now.return_value = fake_now
         mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
 
@@ -263,6 +283,7 @@ class TestEstimateAvailableCycles:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CYCLE_SCHEDULE
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestCycleSchedule:
     def test_has_4_cycles(self):
@@ -280,6 +301,7 @@ class TestCycleSchedule:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  download_ecmwf (testa validação, não download real)
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestDownloadEcmwf:
     def test_reuses_existing_file(self, tmp_path):
@@ -328,18 +350,23 @@ class TestDownloadEcmwf:
 #  Modo somente-cache (abrir projeto NUNCA vai à rede)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestCacheOnlyMode:
     def test_hit_returns_path_without_network(self, tmp_path):
         """Arquivo em cache → retorna o caminho, sem tocar a rede."""
         from cartomet_br.data.ecmwf import cache_only_mode
+
         output = tmp_path / "ecmwf_msl_20260614_12Z_f000.grib2"
         output.write_bytes(b"fake grib data")
 
         with patch("cartomet_br.data.ecmwf.Client") as mock_client_cls:
             with cache_only_mode():
                 result = download_ecmwf(
-                    variables=["msl"], step=0, cycle=12,
-                    output_path=output, data_dir=tmp_path,
+                    variables=["msl"],
+                    step=0,
+                    cycle=12,
+                    output_path=output,
+                    data_dir=tmp_path,
                 )
             assert result == output
             mock_client_cls.assert_not_called()  # nenhuma rede
@@ -352,8 +379,11 @@ class TestCacheOnlyMode:
             with cache_only_mode():  # noqa: SIM117
                 with pytest.raises(CacheMissError):
                     download_ecmwf(
-                        variables=["msl"], step=0, cycle=12,
-                        output_path=tmp_path / "ausente.grib2", data_dir=tmp_path,
+                        variables=["msl"],
+                        step=0,
+                        cycle=12,
+                        output_path=tmp_path / "ausente.grib2",
+                        data_dir=tmp_path,
                     )
             mock_client_cls.assert_not_called()
 
@@ -369,14 +399,16 @@ class TestCacheOnlyMode:
         # Um miss fora do contexto NÃO levanta CacheMissError (tentaria rede).
         output = tmp_path / "ja_existe.grib2"
         output.write_bytes(b"x")
-        assert download_ecmwf(variables=["t"], step=0,
-                              output_path=output, data_dir=tmp_path) == output
+        assert (
+            download_ecmwf(variables=["t"], step=0, output_path=output, data_dir=tmp_path) == output
+        )
         _ = CacheMissError  # referência usada apenas no contexto acima
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Tradução de exceções (IFS Cycle 50r1 — scda/scwv descontinuados)
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestExceptionTranslation:
     @patch("cartomet_br.data.ecmwf.Client")
@@ -449,6 +481,7 @@ class TestExceptionTranslation:
 #  get_ir_colormap
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestDateAnchoring:
     """Regressão do bug do título preso na data de hoje: a data da rodada
     selecionada (`cycle_date`) precisa virar o parâmetro `date` do pedido ECMWF.
@@ -465,8 +498,12 @@ class TestDateAnchoring:
         mock_client_cls.return_value = mock_client
 
         download_ecmwf(
-            variables=["msl"], step=0, cycle=6, date="20260619",
-            output_path=output, data_dir=tmp_path,
+            variables=["msl"],
+            step=0,
+            cycle=6,
+            date="20260619",
+            output_path=output,
+            data_dir=tmp_path,
         )
 
         kwargs = mock_client.retrieve.call_args.kwargs
@@ -481,8 +518,12 @@ class TestDateAnchoring:
         mock_client_cls.return_value = mock_client
 
         download_ecmwf(
-            variables=["msl"], step=0, cycle=6, date=None,
-            output_path=output, data_dir=tmp_path,
+            variables=["msl"],
+            step=0,
+            cycle=6,
+            date=None,
+            output_path=output,
+            data_dir=tmp_path,
         )
 
         kwargs = mock_client.retrieve.call_args.kwargs
@@ -592,6 +633,7 @@ class TestIRColormap:
 #  load_goes_netcdf — leitura SEM REDE (download e restauração de projeto)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestLoadGoesNetcdf:
     """Regressão do bug do GOES sumido ao abrir projeto: as coordenadas precisam
     sair em METROS (radianos × perspective_point_height), senão a projeção
@@ -601,17 +643,21 @@ class TestLoadGoesNetcdf:
     def _fake_goes_nc(path, sat_h=35786023.0):
         import xarray as xr
 
-        x_rad = np.array([-0.1, 0.0, 0.1])      # radianos crus, como no arquivo real
+        x_rad = np.array([-0.1, 0.0, 0.1])  # radianos crus, como no arquivo real
         y_rad = np.array([0.05, 0.0, -0.05])
-        cmi_k = np.full((3, 3), 250.0)          # Kelvin (topo frio ~ -23 °C)
+        cmi_k = np.full((3, 3), 250.0)  # Kelvin (topo frio ~ -23 °C)
         ds = xr.Dataset(
             {
                 "CMI": (("y", "x"), cmi_k),
-                "goes_imager_projection": ((), 0, {
-                    "perspective_point_height": sat_h,
-                    "longitude_of_projection_origin": -75.0,
-                    "sweep_angle_axis": "x",
-                }),
+                "goes_imager_projection": (
+                    (),
+                    0,
+                    {
+                        "perspective_point_height": sat_h,
+                        "longitude_of_projection_origin": -75.0,
+                        "sweep_angle_axis": "x",
+                    },
+                ),
                 "t": ((), np.datetime64("2026-06-14T12:00", "s").astype("float64")),
             },
             coords={"x": x_rad, "y": y_rad},
@@ -630,7 +676,7 @@ class TestLoadGoesNetcdf:
         # O cerne do bug: coordenadas em metros, não em radianos crus.
         np.testing.assert_allclose(data.x, x_rad * sat_h)
         np.testing.assert_allclose(data.y, y_rad * sat_h)
-        assert abs(data.x).max() > 1e6   # ordem de milhões de metros, não ~0.1
+        assert abs(data.x).max() > 1e6  # ordem de milhões de metros, não ~0.1
 
     def test_kelvin_converted_to_celsius_and_metadata(self, tmp_path):
         from cartomet_br.data.ecmwf import load_goes_netcdf
@@ -640,6 +686,6 @@ class TestLoadGoesNetcdf:
 
         data = load_goes_netcdf(path)
 
-        np.testing.assert_allclose(data.data, 250.0 - 273.15)   # K → °C
-        assert data.filename == path.name                       # basename p/ o cache
+        np.testing.assert_allclose(data.data, 250.0 - 273.15)  # K → °C
+        assert data.filename == path.name  # basename p/ o cache
         assert data.sat_lon == -75.0 and data.sat_sweep == "x"

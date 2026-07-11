@@ -35,15 +35,16 @@ def _synthetic_band_with_orphans():
     rng = np.random.default_rng(0)
     nlat, nlon = 40, 60
     izcit = 0.1 + 0.02 * rng.standard_normal((nlat, nlon))
-    izcit[18:23, :] = 0.9 + 0.02 * rng.standard_normal((5, nlon))   # banda ~300 px
-    izcit[3, 5] = 0.95                                              # órfã 1 (longe)
-    izcit[35, 50] = 0.95                                           # órfã 2 (longe)
+    izcit[18:23, :] = 0.9 + 0.02 * rng.standard_normal((5, nlon))  # banda ~300 px
+    izcit[3, 5] = 0.95  # órfã 1 (longe)
+    izcit[35, 50] = 0.95  # órfã 2 (longe)
     return izcit
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Caminho real (LISA) — requer esda/libpysal
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 @needs_spatial
 class TestCoherenceMaskReal:
@@ -66,7 +67,7 @@ class TestCoherenceMaskReal:
 
     def test_insufficient_valid_pixels_returns_empty(self):
         izcit = np.full((20, 20), np.nan)
-        izcit[0, 0] = 0.9          # só 1 pixel válido → amostra insuficiente
+        izcit[0, 0] = 0.9  # só 1 pixel válido → amostra insuficiente
         mask = coherence_mask(izcit, min_pixels=50)
         assert mask.dtype == bool
         assert not mask.any()
@@ -80,6 +81,7 @@ class TestCoherenceMaskReal:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Dependências ausentes — não trava
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestDepsMissing:
     def test_coherence_mask_raises_spatial_deps_missing(self, monkeypatch):
@@ -120,6 +122,7 @@ class TestDepsMissing:
 #  Integração no motor (caminho real) — coerência produz raster categórico
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @needs_spatial
 class TestBuildRasterCoherence:
     def test_coherence_method_produces_categorical_raster(self):
@@ -128,12 +131,14 @@ class TestBuildRasterCoherence:
         band = 0.1 + 0.02 * rng.standard_normal((nlat, nlon))
         band[18:23, :] = 0.95
         nf = NF(
-            tsm_n=band, conv_n=band, olr_n_inv=band,
-            olr_abs=np.full((nlat, nlon), 175.0),   # tudo "Forte" onde sobreviver
+            tsm_n=band,
+            conv_n=band,
+            olr_n_inv=band,
+            olr_abs=np.full((nlat, nlon), 175.0),  # tudo "Forte" onde sobreviver
             lons=np.linspace(-55, 15, nlon),
             lats=np.linspace(-15, 15, nlat),
         )
         raster, _izcit, _active = build_raster(nf, filter_method="coherence")
         vals = raster[np.isfinite(raster)]
-        assert vals.size > 0                          # algo sobrevive (a banda)
+        assert vals.size > 0  # algo sobrevive (a banda)
         assert set(np.unique(vals)).issubset({0.0, 1.0, 2.0, 3.0})

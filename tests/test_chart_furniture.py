@@ -18,8 +18,13 @@ from cartomet_br.core.config import EXTENT_BRASIL, Config
 from cartomet_br.gui.draw_tools import DrawCommand, PenCommand, PointCommand
 from cartomet_br.gui.project_io import commands_to_records
 
-_PEN_STYLE = {"edge_color": "#2E86C1", "fill_color": None, "linewidth": 2.0,
-              "linestyle": "dashed", "alpha": 0.8}
+_PEN_STYLE = {
+    "edge_color": "#2E86C1",
+    "fill_color": None,
+    "linewidth": 2.0,
+    "linestyle": "dashed",
+    "alpha": 0.8,
+}
 
 
 @pytest.fixture(scope="module")
@@ -35,6 +40,7 @@ def qapp():
 @pytest.fixture
 def canvas(qapp, tmp_path):
     from cartomet_br.gui.map_canvas import MapCanvas
+
     data_dir = tmp_path / "data"
     out_dir = tmp_path / "out"
     data_dir.mkdir()
@@ -56,12 +62,12 @@ def test_get_used_symbols_filters_and_dedups(canvas):
         DrawCommand("1", [-50.0, -45.0], [0.0, -2.0], flip=False),
         DrawCommand("6", [-20.0, -15.0], [3.0, 2.0], flip=False, intensity=2),  # dup
         PointCommand("a", -45.0, -10.0),
-        PenCommand([-20.0, -21.0], [-3.0, -4.0], dict(_PEN_STYLE)),             # não-OMM
+        PenCommand([-20.0, -21.0], [-3.0, -4.0], dict(_PEN_STYLE)),  # não-OMM
     ]
     canvas.import_drawings_state(commands_to_records(cmds))
 
     keys = [k for k, _ in canvas.get_used_symbols()]
-    assert keys == ["6", "1", "a"]          # caneta fora, dedup, ordem preservada
+    assert keys == ["6", "1", "a"]  # caneta fora, dedup, ordem preservada
 
 
 def test_render_then_clear_roundtrips_no_leak(canvas):
@@ -72,14 +78,21 @@ def test_render_then_clear_roundtrips_no_leak(canvas):
     canvas.import_drawings_state(
         commands_to_records([DrawCommand("1", [-50.0, -45.0], [0.0, -2.0], flip=False)])
     )
-    meta = {"institution": "UFPA", "analyst": "F", "chart_type": "Carta",
-            "logo_path": "", "valid_time": "14-06-2026 12:00",
-            "base_time": "00Z 14-06-2026", "step": 12, "emission": "14-06-2026 12:00"}
+    meta = {
+        "institution": "UFPA",
+        "analyst": "F",
+        "chart_type": "Carta",
+        "logo_path": "",
+        "valid_time": "14-06-2026 12:00",
+        "base_time": "00Z 14-06-2026",
+        "step": 12,
+        "emission": "14-06-2026 12:00",
+    }
 
     added = canvas.render_chart_furniture(meta)
-    assert added                                   # algo foi criado
-    assert len(canvas.fig.texts) > base_texts      # textos do cabeçalho
-    assert len(canvas.fig.axes) == base_axes + 1   # eixo da legenda (há símbolo)
+    assert added  # algo foi criado
+    assert len(canvas.fig.texts) > base_texts  # textos do cabeçalho
+    assert len(canvas.fig.axes) == base_axes + 1  # eixo da legenda (há símbolo)
     assert len(canvas.fig.artists) > base_artists  # faixa/accent do cabeçalho
 
     canvas.clear_chart_furniture()

@@ -21,16 +21,18 @@ def _synthetic_ds(levels=PL_LEVELS) -> xr.Dataset:
     t = np.empty((nz, ny, nx))
     gh = np.empty((nz, ny, nx))
     for k, p in enumerate(levs):
-        t[k] = 300.0 - (1000.0 - p) * 0.05   # K, decresce com a altura
-        gh[k] = (1000.0 - p) * 8.0           # m, cresce com a altura
-    q = np.full((nz, ny, nx), 0.01)          # kg/kg
+        t[k] = 300.0 - (1000.0 - p) * 0.05  # K, decresce com a altura
+        gh[k] = (1000.0 - p) * 8.0  # m, cresce com a altura
+    q = np.full((nz, ny, nx), 0.01)  # kg/kg
     u = np.full((nz, ny, nx), 5.0)
     v = np.full((nz, ny, nx), -3.0)
     dims = ("isobaricInhPa", "latitude", "longitude")
     return xr.Dataset(
         {"t": (dims, t), "q": (dims, q), "u": (dims, u), "v": (dims, v), "gh": (dims, gh)},
         coords={
-            "isobaricInhPa": levs, "latitude": lats, "longitude": lons,
+            "isobaricInhPa": levs,
+            "latitude": lats,
+            "longitude": lons,
             "valid_time": np.datetime64("2026-06-14T12:00"),
             "time": np.datetime64("2026-06-14T00:00"),
         },
@@ -60,7 +62,7 @@ def test_drop_de_niveis_abaixo_do_solo():
     ds["t"][0, 1, 1] = np.nan
     prof = _profile_from_dataset(ds, lon=-35.0, lat=0.0, cycle=12, step=0)
     assert prof.pressures.size == len(PL_LEVELS) - 1
-    assert prof.pressures[0] == 925.0          # 1000 hPa foi descartado
+    assert prof.pressures[0] == 925.0  # 1000 hPa foi descartado
     assert np.all(np.isfinite(prof.t))
 
 

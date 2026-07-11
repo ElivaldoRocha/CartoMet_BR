@@ -12,14 +12,14 @@ from cartomet_br.data.zcit_dual import detect_zcit_axis_dual
 
 
 def _grid(nlat=60, nlon=120):
-    lats = np.linspace(15, -15, nlat)        # descendente (norte → sul)
+    lats = np.linspace(15, -15, nlat)  # descendente (norte → sul)
     lons = np.linspace(-55, 15, nlon)
     return lats, lons
 
 
 def _band(lats, lons, center, width=2.0, floor=290.0, depth=130.0):
     LAT = lats[:, None] * np.ones((1, len(lons)))
-    return floor - depth * np.exp(-((LAT - center) / width) ** 2)
+    return floor - depth * np.exp(-(((LAT - center) / width) ** 2))
 
 
 class TestSingleBand:
@@ -40,7 +40,7 @@ class TestDoubleBand:
         lats, lons = _grid()
         north = _band(lats, lons, center=7.0, depth=120.0)
         south = _band(lats, lons, center=-5.0, depth=120.0)
-        olr = np.minimum(north, south)           # dois lobos com vão limpo entre eles
+        olr = np.minimum(north, south)  # dois lobos com vão limpo entre eles
         lsm = np.zeros((len(lats), len(lons)))
         res = detect_zcit_axis_dual(olr, lats, lons, lsm=lsm)
         assert res.is_double is True
@@ -59,8 +59,9 @@ class TestCoupledInjection:
         olr = _band(lats, lons, center=2.0)
         lsm = np.zeros((len(lats), len(lons)))
         a = detect_zcit_axis(olr, lats, lons, lsm=lsm, smooth_sigma=0.0)
-        b = detect_zcit_axis(olr, lats, lons, lsm=lsm, smooth_sigma=0.0,
-                             intensity=np.clip(240.0 - olr, 0.0, None))
+        b = detect_zcit_axis(
+            olr, lats, lons, lsm=lsm, smooth_sigma=0.0, intensity=np.clip(240.0 - olr, 0.0, None)
+        )
         fa, fb = a.lat_axis, b.lat_axis
         both = np.isfinite(fa) & np.isfinite(fb)
         assert both.any()
@@ -71,8 +72,8 @@ class TestCoupledInjection:
         lats, lons = _grid()
         olr = _band(lats, lons, center=4.0)
         izcit = np.zeros((len(lats), len(lons)))
-        rows = np.argsort(np.abs(lats + 6.0))[:5]       # 5 linhas em torno de ~6°S
-        izcit[rows, :] = 1.0                             # força energia (acima de min_pixels)
+        rows = np.argsort(np.abs(lats + 6.0))[:5]  # 5 linhas em torno de ~6°S
+        izcit[rows, :] = 1.0  # força energia (acima de min_pixels)
         mask = izcit > 0
         lat_raw, cov = meridional_centroid(olr, mask, lats, intensity=izcit)
-        assert np.nanmedian(lat_raw) < -4.0             # centroide puxado p/ o sul
+        assert np.nanmedian(lat_raw) < -4.0  # centroide puxado p/ o sul

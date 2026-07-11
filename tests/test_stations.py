@@ -22,6 +22,7 @@ from cartomet_br.data.stations import (
 #  empty_stations_df / colunas canônicas
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestEmptyDataFrame:
     def test_has_canonical_columns(self):
         df = empty_stations_df()
@@ -34,6 +35,7 @@ class TestEmptyDataFrame:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  wind_components
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestWindComponents:
     def test_north_wind(self):
@@ -63,6 +65,7 @@ class TestWindComponents:
 #  normalize_station_records
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestNormalize:
     def test_empty_list(self):
         df = normalize_station_records([])
@@ -88,14 +91,21 @@ class TestNormalize:
         assert df.loc[0, "station_id"] == "A"
 
     def test_column_order_preserved(self):
-        records = [{"longitude": -50.0, "latitude": -10.0, "air_temperature": 25.0,
-                    "station_id": "Z"}]
+        records = [
+            {"longitude": -50.0, "latitude": -10.0, "air_temperature": 25.0, "station_id": "Z"}
+        ]
         df = normalize_station_records(records)
         assert list(df.columns) == STATION_COLUMNS
 
     def test_numeric_coercion(self):
-        records = [{"station_id": "X", "latitude": "-10.0", "longitude": "-50.0",
-                    "air_temperature": "25.5"}]
+        records = [
+            {
+                "station_id": "X",
+                "latitude": "-10.0",
+                "longitude": "-50.0",
+                "air_temperature": "25.5",
+            }
+        ]
         df = normalize_station_records(records)
         assert df.loc[0, "air_temperature"] == pytest.approx(25.5)
 
@@ -103,6 +113,7 @@ class TestNormalize:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  _filter_extent
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestFilterExtent:
     def test_keeps_inside_drops_outside(self):
@@ -123,6 +134,7 @@ class TestFilterExtent:
 #  _parse_dms_coord (tabela WMO nsd_bbsss)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestParseDMS:
     def test_north(self):
         assert _parse_dms_coord("15-30N") == pytest.approx(15.5)
@@ -131,7 +143,7 @@ class TestParseDMS:
         assert _parse_dms_coord("23-30S") == pytest.approx(-23.5)
 
     def test_west_negative(self):
-        assert _parse_dms_coord("047-54-30W") == pytest.approx(-(47 + 54/60 + 30/3600))
+        assert _parse_dms_coord("047-54-30W") == pytest.approx(-(47 + 54 / 60 + 30 / 3600))
 
     def test_empty(self):
         assert _parse_dms_coord("") is None
@@ -141,12 +153,18 @@ class TestParseDMS:
 #  _metar_record_from_json (AWC)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestMetarRecord:
     def test_basic_mapping(self):
         obj = {
-            "icaoId": "SBBR", "lat": -15.87, "lon": -47.92,
-            "temp": 25.0, "dewp": 18.0, "mslp": 1015.0,
-            "wdir": 90, "wspd": 10,  # 10 kt de leste
+            "icaoId": "SBBR",
+            "lat": -15.87,
+            "lon": -47.92,
+            "temp": 25.0,
+            "dewp": 18.0,
+            "mslp": 1015.0,
+            "wdir": 90,
+            "wspd": 10,  # 10 kt de leste
             "clouds": [{"cover": "SCT", "base": 3000}, {"cover": "BKN", "base": 8000}],
             "wxString": "RA",
         }
@@ -177,6 +195,7 @@ class TestMetarRecord:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  thinning_radius (densidade ajustável do overlay)
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestThinningRadius:
     def test_higher_factor_smaller_radius(self):

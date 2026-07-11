@@ -28,8 +28,13 @@ from cartomet_br.gui.project_io import commands_to_records
 
 
 def _sample_commands() -> list:
-    style = {"edge_color": "#2E86C1", "fill_color": None, "linewidth": 2.0,
-             "linestyle": "dashed", "alpha": 0.8}
+    style = {
+        "edge_color": "#2E86C1",
+        "fill_color": None,
+        "linewidth": 2.0,
+        "linestyle": "dashed",
+        "alpha": 0.8,
+    }
     return [
         DrawCommand("6", [-40.0, -35.0, -30.0], [2.0, 1.5, 1.0], flip=True, intensity=3),
         PointCommand("a", -45.0, -10.0),
@@ -53,6 +58,7 @@ def qapp():
 @pytest.fixture
 def canvas(qapp, tmp_path):
     from cartomet_br.gui.map_canvas import MapCanvas
+
     data_dir = tmp_path / "data"
     out_dir = tmp_path / "out"
     data_dir.mkdir()
@@ -74,9 +80,9 @@ def test_import_then_export_preserves_every_drawing(canvas):
     canvas.import_drawings_state(records_in)
 
     # Artistas reconstruídos foram parar nas listas certas.
-    assert len(canvas.history.commands) == 5      # tudo menos o emoji
+    assert len(canvas.history.commands) == 5  # tudo menos o emoji
     assert len(canvas._emoji_records) == 1
-    assert len(canvas._annotations) == 1          # a anotação de texto
+    assert len(canvas._annotations) == 1  # a anotação de texto
 
     records_out = canvas.export_drawings_state()
     assert len(records_out) == len(records_in)
@@ -145,17 +151,26 @@ def test_export_layers_state_builds_restore_manifest(canvas):
 
     # Carta sinótica + visibilidade (espessura desligada).
     canvas.synoptic_data = SynopticData(
-        pnmm=np.zeros((3, 3)), thickness=np.ones((3, 3)),
-        lons=np.array([-50.0, -45.0, -40.0]), lats=np.array([0.0, -5.0, -10.0]),
-        lon2d=np.zeros((3, 3)), lat2d=np.zeros((3, 3)),
-        valid_time="2026-06-14T12:00", extent=[-55.0, -15.0, 15.0, 15.0], step=0,
+        pnmm=np.zeros((3, 3)),
+        thickness=np.ones((3, 3)),
+        lons=np.array([-50.0, -45.0, -40.0]),
+        lats=np.array([0.0, -5.0, -10.0]),
+        lon2d=np.zeros((3, 3)),
+        lat2d=np.zeros((3, 3)),
+        valid_time="2026-06-14T12:00",
+        extent=[-55.0, -15.0, 15.0, 15.0],
+        step=0,
     )
     canvas.plot_options = {"pnmm": True, "thickness": False, "centers": True}
 
     # Campo PL (vento 850) — injeta direto nos stores (sem plotar).
     canvas._pl_data["wind_850_barbs"] = PLFieldData(
-        values=np.zeros((3, 3)), lons=np.array([-50.0, -45.0, -40.0]),
-        lats=np.array([0.0, -5.0, -10.0]), variable="wind", level=850, step=24,
+        values=np.zeros((3, 3)),
+        lons=np.array([-50.0, -45.0, -40.0]),
+        lats=np.array([0.0, -5.0, -10.0]),
+        variable="wind",
+        level=850,
+        step=24,
     )
     canvas._pl_wind_types["wind_850_barbs"] = "barbs"
     canvas._pl_wind_color["wind_850_barbs"] = "#E74C3C"
@@ -164,6 +179,7 @@ def test_export_layers_state_builds_restore_manifest(canvas):
     # Satélite GOES em cache.
     class _Sat:
         filename = "OR_ABI-L2-CMIPF-M6C13_G19_s2026.nc"
+
     canvas._sat_data = _Sat()
 
     manifest = canvas.export_layers_state()
@@ -205,13 +221,20 @@ def test_restore_layers_from_cache_miss_never_networks(canvas, tmp_path):
         canvas=canvas,
         field_panel=_FieldPanelStub(),
     )
-    for name in ("_restore_layers_from_cache", "_add_field_panel_entry",
-                 "_restore_satellite_from_cache", "_layer_label"):
+    for name in (
+        "_restore_layers_from_cache",
+        "_add_field_panel_entry",
+        "_restore_satellite_from_cache",
+        "_layer_label",
+    ):
         setattr(fake, name, types.MethodType(getattr(MainWindow, name), fake))
 
     manifest = [
-        {"kind": "synoptic", "step": 0,
-         "visibility": {"pnmm": True, "thickness": True, "centers": True}},
+        {
+            "kind": "synoptic",
+            "step": 0,
+            "visibility": {"pnmm": True, "thickness": True, "centers": True},
+        },
         {"kind": "field", "variable": "wind", "level": 850, "step": 0, "wind_type": "barbs"},
         {"kind": "satellite", "filename": "ausente.nc"},
         {"kind": "sst", "time_str": "2026-06-14", "stride": 5},
@@ -224,8 +247,8 @@ def test_restore_layers_from_cache_miss_never_networks(canvas, tmp_path):
     with patch("cartomet_br.data.ecmwf.Client") as mock_client_cls:
         n_restored, missed, reactivate = fake._restore_layers_from_cache(manifest, ctx)
 
-    assert n_restored == 0          # cache vazio → nada restaurado do cache
-    assert len(missed) == 4         # sinótica, campo, satélite e TSM fora do cache
+    assert n_restored == 0  # cache vazio → nada restaurado do cache
+    assert len(missed) == 4  # sinótica, campo, satélite e TSM fora do cache
     # Calculadas/externas memorizadas p/ reativação manual (nunca recomputam só).
     assert len(reactivate) == 3
     assert any("LOCZCIT" in r for r in reactivate)

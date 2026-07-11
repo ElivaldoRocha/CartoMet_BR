@@ -1,11 +1,11 @@
 """Testes para a lógica de recálculo de extent no zoom/recorte (sem GUI)."""
 
-
 from cartomet_br.gui.map_canvas import MapCanvas
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  _clamp_extent — mantém o extent dentro de limites geográficos válidos
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class TestClampExtent:
     def test_valid_extent_unchanged(self):

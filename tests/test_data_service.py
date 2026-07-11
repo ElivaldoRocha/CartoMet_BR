@@ -2,11 +2,14 @@
 
 import pytest
 
-from cartomet_br.services.data_service import (
-    DataService, ValidationError, DownloadError, VALID_STEPS,
-)
 from cartomet_br.core.config import Config
-from cartomet_br.data.ecmwf import VARIABLE_REGISTRY, PL_LEVELS
+from cartomet_br.data.ecmwf import PL_LEVELS, VARIABLE_REGISTRY
+from cartomet_br.services.data_service import (
+    VALID_STEPS,
+    DataService,
+    DownloadError,
+    ValidationError,
+)
 
 
 class TestValidateStep:
@@ -212,9 +215,7 @@ class TestCacheOnlyRestore:
         assert "permissão" in msg.lower()
 
     def test_cannot_establish_latest(self):
-        msg = DataService._format_download_error(
-            Exception("Cannot establish latest"), 6
-        )
+        msg = DataService._format_download_error(Exception("Cannot establish latest"), 6)
         assert "Dados não encontrados" in msg
 
     def test_unknown_error_passthrough(self):

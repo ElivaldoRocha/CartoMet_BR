@@ -1,9 +1,7 @@
 """Testes para o sistema de undo/redo — DrawingHistory, DrawCommand, AnnotationCommand."""
 
-import pytest
-
 from cartomet_br.gui.draw_tools import PenCommand, ShapeCommand
-from cartomet_br.gui.map_canvas import DrawCommand, AnnotationCommand, DrawingHistory
+from cartomet_br.gui.map_canvas import AnnotationCommand, DrawCommand, DrawingHistory
 
 
 class TestDrawCommand:
@@ -47,7 +45,11 @@ class TestAnnotationCommand:
 
     def test_creation(self):
         cmd = AnnotationCommand(
-            x=-45.0, y=-23.0, text="SP", color="#FFFFFF", fontsize=11,
+            x=-45.0,
+            y=-23.0,
+            text="SP",
+            color="#FFFFFF",
+            fontsize=11,
         )
         assert cmd.x == -45.0
         assert cmd.text == "SP"
@@ -67,7 +69,11 @@ class TestDrawingHistory:
 
     def _make_annotation_cmd(self):
         return AnnotationCommand(
-            x=-50.0, y=-20.0, text="Test", color="#FFF", fontsize=10,
+            x=-50.0,
+            y=-20.0,
+            text="Test",
+            color="#FFF",
+            fontsize=10,
         )
 
     def test_empty_history(self):
@@ -219,19 +225,19 @@ class TestRemoveLastOf:
         h.push(p2)
         assert h.remove_last_of((PenCommand,)) is p2
         assert h.remove_last_of((PenCommand,)) is p1
-        assert h.remove_last_of((PenCommand,)) is None     # esgotou o tipo
+        assert h.remove_last_of((PenCommand,)) is None  # esgotou o tipo
 
     def test_returns_none_when_type_absent(self):
         h = DrawingHistory()
         h.push(self._shape())
         assert h.remove_last_of((PenCommand,)) is None
-        assert h.undo_count == 1                            # nada removido
+        assert h.undo_count == 1  # nada removido
 
     def test_does_not_touch_redo_stack(self):
         h = DrawingHistory()
         h.push(self._pen(1.0))
         h.push(self._shape())
-        h.undo()                                            # forma vai p/ redo
+        h.undo()  # forma vai p/ redo
         assert h.can_redo
         h.remove_last_of((PenCommand,))
-        assert h.can_redo                                   # redo intacto
+        assert h.can_redo  # redo intacto

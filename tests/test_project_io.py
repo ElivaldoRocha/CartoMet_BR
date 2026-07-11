@@ -32,18 +32,40 @@ from cartomet_br.gui.project_io import (
 
 def _sample_commands() -> list:
     return [
-        DrawCommand(symbol_key="6", points_x=[-40.0, -35.0, -30.0],
-                    points_y=[2.0, 1.5, 1.0], flip=True, intensity=3),
+        DrawCommand(
+            symbol_key="6",
+            points_x=[-40.0, -35.0, -30.0],
+            points_y=[2.0, 1.5, 1.0],
+            flip=True,
+            intensity=3,
+        ),
         PointCommand(symbol_key="a", x=-45.0, y=-10.0),
         AnnotationCommand(x=-50.0, y=5.0, text="ZCIT forte", color="#CC0000", fontsize=12),
         EmojiCommand(x=-38.0, y=0.5, emoji="⛈", fontsize=40),
-        PenCommand(points_x=[-20.0, -21.0, -22.0], points_y=[-3.0, -3.5, -4.0],
-                   style={"edge_color": "#2E86C1", "fill_color": None,
-                          "linewidth": 2.0, "linestyle": "dashed", "alpha": 0.8}),
-        ShapeCommand(tool="arrow", points_x=[-10.0, -5.0], points_y=[0.0, 4.0],
-                     style={"edge_color": "#000000", "fill_color": None,
-                            "linewidth": 3.0, "linestyle": "solid", "alpha": 1.0},
-                     head_size_deg=1.25),
+        PenCommand(
+            points_x=[-20.0, -21.0, -22.0],
+            points_y=[-3.0, -3.5, -4.0],
+            style={
+                "edge_color": "#2E86C1",
+                "fill_color": None,
+                "linewidth": 2.0,
+                "linestyle": "dashed",
+                "alpha": 0.8,
+            },
+        ),
+        ShapeCommand(
+            tool="arrow",
+            points_x=[-10.0, -5.0],
+            points_y=[0.0, 4.0],
+            style={
+                "edge_color": "#000000",
+                "fill_color": None,
+                "linewidth": 3.0,
+                "linestyle": "solid",
+                "alpha": 1.0,
+            },
+            head_size_deg=1.25,
+        ),
     ]
 
 
@@ -72,11 +94,20 @@ def test_intensity_and_flip_preserved():
 def test_full_project_roundtrip():
     drawings = commands_to_records(_sample_commands())
     proj = build_project(
-        extent=[-55.0, -15.0, 15.0, 15.0], theme="Clássico",
+        extent=[-55.0, -15.0, 15.0, 15.0],
+        theme="Clássico",
         data_context={"cycle": 0, "cycle_date": "20260614", "step": 24},
-        layers=[{"type": "pl_field", "variable": "wind", "level": 850,
-                 "wind_type": "barbs", "visible": True}],
-        drawings=drawings, app_version="3.0.0",
+        layers=[
+            {
+                "type": "pl_field",
+                "variable": "wind",
+                "level": 850,
+                "wind_type": "barbs",
+                "visible": True,
+            }
+        ],
+        drawings=drawings,
+        app_version="3.0.0",
     )
     text = dump_project(proj)
     loaded = load_project(text)
@@ -93,26 +124,38 @@ def test_wind_roses_envelope_roundtrip():
     """As rosas fixadas (dado já binado) sobrevivem ao round-trip; ausência = []."""
     wr = [
         {
-            "lon": -47.0, "lat": -15.0, "grid_lon": -47.0, "grid_lat": -15.0,
-            "level": "10 m", "base_time": "00Z 10/06/2026", "size_deg": 4.0,
+            "lon": -47.0,
+            "lat": -15.0,
+            "grid_lon": -47.0,
+            "grid_lat": -15.0,
+            "level": "10 m",
+            "base_time": "00Z 10/06/2026",
+            "size_deg": 4.0,
             "rose": {
-                "sector_centers": [0.0, 90.0, 180.0, 270.0], "sector_width_deg": 90.0,
-                "speed_bin_edges": [0.5, 2.0, None], "freq": [[10.0, 5.0]] * 4,
-                "calm_fraction": 0.2, "calm_threshold": 0.5, "n_total": 25,
-                "mean_speed": 4.1, "prevailing_deg": 90.0,
+                "sector_centers": [0.0, 90.0, 180.0, 270.0],
+                "sector_width_deg": 90.0,
+                "speed_bin_edges": [0.5, 2.0, None],
+                "freq": [[10.0, 5.0]] * 4,
+                "calm_fraction": 0.2,
+                "calm_threshold": 0.5,
+                "n_total": 25,
+                "mean_speed": 4.1,
+                "prevailing_deg": 90.0,
             },
         }
     ]
     proj = build_project(
-        extent=[-55.0, -15.0, 15.0, 15.0], theme="Clássico",
-        data_context={}, layers=[], drawings=[], wind_roses=wr,
+        extent=[-55.0, -15.0, 15.0, 15.0],
+        theme="Clássico",
+        data_context={},
+        layers=[],
+        drawings=[],
+        wind_roses=wr,
     )
     loaded = load_project(dump_project(proj))
     assert loaded["wind_roses"] == wr
     # Omissão → chave presente e vazia (compatível com projetos v1 na leitura).
-    empty = build_project(
-        extent=None, theme=None, data_context=None, layers=None, drawings=[]
-    )
+    empty = build_project(extent=None, theme=None, data_context=None, layers=None, drawings=[])
     assert empty["wind_roses"] == []
 
 
@@ -120,19 +163,36 @@ def test_layers_manifest_roundtrips_for_cache_restore():
     """O manifesto de camadas (e a 'technique') sobrevive ao round-trip JSON —
     é o que o open-project usa para redesenhar os campos a partir do cache."""
     layers = [
-        {"kind": "synoptic", "step": 0,
-         "visibility": {"pnmm": True, "thickness": False, "centers": True}},
-        {"kind": "field", "layer_id": "wind_850_barbs", "variable": "wind",
-         "level": 850, "step": 24, "wind_type": "barbs"},
-        {"kind": "field", "layer_id": "olr", "variable": "olr",
-         "level": 0, "step": 12, "wind_type": "barbs"},
+        {
+            "kind": "synoptic",
+            "step": 0,
+            "visibility": {"pnmm": True, "thickness": False, "centers": True},
+        },
+        {
+            "kind": "field",
+            "layer_id": "wind_850_barbs",
+            "variable": "wind",
+            "level": 850,
+            "step": 24,
+            "wind_type": "barbs",
+        },
+        {
+            "kind": "field",
+            "layer_id": "olr",
+            "variable": "olr",
+            "level": 0,
+            "step": 12,
+            "wind_type": "barbs",
+        },
         {"kind": "satellite", "filename": "OR_ABI-L2-CMIPF-M6C13_G19_s2026.nc"},
     ]
     proj = build_project(
-        extent=[-55.0, -15.0, 15.0, 15.0], theme="Branco",
-        data_context={"cycle": 12, "cycle_date": "20260614", "step": 0,
-                      "technique": "stabilized"},
-        layers=layers, drawings=[], app_version="3.0.0",
+        extent=[-55.0, -15.0, 15.0, 15.0],
+        theme="Branco",
+        data_context={"cycle": 12, "cycle_date": "20260614", "step": 0, "technique": "stabilized"},
+        layers=layers,
+        drawings=[],
+        app_version="3.0.0",
     )
     loaded = load_project(dump_project(proj))
     assert loaded["layers"] == layers

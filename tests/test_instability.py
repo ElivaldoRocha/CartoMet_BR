@@ -15,26 +15,28 @@ from cartomet_br.data.ecmwf import (
     _instability_from_dataset,
 )
 
-_EXTENT = [-45.0, -5.0, -20.0, 10.0]   # lon_min, lat_min, lon_max, lat_max
+_EXTENT = [-45.0, -5.0, -20.0, 10.0]  # lon_min, lat_min, lon_max, lat_max
 
 
 def _synthetic_ds() -> xr.Dataset:
     levs = np.array(PL_LEVELS, dtype=float)
-    lats = np.linspace(-5.0, 10.0, 6)   # crescente
+    lats = np.linspace(-5.0, 10.0, 6)  # crescente
     lons = np.linspace(-45.0, -20.0, 8)
     nz, ny, nx = len(levs), lats.size, lons.size
     t = np.empty((nz, ny, nx))
     q = np.empty((nz, ny, nx))
     gh = np.empty((nz, ny, nx))
     for k, p in enumerate(levs):
-        t[k] = 300.0 - (1000.0 - p) * 0.05            # K, decresce com a altura
-        q[k] = max(0.012 * (p / 1000.0), 1e-4)        # kg/kg, decresce com a altura
+        t[k] = 300.0 - (1000.0 - p) * 0.05  # K, decresce com a altura
+        q[k] = max(0.012 * (p / 1000.0), 1e-4)  # kg/kg, decresce com a altura
         gh[k] = (1000.0 - p) * 8.0
     dims = ("isobaricInhPa", "latitude", "longitude")
     return xr.Dataset(
         {"t": (dims, t), "q": (dims, q), "gh": (dims, gh)},
         coords={
-            "isobaricInhPa": levs, "latitude": lats, "longitude": lons,
+            "isobaricInhPa": levs,
+            "latitude": lats,
+            "longitude": lons,
             "valid_time": np.datetime64("2026-06-14T12:00"),
             "time": np.datetime64("2026-06-14T00:00"),
         },
@@ -63,7 +65,9 @@ def _unstable_ds() -> xr.Dataset:
     return xr.Dataset(
         {"t": (dims, t), "q": (dims, q), "gh": (dims, gh)},
         coords={
-            "isobaricInhPa": levs, "latitude": lats, "longitude": lons,
+            "isobaricInhPa": levs,
+            "latitude": lats,
+            "longitude": lons,
             "valid_time": np.datetime64("2026-06-14T12:00"),
             "time": np.datetime64("2026-06-14T00:00"),
         },
@@ -89,7 +93,9 @@ def _wind_ds() -> xr.Dataset:
     return xr.Dataset(
         {"u": (dims, u), "v": (dims, v)},
         coords={
-            "isobaricInhPa": levs, "latitude": lats, "longitude": lons,
+            "isobaricInhPa": levs,
+            "latitude": lats,
+            "longitude": lons,
             "valid_time": np.datetime64("2026-06-14T12:00"),
             "time": np.datetime64("2026-06-14T00:00"),
         },

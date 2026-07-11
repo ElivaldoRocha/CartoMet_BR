@@ -24,11 +24,12 @@ jobs:
         run: uv sync --extra dev
 
       # Ruff é bloqueante: a dívida de lint foi limpa e agora protege o projeto.
+      # Escopo inclui tests/ (a dívida de estilo dos testes foi limpa na v3.1).
       - name: Ruff check
-        run: uv run ruff check cartomet_br/
+        run: uv run ruff check cartomet_br/ tests/
 
       - name: Ruff format check
-        run: uv run ruff format --check cartomet_br/
+        run: uv run ruff format --check cartomet_br/ tests/
 
       # Mypy é bloqueante: a dívida de tipos foi limpa na camada de dados/lógica.
       # O glue de renderização Cartopy (GeoAxes) é isento via [tool.mypy.overrides]
