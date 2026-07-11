@@ -5,9 +5,38 @@ Todas as mudanças notáveis do **CartoMet BR** são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [3.1.0] — não lançado
+## [3.1.0] — 2026-07-11
 
 ### Corrigido
+
+- **🎬 Cancelamento da animação não trava mais com download lento do ECMWF.**
+  A Fase 1 (preparar dados) baixava cada campo via `client.retrieve()` — uma
+  chamada de rede **bloqueante e sem timeout** —, e o cancelamento é cooperativo
+  (checado só *entre* steps). Com internet lenta, a thread ficava presa no
+  download e o "Cancelando..." não surtia efeito (janela travada, só saía
+  fechando o app). Dois escudos: **(i)** `_bound_session_timeout` injeta um
+  timeout (connect/read = 30/60 s) no `requests.Session` interno do cliente
+  ecmwf-opendata (que não expõe timeout e cujo multiurl repassa a sessão sem um)
+  — conexão parada vira `ReadTimeout`, download lento porém vivo não é morto; e
+  **(ii)** escotilha de escape no diálogo: se o cancelamento não fizer efeito em
+  5 s, o botão vira **"Fechar assim mesmo"** (`AnimationController.abandon()`
+  restaura o mapa e desiste do worker preso, que segue órfão até o timeout —
+  inofensivo).
+
+- **🎨 Indicador do seletor de rádio (Formato GIF/MP4) invisível no tema
+  escuro.** O `DARK_STYLE` estilizava só o `QCheckBox::indicator`, nunca o
+  `QRadioButton::indicator` — a bolinha de seleção sumia no fundo escuro e não
+  dava para saber qual formato estava marcado no diálogo de animação. Adicionado
+  o bloco `QRadioButton::indicator` (círculo, verde quando marcado, + estado
+  desabilitado). Correção global: todos os radios do app passam a mostrar a
+  seleção.
+
+- **🔤 Emoji "tofu" nos placeholders dos painéis de análise.** Os textos-guia
+  dos painéis (meteograma, corte vertical, rosa dos ventos, série ERA5) são
+  desenhados no canvas Matplotlib via `ax.text`, e a fonte DejaVu Sans não tem
+  os emojis (📈🔪🌹📉 viravam quadradinhos + `UserWarning`). O emoji foi removido
+  **só** do texto desenhado no Matplotlib; botões e cabeçalhos Qt seguem com
+  emoji (o Qt renderiza bem no Windows).
 
 - **🧹 "Mesa branca" definitivamente domada (motor determinístico de layout).**
   Três efeitos que irritavam o uso diário foram eliminados na raiz:

@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/versão-3.0.1-blue?style=for-the-badge" alt="Versão"/>
+  <img src="https://img.shields.io/badge/versão-3.1.0-blue?style=for-the-badge" alt="Versão"/>
   <img src="https://img.shields.io/badge/plataforma-Windows%2010%2F11-0078D6?style=for-the-badge&logo=windows" alt="Windows"/>
   <img src="https://img.shields.io/badge/licença-MIT-green?style=for-the-badge" alt="Licença"/>
   <img src="https://img.shields.io/badge/python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
@@ -378,12 +378,12 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 
 ## Download
 
-### Versão Atual: 3.0.1
+### Versão Atual: 3.1.0
 
 | Arquivo | Descrição | Download |
 | --- | --- | --- |
-| **Instalador_CartoMet_BR_v3.0.1.exe** | Instalador para Windows (recomendado) | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest) |
-| **CartoMet_BR_v3.0.1_Windows.zip** | Versão portátil — sem instalação (ideal para máquinas sem permissão de administrador) | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest) |
+| **Instalador_CartoMet_BR_v3.1.0.exe** | Instalador para Windows (recomendado) | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest) |
+| **CartoMet_BR_v3.1.0_Windows.zip** | Versão portátil — sem instalação (ideal para máquinas sem permissão de administrador) | [Download](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest) |
 
 > **Dica:** Sem permissão de administrador? Use o ZIP portátil — extraia a pasta e execute `CartoMet_BR\CartoMet_BR.exe` diretamente.
 
