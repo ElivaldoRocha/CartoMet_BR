@@ -5,6 +5,215 @@ Todas as mudanças notáveis do **CartoMet BR** são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Adicionado
+
+- **🖱 Modo Edição — corrigir desenhos já traçados (fluxo colaborativo A→B).**
+  Novo botão **"🖱 Editar"** na barra de ferramentas (atalho `S`): o meteorologista
+  que recebe um projeto `.cmbr` de outro analista (ou quem quer corrigir o próprio
+  trabalho) agora **clica num sistema já desenhado para selecioná-lo** — frente,
+  ZCAS, centro de pressão, anotação, emoji, traço de caneta ou forma — e:
+  - **Apaga o sistema específico** (`Delete`/`Backspace`), sem destruir o que veio
+    depois dele — antes, a única saída era desfazer em ordem cronológica;
+  - **Arrasta o sistema inteiro** para reposicioná-lo (fantasma tracejado durante
+    o arraste; arraste mínimo de 3 px distingue clique de movimento);
+  - **Arrasta vértices individuais** (quadradinhos nos vértices crus de linhas OMM
+    e formas) para corrigir o traçado — e, arrastando vértice de **frente**, o
+    **🧲 ímã adere ao vértice de outra frente** (nunca à própria): a junção da
+    correção é exata como na criação.
+  A seleção acende um **halo dourado** (hit por pixels, sobre a curva desenhada —
+  clique entre vértices acerta, e o raio cobre os **glifos do efeito**: clicar no
+  semicírculo da Linha Seca ou no triângulo da frente também seleciona); `Esc`
+  desmarca/aborta; **tudo é desfazível com
+  [Z]/[Y]** — o histórico agora registra operações (criar/apagar/mover/vértice),
+  e desfazer um apagamento **ressuscita o desenho na ordem original**. Grupos com
+  a visibilidade desligada não são selecionáveis. As correções vão para o `.cmbr`
+  e para o boletim CODSAS re-exportado.
+- **↻ Rotação de formas ao redor do centro (alça no modo Edição).** Com uma
+  forma selecionada no modo 🖱 Editar (elipse, retângulo, linha, seta ou
+  polígono), aparece uma **alça circular ○ acima dela**: arrastar a alça **gira a
+  forma ao redor do seu centro**, com fantasma tracejado ao vivo; **Shift trava
+  em passos de 15°**; soltar confirma, `Esc` aborta e **[Z]/[Y]** desfazem/refazem
+  com precisão bit a bit. A rotação persiste no projeto `.cmbr` (chave aditiva —
+  projetos antigos abrem normalmente) e o clique de seleção acompanha a forma
+  girada. Em elipse/retângulo girados, os quadradinhos de vértice ficam ocultos
+  (a diagonal não coincide mais com os cantos) — mover e girar continuam;
+  linha/seta/polígono giram "de verdade" nos vértices e seguem 100% editáveis.
+- **✍ Autoria e revisões no projeto `.cmbr` (schema v4).** O arquivo agora registra
+  o **analista original** e a **trilha de revisões** (nome + data de cada
+  salvamento). Ao abrir, o diálogo mostra *"Análise de: A · Revisões: A (data),
+  B (data)"* — rastreabilidade do fluxo "A faz, B verifica e corrige". O nome é
+  pedido uma única vez (fica nas preferências); projetos antigos (≤ v3) abrem
+  normalmente; "Limpar mapa" zera a autoria (análise nova).
+- **🧲 Ímã de vértices entre frentes (aderência).** Ao desenhar uma frente (fria,
+  quente, oclusa ou estacionária), o clique perto de um vértice de outra frente
+  já traçada **gruda na coordenada exata** — inicial, final ou **intermediário**
+  (frente estacionária nascendo no fim da fria; quente saindo do meio da fria,
+  como nas cartas sinóticas oficiais). Um **anel dourado** acende no vértice
+  candidato durante o desenho; o raio de captura é **em pixels de tela**
+  (acompanha o zoom). Liga/desliga pelo checkbox **"[I] Ímã"** da aba
+  Simbologias (atalho `I`; ligado por padrão). A junção é bit a bit e
+  **sobrevive ao salvar/abrir projeto** (`.cmbr`); linhas desfeitas ou com a
+  visibilidade do grupo desligada não são alvo.
+- **⛈ Detecção de Células Convectivas na imagem GOES-16 IR.** Botão no painel de
+  satélite que, sobre a imagem IR (Banda 13) já carregada, contorna os **núcleos
+  convectivos** (topos frios abaixo de um limiar selecionável — −40/−50/−60/−70 °C)
+  e os rotula com **temperatura mínima** e **área aproximada**. Reimplementa, de
+  forma enxuta e sem dependências novas (`scipy.ndimage.label`), o *Detector +
+  Descriptor* da biblioteca **TATHU** (INPE) sobre a grade de temperatura de brilho
+  que o app já mantém. É um **guia objetivo** de convecção profunda (mesma família
+  do LOCZCIT-PA), *human-in-the-loop*: o software contorna, o previsor traça. Camada
+  toggleável ("Mostrar células"), **independente** do "Mostrar imagem" — dá para ver
+  só os contornos das células com o mapa limpo por baixo; removê-la de vez, só junto
+  com a imagem-mãe (Limpar mapa). Detecção de imagem
+  única (sem rastreio temporal). A detecção roda **na área visível** (o zoom recorta
+  a região analisada — mais rápida e focada), é **vetorizada** (`scipy.ndimage` +
+  `bincount`, sem o laço por componente que travava em imagens grandes) e ocorre em
+  **segundo plano** com **janela de progresso e Cancelar** — a interface nunca trava.
+- **⚠ Avisos INMET (ativos) — nova camada de contexto.** Botão em *Análises
+  Prontas* que baixa, em segundo plano, os avisos meteorológicos **vigentes** do
+  INMET (API pública `apiprevmet3`) e os desenha como **polígonos coloridos por
+  severidade** — amarelo (Perigo Potencial), laranja (Perigo), vermelho (Grande
+  Perigo) —, com rótulo e liga/desliga pela camada "Avisos INMET". É o análogo
+  brasileiro do *SPC Convective Outlook*: um produto vetorial pronto que serve de
+  **orientação** ao traçado manual (*human-in-the-loop*), sem automatizar a
+  decisão. Mostra os avisos publicados no momento (sem histórico), **distinguindo
+  a vigência**: os **em vigor** saem com contorno sólido; os **futuros** (já
+  emitidos, com a validade ainda por começar) saem **tracejados**, com
+  preenchimento mais leve e o sufixo *"(futuro)"* no rótulo — e o filtro
+  **"Incluir avisos futuros"** os esconde/mostra na hora, sem nova consulta (o
+  rótulo da camada conta os ocultos). Falha de rede é tratada e nunca
+  trava a interface. Inclui *Ajuda → "Sobre os Avisos INMET"* (fonte, cores,
+  ressalvas). Fonte: INMET.
+- **🗺 "Relevo Natural" agora é o tema padrão do mapa** (relevo sombreado do
+  Natural Earth, offline) — o mapa e o seletor "Tema:" já abrem nele.
+- **🌀 Vento Térmico interativo (hodógrafa num ponto), com a dinâmica da Rosa dos
+  Ventos.** Nova ferramenta de clique: clique num ponto e o CartoMet extrai o vento
+  do modelo IFS em cada nível da camada escolhida e desenha **num painel lateral**
+  uma **hodógrafa rica** (em nós): disco de fundo, **anéis de alcance** (kt),
+  **setas do vento por nível coloridas por altura** com cabeça de seta, e a **curva
+  ligando as pontas**, cujos segmentos são os **vetores de vento térmico**,
+  **coloridos por advecção** (🔴 quente / 🔵 fria) — mais o vento de base (dir°/kt).
+  No painel: botão **"Camada…"** (base → topo, padrão 1000 → 500 hPa, **memorizada**
+  nas preferências — trocar recalcula o ponto na hora), **"📌 Fixar no mapa"**
+  (ancora a hodógrafa no ponto clicado, estável ao zoom, com entrada própria no
+  painel de Camadas) e **"Remover do mapa"** (tira a fixada; fixar de novo
+  substitui). Usa **escala radial não linear (raiz)** para **espalhar os ventos
+  fracos de baixos níveis** (que numa hodógrafa linear colam na origem) e revelar o
+  **giro nível-a-nível**, sem jogar o jato para fora do disco — os anéis seguem em
+  nós reais; todos os níveis ficam rotulados. A classificação (veering/backing) é
+  **ciente do hemisfério** — no HS giro horário = advecção fria; anti-horário =
+  quente (inverso do HN). Cálculo em segundo plano (*cache-first*), com o
+  "Calculando…" no próprio painel. Inclui *Ajuda → "Sobre o Vento Térmico"* com a
+  regra HS × HN e a ressalva geostrófica.
+- **🗂 A hodógrafa do Vento Térmico virou camada do painel "Camadas".** Após o
+  cálculo, aparece a entrada "Vento Térmico" (camada analisada + advecção líquida):
+  dá para **esconder/mostrar** pelo checkbox e **remover só a hodógrafa** pelo botão
+  "Remover" — antes, o único jeito de tirá-la era "Limpar mapa", que apagava todo o
+  trabalho junto (campos, desenhos, anotações). Novo clique substitui a entrada.
+- **👁 Visibilidade dos desenhos na carta (aba Simbologias).** Três interruptores no
+  topo do painel — **Simbologias e desenhos** (frentes/OMM, caneta, formas, régua),
+  **Emojis** e **Anotações** — escondem/mostram cada grupo **sem apagar nada** (o
+  traçado volta exatamente como estava). Útil para conferir o campo por baixo do
+  traçado. Ativar um modo de desenho re-exibe o grupo correspondente (desenhar
+  implica ver); desenhos criados/refeitos com o grupo oculto nascem ocultos (redo
+  não "vaza" artista visível); o "Salvar Imagem" respeita o que está visível
+  (WYSIWYG); undo/redo não é afetado; "Limpar mapa"/"Limpar" re-armam os três.
+- **📚 Ajuda → "Materiais de Estudo" → Espessura 1000–500 hPa.** Novo submenu com
+  material didático de sinótica: interpretação da espessura como isoterma da
+  temperatura média da camada, **língua quente/fria** (crista/cavado térmico),
+  **vento térmico e advecção no Hemisfério Sul** (giro horário → advecção fria;
+  anti-horário → quente — o inverso do HN), a **linha de 5400 m** (limite chuva–neve;
+  ~5340 m no Sul do Brasil) e **isóbaras de PNMM** (cavado, crista e o tempo
+  associado — instabilidade a leste do cavado). Abre um resumo e, no navegador, o
+  material completo com equações (MathJax), fluxograma e tabelas — reusando o mesmo
+  pipeline das metodologias LOCZCIT-PA/Bloqueio.
+
+### Corrigido
+
+- **👻 Anotação "desfeita" ressuscitava ao salvar o projeto.** O botão de desfazer
+  anotação removia só o texto da tela e deixava o comando no histórico — a anotação
+  apagada voltava ao salvar/reabrir o `.cmbr`. Agora a remoção tira o comando do
+  documento junto com o artista.
+- **🗃 O 51º desenho não expulsa mais o 1º do salvamento.** A pilha de undo (teto
+  de 50) ERA também a lista de desenhos salváveis: ao passar do teto, o desenho
+  mais antigo sumia silenciosamente do `.cmbr` ficando órfão no mapa. Com a
+  separação documento × histórico (modo edição), o teto passa a descartar só a
+  *operação* mais antiga — o desenho continua vivo e salvável.
+- **💥 Fechamento do app ao "Limpar" com marcador de ponto ativo.** O
+  `clear_sounding_marker` removia a estrela num `contextlib.suppress` que **não
+  incluía `NotImplementedError`** — que o `Artist.remove()` do matplotlib lança quando
+  o marcador ficou *stale* (destacado por um rebuild de eixos). A exceção propagava no
+  `clear_map` e **fechava o programa**; o mesmo bug fazia a estrela **persistir** ao
+  desativar ferramentas de clique. Agora a remoção é idempotente (anula a referência
+  primeiro e suprime `NotImplementedError`/`KeyError`), e a ferramenta **Vento Térmico**
+  limpa a estrela ao ser desativada. Bug latente pré-existente que afetava todas as
+  análises de clique (Sonda, Meteograma, Rosa dos Ventos, Corte).
+- **🔎 Zoom com o scroll não encolhe mais a carta.** Ao dar zoom numa área com
+  emoji, desenhos, símbolos ou overlays (células/avisos) **fora da vista**, a carta
+  ficava minúscula. O motor de layout da mesa media a `get_tightbbox` do eixo — que
+  **ignora o clip** — e a caixa do conteúdo ancorado em coordenadas de dados,
+  projetada muito longe, inflava a medição e encolhia tudo (largura caía a ~0,18×).
+  Agora o layout mede só o **quadro do mapa + rótulos do gridliner + título** (as
+  colorbars são eixos à parte), ignorando o conteúdo do usuário na medição — cobre
+  emoji, desenhos, frentes, símbolos e os overlays novos de uma vez.
+
+- **📍 A estrela da Sonda Vertical some ao desativar a feature.** Antes, o
+  marcador do ponto de sondagem só sumia com *Limpar o mapa*; agora
+  `set_sounding_mode(False)` limpa a estrela, cobrindo todos os caminhos de
+  desativação (desmarcar o botão, ativar desenho/zoom/pan ou outra análise).
+
+- **🔍 Quinze correções de uma revisão profunda (multiagente) das features novas.**
+  - **Vento Térmico:** a camada escolhida era **truncada em 300 hPa** em silêncio
+    (o diálogo oferece topo até 50 hPa, mas o motor usava só os níveis-padrão da
+    hodógrafa) — o worker agora passa os níveis do IFS: 1000→200 é 1000→200, e
+    camadas altas (ex.: 300→200) não dão mais erro espúrio. **Cancelar** deixava a
+    ferramenta surda (cliques ignorados em silêncio até o worker abandonado
+    terminar sozinho) — a referência é solta na hora e o resultado tardio é
+    descartado por checagem de identidade.
+  - **Células Convectivas:** mesmo destravamento do Cancelar; o progresso do
+    worker agora alimenta o diálogo "Calculando…"; falha na detecção **remove as
+    células da rodada anterior** (não ficam órfãs no mapa sem checkbox); o
+    recorte ao extent virou **view sem cópia** (o clique não trava mais a GUI
+    com a imagem full-disk de ~29 Mpx); "Limpar mapa"/troca de tema **resetam o
+    painel de satélite** (botão de detecção, checkboxes e status param de
+    anunciar camadas que não existem); e uma detecção **em voo é abandonada**
+    quando a imagem-mãe deixa de existir (imagem nova — baixada ou importada
+    de NetCDF —, Limpar mapa, troca de tema ou de região, abertura de projeto)
+    — o resultado tardio não desenha mais células de outra imagem nem revive o
+    checkbox num painel resetado. As invalidações de rebuild do mapa moram num
+    ponto único (tema, região, Limpar mapa e abrir projeto compartilham a
+    mesma lista).
+  - **Avisos INMET:** "Limpar mapa" durante a busca (janela de 10–40 s) não é
+    mais repovoado pelo resultado tardio; a **cor vinda da API é validada**
+    (formato inesperado cai no cinza default em vez de estourar `ValueError` no
+    render); o rótulo de severidade ancora no anel de maior **área** — não no de
+    mais vértices, que num MultiPolygon podia ser um recorte costeiro minúsculo;
+    e o anel já fechado do GeoJSON não ganha vértice duplicado.
+  - **Layout/export:** o Gridliner era **excluído da medição da mesa** — o
+    `ax._gridliners` que o código consultava não existe no cartopy 0.25 (agora é
+    achado por `isinstance`), então os rótulos de lat/lon podiam cortar na borda
+    sem correção; células e avisos ficam **fora do bbox "tight"** do *Salvar
+    Imagem* (overlay fora da vista não infla mais o recorte exportado).
+  - **Estrela de clique:** desativar **Meteograma, Rosa dos Ventos ou Série
+    ERA5** também some com a estrela (antes só Sonda e Vento Térmico limpavam).
+  - **Animação de Steps:** o resumo do diálogo passa a avisar que **Avisos
+    INMET, células convectivas e hodógrafa congelam** durante a animação
+    (idênticos em todos os quadros — são overlays do instante da geração).
+
+- **🖱 Modo Edição: seleção órfã após "desfazer" por fora do histórico.**
+  Desfazer a última forma/caneta/anotação/emoji (ou os "Limpar" parciais) com o
+  desenho **selecionado** no modo edição deixava o halo dourado órfão na tela —
+  e um `Delete` em seguida **fechava o app** (comando fora do documento). Agora
+  qualquer remoção por fora das pilhas desmarca a seleção junto.
+- **🌀 Vento Térmico: trocar a "Camada…" durante o cálculo agora recalcula.**
+  Se o worker estava em voo, a troca era memorizada mas o resultado da camada
+  **antiga** renderizava sob o rótulo novo (e nada recalculava). Agora o worker
+  antigo é **abandonado na hora** (o resultado tardio é descartado) e o
+  recálculo da camada nova parte imediatamente — sem ação adiada que pudesse
+  disparar depois de o usuário desativar a ferramenta ou limpar o mapa.
+
 ## [3.1.0] — 2026-07-11
 
 ### Corrigido

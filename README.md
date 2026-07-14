@@ -91,6 +91,11 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 - Botão **🔪 Corte Vertical**: **dois cliques** (A → B) definem a reta e o painel desenha a **seção pressão × distância** de **ω** (ascendência/subsidência), **temperatura**, **umidade específica** e **vento**, por interpolação ao longo do caminho (13 níveis)
 - Eixo de pressão logarítmico invertido; re-desenha ao mudar **step/rodada**
 
+### 🌀 Vento Térmico — hodógrafa num ponto
+
+- Botão **🌀 Vento Térmico**: clique num ponto e escolha a camada (base → topo, ex.: **1000 → 500 hPa**) — o CartoMet extrai o vento do IFS em cada nível e desenha, **ancorada no ponto**, a **hodógrafa**: as setas do vento por nível e a **polilinha ligando as pontas**, cujos segmentos são os **vetores de vento térmico**, **coloridos por advecção** (🔴 quente / 🔵 fria)
+- A regra **veering/backing é ciente do hemisfério**: no **HS**, giro **horário** com a altura → advecção **fria**; **anti-horário** → **quente** (o **inverso do HN**). Desenho **estável ao zoom** (ancoragem em pixels); *cache-first* em segundo plano. Menu **Ajuda → "Sobre o Vento Térmico"** e material **📚 Espessura 1000–500 hPa**
+
 ### 🌩️ Campos de instabilidade — CAPE/CIN/LI/K
 
 - Novo grupo **Instabilidade** no painel: **K-index** na grade nativa (vetorizado, rápido); **Lifted Index, CAPE e CIN** com ascensão de parcela em **grade engrossada** (interpolada de volta), em thread com progresso
@@ -146,6 +151,23 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 - **Ligados por padrão:** **Gradiente de θe** (sombreado — intensidade do contraste entre massas de ar) e **Eixo da Frente — TFP** (*Thermal Front Parameter* = 0, Hewson 1998; **linha neutra-guia**, mascarada por `|∇θe|` mínimo). **Disponíveis, desligados:** **Advecção de θe** (auxilia a classificação fria/quente), **θe** e **Frontogênese de Petterssen**
 - **Máscara de terreno elevado** nos campos de θe: onde a pressão de superfície é menor que o nível, o θe a 850 hPa é subterrâneo/fictício — mascarado para o eixo TFP **não desenhar frentes-fantasma sobre os Andes**
 - Os quatro campos de θe também ficam **avulsos** em *Campos em Altitude*. Substitui a abordagem de detecção/traçado **automático** de frentes (abandonada por não convergir com a análise sinótica humana — cartas da Marinha do Brasil)
+
+### ⛈ Detecção de Células Convectivas (GOES-16 IR)
+
+- No painel de satélite, botão **"Detectar Células Convectivas"** que, sobre a imagem **GOES-16 IR (Banda 13)** já carregada, contorna os **núcleos convectivos** (topos frios abaixo de um limiar selecionável: **−40 / −50 / −60 / −70 °C**) e os rotula com **temperatura mínima** e **área aproximada**
+- Reimplementa, de forma enxuta e **sem dependências novas** (`scipy.ndimage.label` sobre a grade de temperatura de brilho já mantida pelo app), o *Detector + Descriptor* da biblioteca **TATHU** (INPE) — **detecção de imagem única** (sem rastreio temporal)
+- **Guia objetivo** de convecção profunda (mesma família do LOCZCIT-PA por limiar de topo frio), *human-in-the-loop*: o software contorna, o previsor traça. Camada toggleável; some junto com a imagem de satélite
+
+### ⚠ Avisos INMET (overlay de contexto)
+
+- Botão nas **Análises Prontas** que baixa, em *thread*, os **avisos meteorológicos ativos** do INMET (API pública `apiprevmet3`) e os desenha como **polígonos coloridos por severidade** — 🟡 Perigo Potencial, 🟠 Perigo, 🔴 Grande Perigo — com rótulo e liga/desliga pela camada *"Avisos INMET"*
+- É o análogo brasileiro do *SPC Convective Outlook* (MetPy `PlotGeometry`): um **produto vetorial pronto** que serve de **orientação** ao traçado manual — *human-in-the-loop*, o software mostra onde há alerta, o previsor traça
+- Mostra os avisos **publicados** no momento (sem histórico): os **em vigor** com contorno sólido e os **futuros** (já emitidos, validade por começar) **tracejados**, com preenchimento mais leve e rótulo *"(futuro)"* — o filtro **"Incluir avisos futuros"** os esconde/mostra na hora, sem nova consulta; falha de rede é tratada e **não trava** a interface. Menu **Ajuda → "Sobre os Avisos INMET"** com fonte, cores e ressalvas. Fonte: **INMET**
+
+### 📚 Materiais de Estudo (Ajuda)
+
+- Menu **Ajuda → "📚 Materiais de Estudo" → "Espessura 1000–500 hPa"**: material didático de sinótica com resumo no app e o **material completo** aberto no navegador (equações via MathJax, fluxograma e tabelas)
+- Cobre a **interpretação da espessura** (isoterma da temperatura média da camada), **língua quente/fria** (crista/cavado térmico), **vento térmico e advecção no Hemisfério Sul** (giro horário → advecção fria; anti-horário → quente, o inverso do HN), a **linha de 5400 m** (limite chuva–neve; ~5340 m no Sul do Brasil) e **isóbaras de PNMM** (como achar cavado/crista e o **tempo a leste do cavado**)
 
 ### 🎬 Animação de Steps (GIF/MP4)
 
@@ -346,10 +368,13 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 | **Índice ZCIT (LOCZCIT-PA)** | Localização da ZCIT acoplando ∇TSM + convergência + OLR desacumulada num raster categórico de 4 classes (Forte/Moderada/Fraca/Cinemática), com máscara ativa, envelope sazonal e overlay opcional de eixo — guia para o traçado manual |
 | **Bloqueio Atmosférico (Z500)** | Anomalia de altura geopotencial em 500 hPa (`gh` − climatologia ERA5 1991–2020) com render divergente e contorno do zero — realça cordilheiras de bloqueio e o padrão ômega; climatologia baixada por dia (cache + sha256) |
 | **Diagnóstico Baroclínico** | Empilha campos de apoio ao traçado **manual** de frentes no nível escolhido: Gradiente de θe + Eixo TFP (linha-guia) ligados; Advecção de θe, θe e Frontogênese disponíveis — máscara de terreno (Andes); *human-in-the-loop* |
+| **Células Convectivas (GOES-16 IR)** | Detecção de imagem única (limiar de topo frio + `scipy.ndimage.label`, inspirada na TATHU/INPE): contorna os núcleos convectivos e rotula com T_min e área aproximada — guia objetivo de convecção profunda, sem dependência nova |
+| **Avisos INMET (ativos)** | Baixa os avisos meteorológicos publicados pelo INMET (API `apiprevmet3`) e desenha as áreas como polígonos coloridos por severidade (🟡🟠🔴) — camada de orientação ao traçado manual; sem histórico, só os avisos publicados no momento (em vigor = sólido; futuros = tracejado + "(futuro)", ocultáveis pelo filtro) |
 | **Sonda Vertical (Skew-T)** | Radiossondagem observada (Wyoming) **ou** pseudo-sondagem do modelo IFS em qualquer ponto (oceano/previsão) — Skew-T, hodógrafa e índices via MetPy |
 | **Meteograma** | Série temporal do IFS num ponto (+0…+72 h): T, vento, precipitação, PNMM e água precipitável |
 | **Rosa dos Ventos** | Distribuição direção×velocidade do vento previsto (IFS, 10 m ou um dos 13 níveis isobáricos) num ponto ao longo dos steps da rodada — setores, faixas de velocidade e calmaria configuráveis, estatísticas (vento médio · rumo predominante); render próprio (sem `windrose`), previsão e não climatologia; **fixável** como inset georreferenciado no mapa e salva no `.cmbr` |
 | **Corte Vertical (A→B)** | Seção pressão × distância de ω, temperatura, umidade e vento ao longo de uma reta desenhada |
+| **Vento Térmico (hodógrafa)** | Vento do IFS por nível + vetores de vento térmico de cada subcamada ancorados num ponto, coloridos por advecção (veering/backing **ciente do hemisfério**); estável ao zoom |
 | **Instabilidade (CAPE/CIN/LI/K)** | Campos de instabilidade derivados do modelo — K-index nativo; LI/CAPE/CIN em grade engrossada; render contínuo (aprox.) |
 | **Carta OMM** | Export com cabeçalho institucional (instituição/analista/validade/logo) + legenda dos símbolos — PNG/PDF entregável |
 | **Projeto de análise (.cmbr)** | Salvar/abrir o traçado manual + estado do mapa; restauração offline (*human-in-the-loop*) |
