@@ -301,6 +301,37 @@ class InstabilityWorker(QThread):
         self.finished_ok.emit(fields)
 
 
+class InmetAvisosWorker(QThread):
+    """Busca os avisos meteorológicos ATIVOS do INMET, fora da thread da GUI.
+
+    Consome a API pública ``apiprevmet3`` (camada de dados pura ``inmet_avisos``)
+    e emite a lista de ``AvisoINMET`` pronta para o overlay. Rede isolada: falha
+    vira ``finished_error`` e a GUI nunca trava.
+    """
+
+    progress = pyqtSignal(str)
+    finished_ok = pyqtSignal(object)  # list[AvisoINMET]
+    finished_error = pyqtSignal(str)
+
+    def run(self) -> None:
+        try:
+            from cartomet_br.data.inmet_avisos import InmetAvisosError, fetch_avisos
+
+            self.progress.emit("Buscando avisos do INMET…")
+            avisos = fetch_avisos()
+        except InmetAvisosError as e:  # falha tratada (rede/schema) com msg amigável
+            self.finished_error.emit(str(e))
+            return
+        except Exception as e:  # qualquer surpresa — nunca deixa a GUI quebrar
+            logger.warning("Falha inesperada ao buscar avisos do INMET: %s", e)
+            self.finished_error.emit(
+                f"Não foi possível obter os avisos do INMET.\n\nDetalhe técnico: {e}"
+            )
+            return
+        self.progress.emit(f"{len(avisos)} aviso(s) do INMET.")
+        self.finished_ok.emit(avisos)
+
+
 class ConvectiveCellsWorker(QThread):
     """Detecta células convectivas na (sub)grade IR recortada, fora da GUI.
 

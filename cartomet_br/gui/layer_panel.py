@@ -993,6 +993,10 @@ class FieldLayerPanel(QWidget):
     blocking_requested = pyqtSignal()  # bloqueio atmosférico (anom. Z500)
     instability_requested = pyqtSignal(object)  # campos de instabilidade (lista de índices)
     baroclinic_requested = pyqtSignal()  # preset Diagnóstico Baroclínico (θe/TFP)
+    inmet_avisos_requested = pyqtSignal()  # avisos meteorológicos ativos do INMET
+    # Filtro dos avisos INMET: incluir os "futuros" (emitidos, validade por
+    # começar)? Re-renderiza a última busca na hora — sem nova consulta.
+    inmet_future_toggled = pyqtSignal(bool)
 
     ANALYSIS_PRESETS = {
         "Sinótica clássica": [
@@ -1156,6 +1160,42 @@ class FieldLayerPanel(QWidget):
         )
         baroclinic_btn.clicked.connect(self.baroclinic_requested.emit)
         layout.addWidget(baroclinic_btn)
+
+        # ─── Avisos INMET (overlay de contexto — polígonos de alerta ao vivo) ───
+        inmet_btn = QPushButton("⚠ Avisos INMET (ativos)")
+        inmet_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #E67E22; padding: 7px;
+                font-size: 11px; font-weight: bold; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #F39C12; }
+        """)
+        inmet_btn.setToolTip(
+            "Baixa os avisos meteorológicos ATIVOS do INMET e os desenha como\n"
+            "polígonos coloridos por severidade (amarelo=Perigo Potencial,\n"
+            "laranja=Perigo, vermelho=Grande Perigo).\n\n"
+            "Camada de ORIENTAÇÃO (contexto) — quem traça a carta é o previsor.\n"
+            "Fonte: INMET (apiprevmet3). Requer conexão; mostra os avisos\n"
+            "publicados no momento, sem histórico. Avisos EM VIGOR saem com\n"
+            "contorno sólido; os FUTUROS (validade por começar), tracejados —\n"
+            "e podem ser ocultados pelo filtro abaixo."
+        )
+        inmet_btn.clicked.connect(self.inmet_avisos_requested.emit)
+        layout.addWidget(inmet_btn)
+
+        # Filtro: avisos "futuros" (já emitidos, validade ainda por começar).
+        self.inmet_future_check = QCheckBox("Incluir avisos futuros (tracejados)")
+        self.inmet_future_check.setChecked(True)
+        self.inmet_future_check.setToolTip(
+            "A API do INMET entrega avisos EM VIGOR e avisos já emitidos cuja\n"
+            "validade ainda vai começar ('futuros'). Ligado: os futuros aparecem\n"
+            "com contorno TRACEJADO, preenchimento mais leve e rótulo '(futuro)'.\n"
+            "Desligado: só o que está em vigor agora. A troca re-renderiza a\n"
+            "última busca na hora — sem nova consulta ao INMET."
+        )
+        # toggled(bool) já entrega o booleano — sem lambda decodificando CheckState.
+        self.inmet_future_check.toggled.connect(self.inmet_future_toggled)
+        layout.addWidget(self.inmet_future_check)
 
         # ─── Instabilidade (CAPE/CIN/LI/K) — campos derivados do modelo (F9) ───
         instab_group = QGroupBox("Instabilidade (modelo IFS — aprox.)")
@@ -1496,7 +1536,30 @@ class FieldLayerPanel(QWidget):
         row_layout.addWidget(remove_btn)
 
         self.layers_layout.addWidget(row)
-        self._layer_widgets[layer_id] = {"widget": row, "checkbox": cb}
+        self._layer_widgets[layer_id] = {"widget": row, "checkbox": cb, "detail": detail_lbl}
+
+    def inmet_future_enabled(self) -> bool:
+        """Filtro 'Incluir avisos futuros' — API pública (não ler o widget de fora)."""
+        return bool(self.inmet_future_check.isChecked())
+
+    def layer_entry_checked(self, layer_id: str) -> bool | None:
+        """Estado do toggle de visibilidade de uma entrada (None se não listada)."""
+        entry = self._layer_widgets.get(layer_id)
+        if entry is None:
+            return None
+        return bool(entry["checkbox"].isChecked())
+
+    def set_layer_detail(self, layer_id: str, detail: str) -> bool:
+        """Atualiza o texto de detalhe de uma entrada IN PLACE (True se existia).
+
+        Evita o remove+add que resetaria o toggle escolhido pelo usuário e
+        jogaria a linha para o fim da lista.
+        """
+        entry = self._layer_widgets.get(layer_id)
+        if entry is None or "detail" not in entry:
+            return False
+        entry["detail"].setText(detail)
+        return True
 
     def remove_layer_entry(self, layer_id: str):
         """Remove a entrada da lista (sem emitir sinal de remove)."""

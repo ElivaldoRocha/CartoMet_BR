@@ -409,6 +409,10 @@ class MainWindow(QMainWindow):
         blocking_about_action.triggered.connect(self._show_about_blocking)
         help_menu.addAction(blocking_about_action)
 
+        inmet_about_action = QAction("Sobre os Avisos INMET", self)
+        inmet_about_action.triggered.connect(self._show_about_inmet_avisos)
+        help_menu.addAction(inmet_about_action)
+
         help_menu.addSeparator()
 
         about_action = QAction("Sobre", self)
@@ -702,6 +706,8 @@ class MainWindow(QMainWindow):
         self.field_panel.preset_requested.connect(self._on_preset_requested)
         self.field_panel.loczcit_requested.connect(self._on_loczcit_requested)
         self.field_panel.blocking_requested.connect(self._on_blocking_requested)
+        self.field_panel.inmet_avisos_requested.connect(self._on_inmet_avisos_requested)
+        self.field_panel.inmet_future_toggled.connect(self._on_inmet_future_toggled)
         self.field_panel.instability_requested.connect(self._launch_instability)
         self.field_panel.baroclinic_requested.connect(self._on_baroclinic_requested)
 
@@ -2222,14 +2228,38 @@ class MainWindow(QMainWindow):
         for lid in list(self.field_panel._layer_widgets.keys()):
             self.field_panel.remove_layer_entry(lid)
 
+        # Rebuild do mapa base: mesmas invalidações da troca de tema (células/
+        # avisos em voo, cache de avisos, painel de satélite, visibilidade).
+        self._invalidate_map_overlays()
         self.canvas._setup_base_map()
         self.status_label.setText("● Região alterada — dados limpos")
         self.status_label.setStyleSheet("color: #F39C12;")
+
+    def _invalidate_map_overlays(self) -> None:
+        """Invalida tudo que está preso ao mapa base ANTES de um rebuild.
+
+        Choke point ÚNICO dos caminhos que reconstroem o mapa (troca de tema,
+        troca de região, Limpar mapa, abrir projeto): a detecção de células e
+        a busca de avisos EM VOO são abandonadas (o resultado tardio cai na
+        checagem de sender), o cache de avisos morre (o toggle de futuros não
+        ressuscita), o painel de satélite volta a "sem imagem" e os toggles de
+        visibilidade re-armam junto com o canvas. Novas invalidações entram
+        AQUI — não espalhadas pelos handlers.
+        """
+        self._abandon_cells_detection()
+        self.inmet_avisos_thread = None
+        self._last_inmet_avisos = None
+        if getattr(self, "satellite_panel", None) is not None:
+            self.satellite_panel.reset_state()
+        for kind in ("symbology", "emojis", "annotations"):
+            self.symbol_panel.set_visibility_checked(kind, True)
 
     def _on_theme_changed(self, theme_name: str):
         for lid in list(self.field_panel._layer_widgets.keys()):
             self.field_panel.remove_layer_entry(lid)
 
+        # set_theme reconstrói o mapa base — o que está preso a ele morre junto.
+        self._invalidate_map_overlays()
         self.canvas.set_theme(theme_name)
 
     def _on_layer_toggled(self, layer_name: str, visible: bool):
@@ -2646,6 +2676,9 @@ class MainWindow(QMainWindow):
         if layer_id == "blocking":
             self.canvas.toggle_blocking(visible)
             return
+        if layer_id == "inmet_avisos":
+            self.canvas.toggle_inmet_avisos(visible)
+            return
         # Re-habilitar linhas de corrente re-renderiza o streamplot (pesado) —
         # mesmo aviso do download para o usuário não achar que travou.
         is_stream = visible and self.canvas.is_stream_layer(layer_id)
@@ -2673,6 +2706,10 @@ class MainWindow(QMainWindow):
         elif layer_id == "blocking":
             self.canvas.remove_blocking(reflow=True)
             self._last_blocking_result = None
+            self.canvas.draw()
+        elif layer_id == "inmet_avisos":
+            self.canvas.remove_inmet_avisos(reflow=True)
+            self._last_inmet_avisos = None  # o toggle de futuros não ressuscita
             self.canvas.draw()
         else:
             self.canvas.remove_pl_layer(layer_id)
@@ -3039,6 +3076,96 @@ class MainWindow(QMainWindow):
         self.status_label.setText("● Erro na análise de bloqueio (Z500)")
         self.status_label.setStyleSheet("color: #E74C3C;")
         QMessageBox.warning(self, "Erro no Bloqueio Atmosférico (Z500)", error_msg)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  AVISOS INMET (overlay de contexto — polígonos de alerta ao vivo)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _on_inmet_avisos_requested(self):
+        """Busca os avisos ativos do INMET em thread e os desenha como overlay."""
+        if getattr(self, "inmet_avisos_thread", None) and self.inmet_avisos_thread.isRunning():
+            return
+        self.status_label.setText("● Buscando avisos do INMET…")
+        self.status_label.setStyleSheet("color: #E67E22;")
+        self.inmet_avisos_thread = InmetAvisosWorker(parent=self)
+        self.inmet_avisos_thread.progress.connect(self._on_inmet_avisos_progress)
+        self.inmet_avisos_thread.finished_ok.connect(self._on_inmet_avisos_ready)
+        self.inmet_avisos_thread.finished_error.connect(self._on_inmet_avisos_error)
+        self.inmet_avisos_thread.start()
+
+    def _on_inmet_avisos_progress(self, msg: str):
+        self.status_label.setText(f"● {msg}")
+        self.status_label.setStyleSheet("color: #E67E22;")
+
+    def _on_inmet_avisos_ready(self, avisos):
+        if self.sender() is not getattr(self, "inmet_avisos_thread", None):
+            return  # busca abandonada ('Limpar mapa' no meio) — descarta o resultado
+        self.inmet_avisos_thread = None
+        if not avisos:
+            self._last_inmet_avisos = None
+            self.canvas.remove_inmet_avisos(reflow=True)
+            self.field_panel.remove_layer_entry("inmet_avisos")
+            self.canvas.draw()
+            self.status_label.setText("● Nenhum aviso do INMET ativo agora")
+            self.status_label.setStyleSheet("color: #27AE60;")
+            QMessageBox.information(
+                self,
+                "Avisos INMET",
+                "Não há avisos meteorológicos ativos do INMET no momento.",
+            )
+            return
+        # Guarda a busca inteira: o filtro de futuros re-renderiza sem rede.
+        self._last_inmet_avisos = list(avisos)
+        self._render_inmet_avisos()
+
+    def _render_inmet_avisos(self) -> None:
+        """(Re)desenha a última busca de avisos aplicando o filtro de futuros.
+
+        Chamado no resultado da busca E no toggle "Incluir avisos futuros" —
+        sem nova consulta. Futuros exibidos saem tracejados (distinção é do
+        canvas); ocultos são contados no rótulo da camada para o previsor
+        saber que existem. PRESERVA o estado do usuário: camada escondida no
+        painel de Camadas continua escondida e a linha não muda de posição
+        (detalhe atualizado in place).
+        """
+        avisos = self._last_inmet_avisos or []
+        include_future = self.field_panel.inmet_future_enabled()
+        shown = [a for a in avisos if include_future or a.quando != "futuro"]
+        hidden = len(avisos) - len(shown)
+        was_visible = self.field_panel.layer_entry_checked("inmet_avisos")
+        self.canvas.render_inmet_avisos(shown)
+        if was_visible is False:  # usuário escondeu a camada — o re-render respeita
+            self.canvas.toggle_inmet_avisos(False)
+        # Resumo por severidade no rótulo da camada (só o que está no mapa).
+        from collections import Counter
+
+        sev = Counter(a.severidade for a in shown if a.severidade)
+        detail = " · ".join(f"{n}× {s}" for s, n in sev.most_common()) or f"{len(shown)} aviso(s)"
+        if hidden:
+            detail += f" · {hidden} futuro(s) oculto(s)"
+        if not self.field_panel.set_layer_detail("inmet_avisos", detail):
+            self.field_panel.add_layer_entry("inmet_avisos", "Avisos INMET", detail)
+        n_future = sum(1 for a in shown if a.quando == "futuro")
+        msg = f"● {len(shown)} aviso(s) do INMET no mapa"
+        if n_future:
+            msg += f" ({n_future} futuro(s), tracejado(s))"
+        elif hidden:
+            msg += f" — {hidden} futuro(s) oculto(s) pelo filtro"
+        self.status_label.setText(msg)
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_inmet_future_toggled(self, _checked: bool) -> None:
+        """Filtro 'Incluir avisos futuros': re-renderiza a última busca (sem rede)."""
+        if self._last_inmet_avisos:
+            self._render_inmet_avisos()
+
+    def _on_inmet_avisos_error(self, error_msg: str):
+        if self.sender() is not getattr(self, "inmet_avisos_thread", None):
+            return  # busca abandonada ('Limpar mapa' no meio) — descarta o erro
+        self.inmet_avisos_thread = None
+        self.status_label.setText("● Erro ao buscar avisos do INMET")
+        self.status_label.setStyleSheet("color: #E74C3C;")
+        QMessageBox.warning(self, "Avisos INMET", error_msg)
 
     # ═══════════════════════════════════════════════════════════════════════
     #  ANIMAÇÃO DE STEPS (GIF/MP4)
@@ -3589,6 +3716,10 @@ class MainWindow(QMainWindow):
         # reconstrói o mapa base; set_theme já zera desenhos/camadas/histórico.
         for lid in list(self.field_panel._layer_widgets.keys()):
             self.field_panel.remove_layer_entry(lid)
+        # Rebuild do mapa: overlays/estados do mapa ANTERIOR morrem junto
+        # (detecção/busca em voo, cache de avisos, painel de satélite) —
+        # o projeto restaura os seus na sequência, do cache.
+        self._invalidate_map_overlays()
         if isinstance(extent, list) and len(extent) == 4:
             self.config.extent = [float(v) for v in extent]
             self.canvas.config = self.config
@@ -4026,6 +4157,9 @@ class MainWindow(QMainWindow):
         self.canvas.clear_map()
         self._last_blocking_result = None
         self._last_loczcit_result = None
+        # Overlays/estados presos ao mapa (células/avisos em voo, cache de
+        # avisos, painel de satélite, toggles de visibilidade) — choke point.
+        self._invalidate_map_overlays()
 
         # 2) Reseta o estado dos painéis para refletir o mapa vazio
         with contextlib.suppress(Exception):
@@ -4043,13 +4177,13 @@ class MainWindow(QMainWindow):
         if hasattr(self.settings_panel, "set_obs_reference_time"):
             self.settings_panel.set_obs_reference_time(None)
 
-        # Satélite / TSM: desmarca os toggles dos painéis, se existirem
-        for panel in (getattr(self, "satellite_panel", None), getattr(self, "sst_panel", None)):
-            chk = getattr(panel, "toggle_check", None) if panel is not None else None
-            if chk is not None:
-                chk.blockSignals(True)
-                chk.setChecked(False)
-                chk.blockSignals(False)
+        # (Satélite e toggles de visibilidade já resetados no choke point acima.)
+        # TSM: desmarca o toggle do painel, se existir
+        sst_chk = getattr(getattr(self, "sst_panel", None), "toggle_check", None)
+        if sst_chk is not None:
+            sst_chk.blockSignals(True)
+            sst_chk.setChecked(False)
+            sst_chk.blockSignals(False)
 
         # 3) Desliga modos de interação e solta os botões da toolbar
         for btn in (
@@ -4767,6 +4901,71 @@ class MainWindow(QMainWindow):
         close_btn = QPushButton("Fechar")
         close_btn.clicked.connect(dlg.accept)
         btn_row.addWidget(open_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+
+        dlg.exec()
+
+    def _show_about_inmet_avisos(self):
+        """Diálogo 'Sobre os Avisos INMET' — fonte, severidades/cores, ressalvas."""
+        from PyQt6.QtWidgets import QTextBrowser
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Sobre os Avisos INMET")
+        dlg.setMinimumSize(560, 480)
+        dlg.setStyleSheet(DARK_STYLE)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        html = """
+        <h2 style='color:#E67E22; margin-bottom:2px;'>Avisos Meteorológicos do INMET</h2>
+        <p style='color:#BDC3C7; margin-top:0;'><i>Overlay de contexto — polígonos de alerta
+        ativos</i></p>
+        <p style='color:#ECF0F1;'>Ao clicar em <b>⚠ Avisos INMET (ativos)</b>, o CartoMet
+        baixa os avisos <b>vigentes agora</b> do INMET e desenha as áreas afetadas como
+        polígonos coloridos por severidade:</p>
+        <table cellpadding='6' style='color:#ECF0F1; border-collapse:collapse;'>
+          <tr style='background:#1A252F;'><th>Cor</th><th>Severidade</th></tr>
+          <tr><td><span style='background:#FFFE00;'>&nbsp;&nbsp;&nbsp;</span></td>
+            <td><b>Perigo Potencial</b> (amarelo)</td></tr>
+          <tr><td><span style='background:#F96602;'>&nbsp;&nbsp;&nbsp;</span></td>
+            <td><b>Perigo</b> (laranja)</td></tr>
+          <tr><td><span style='background:#FF0000;'>&nbsp;&nbsp;&nbsp;</span></td>
+            <td><b>Grande Perigo</b> (vermelho)</td></tr>
+        </table>
+        <p style='color:#ECF0F1; margin-top:10px;'>É uma <b>camada de orientação</b>: fica
+        abaixo do traçado e sinaliza onde o INMET emitiu alerta (tempestade, chuvas intensas
+        etc.). A decisão e o traçado da carta continuam do previsor
+        (<i>human-in-the-loop</i>).</p>
+        <ul style='color:#ECF0F1;'>
+          <li>Mostra os avisos <b>publicados</b> no momento da consulta — não há histórico;</li>
+          <li>Avisos <b>em vigor</b> têm contorno <b>sólido</b>; avisos <b>futuros</b> (já
+            emitidos pelo INMET, com a validade ainda por começar) saem <b>tracejados</b>,
+            com preenchimento mais leve e o sufixo <b>(futuro)</b> no rótulo;</li>
+          <li>O filtro <b>"Incluir avisos futuros"</b>, logo abaixo do botão, esconde/mostra
+            os futuros na hora — sem nova consulta ao INMET;</li>
+          <li>Requer <b>conexão</b>; a busca roda em segundo plano e não trava a interface;</li>
+          <li>Ligue/desligue pela camada <b>"Avisos INMET"</b> no painel de campos.</li>
+        </ul>
+        <hr style='border-color:#5D6D7E;'>
+        <p style='color:#95A5A6; font-size:11px;'>Fonte: <b>INMET</b> — Instituto Nacional de
+        Meteorologia (API pública <code>apiprevmet3</code>). Produto do INMET; o CartoMet BR
+        apenas exibe as áreas como apoio à análise.</p>
+        """
+        browser = QTextBrowser()
+        browser.setHtml(html)
+        browser.setOpenExternalLinks(True)
+        layout.addWidget(browser)
+
+        close_btn = QPushButton("Fechar")
+        close_btn.setStyleSheet(
+            "QPushButton{background:#E67E22;padding:7px 14px;font-weight:bold;border-radius:4px;}"
+            "QPushButton:hover{background:#F39C12;}"
+        )
+        close_btn.clicked.connect(dlg.accept)
+        btn_row = QHBoxLayout()
         btn_row.addStretch()
         btn_row.addWidget(close_btn)
         layout.addLayout(btn_row)

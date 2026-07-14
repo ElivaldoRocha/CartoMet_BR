@@ -487,6 +487,8 @@ class MapCanvas(FigureCanvas):
         self._blocking_artists: list = []
         self._blocking_colorbar = None
 
+        # Avisos INMET (overlay de contexto — polígonos de alerta ao vivo)
+        self._inmet_avisos_artists: list = []
         # Células convectivas (contornos derivados da imagem GOES-16 IR)
         self._convective_cells_artists: list = []
         # Motor da mesa suspenso? (animação impõe geometria congelada por quadro)
@@ -590,6 +592,7 @@ class MapCanvas(FigureCanvas):
         self._loczcit_axis_artists = []
         self._blocking_artists = []
         self._blocking_colorbar = None
+        self._inmet_avisos_artists = []
         self._convective_cells_artists = []
         # ax.clear() abaixo mata o anel do ímã e o destaque da edição — só
         # anular as referências. O sinal avisa a barra de status: sem ele, a
@@ -3723,6 +3726,8 @@ class MapCanvas(FigureCanvas):
         self.remove_loczcit()
         # Bloqueio atmosférico (anomalia de Z500)
         self.remove_blocking()
+        # Avisos INMET (overlay de contexto)
+        self.remove_inmet_avisos()
         # Marcador temporário da estação de radiossondagem (estrela)
         self.clear_sounding_marker()
         # Camadas sinóticas
@@ -4925,6 +4930,106 @@ class MapCanvas(FigureCanvas):
             with contextlib.suppress(ValueError, AttributeError, NotImplementedError):
                 art.remove()
         self._blocking_artists = []
+        if reflow:
+            self._reflow_layout()
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  AVISOS INMET (overlay de contexto — polígonos de alerta ao vivo)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def render_inmet_avisos(self, avisos: list) -> None:
+        """Desenha os avisos publicados do INMET como overlay de contexto.
+
+        Cada área vira preenchimento translúcido na cor do INMET + contorno +
+        rótulo da severidade no centroide. Avisos EM VIGOR (``quando="hoje"``)
+        têm contorno sólido; os FUTUROS (``quando="futuro"`` — já emitidos, com
+        a validade por começar) saem TRACEJADOS, com preenchimento mais leve e
+        sufixo "(futuro)" no rótulo. O filtro de futuros é do chamador (a
+        MainWindow decide o que entra na lista). É uma camada de ORIENTAÇÃO:
+        fica em zorder baixo, abaixo do traçado OMM do usuário (human-in-the-loop).
+        Polígonos retos + ``transform`` explícito (doutrina Cartopy do projeto).
+        """
+        self.remove_inmet_avisos()
+        if not avisos:
+            self.draw()
+            return
+        halo = [pe.withStroke(linewidth=2.5, foreground="white")]
+        artists: list = []
+        for aviso in avisos:
+            # Aviso FUTURO (já emitido, validade ainda por começar — bucket
+            # "futuro" da API): contorno TRACEJADO, preenchimento mais leve e
+            # sufixo "(futuro)" no rótulo — não se confunde com o que já vige.
+            future = getattr(aviso, "quando", "") == "futuro"
+            for ring in aviso.rings:
+                xs = [lon for lon, _ in ring]
+                ys = [lat for _, lat in ring]
+                # GeoJSON costuma entregar o anel já fechado (1º == último ponto).
+                if xs[0] != xs[-1] or ys[0] != ys[-1]:
+                    xs_c, ys_c = xs + xs[:1], ys + ys[:1]
+                else:
+                    xs_c, ys_c = xs, ys
+                fills = self.ax.fill(
+                    xs,
+                    ys,
+                    facecolor=aviso.cor,
+                    edgecolor="none",
+                    alpha=0.16 if future else 0.35,
+                    zorder=8.0,
+                    transform=ccrs.PlateCarree(),
+                )
+                artists.extend(fills)
+                (outline,) = self.ax.plot(
+                    xs_c,
+                    ys_c,
+                    color=aviso.cor,
+                    linewidth=1.6,
+                    linestyle=(0, (5, 3)) if future else "-",
+                    alpha=0.95,
+                    solid_capstyle="round",
+                    solid_joinstyle="round",
+                    zorder=9.0,
+                    transform=ccrs.PlateCarree(),
+                )
+                artists.append(outline)
+            lp = aviso.label_point
+            if lp is not None and aviso.severidade:
+                txt = self.ax.text(
+                    lp[0],
+                    lp[1],
+                    aviso.severidade + (" (futuro)" if future else ""),
+                    color="#1B2631",
+                    fontsize=8,
+                    fontweight="bold",
+                    ha="center",
+                    va="center",
+                    zorder=10.0,
+                    path_effects=halo,
+                    transform=ccrs.PlateCarree(),
+                )
+                # Clip de texto no GeoAxes só pega via clip_box (não clip_on sozinho).
+                txt.set_clip_box(self.ax.bbox)
+                txt.set_clip_on(True)
+                artists.append(txt)
+        # Overlay de dados: fora da medição da mesa E do bbox 'tight' do export —
+        # os polígonos vêm com a geometria cheia da API, sem recorte ao extent.
+        for art in artists:
+            with contextlib.suppress(AttributeError):
+                art.set_in_layout(False)
+        self._inmet_avisos_artists = artists
+        self.draw()
+
+    def toggle_inmet_avisos(self, visible: bool) -> None:
+        """Mostra ou oculta o overlay de avisos INMET."""
+        for art in self._inmet_avisos_artists:
+            art.set_visible(visible)
+        self.draw()
+
+    def remove_inmet_avisos(self, reflow: bool = False) -> None:
+        """Remove os polígonos dos avisos INMET do mapa."""
+        for art in self._inmet_avisos_artists:
+            with contextlib.suppress(ValueError, AttributeError, NotImplementedError):
+                art.remove()
+        self._inmet_avisos_artists = []
         if reflow:
             self._reflow_layout()
 
