@@ -440,6 +440,15 @@ class MainWindow(QMainWindow):
         thermal_wind_about_action = QAction("Sobre o Vento Térmico", self)
         thermal_wind_about_action.triggered.connect(self._show_about_thermal_wind)
         help_menu.addAction(thermal_wind_about_action)
+
+        help_menu.addSeparator()
+
+        # Materiais de Estudo (didáticos) — submenu extensível
+        estudos_menu = help_menu.addMenu("📚 Materiais de Estudo")
+        espessura_study_action = QAction("Espessura 1000–500 hPa", self)
+        espessura_study_action.triggered.connect(self._show_study_espessura)
+        estudos_menu.addAction(espessura_study_action)
+
         help_menu.addSeparator()
 
         about_action = QAction("Sobre", self)
@@ -5232,6 +5241,109 @@ class MainWindow(QMainWindow):
         )
         close_btn.clicked.connect(dlg.accept)
         btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+
+        dlg.exec()
+
+    def _espessura_study_path(self):
+        """Localiza o docs/Estudo_Espessura_1000_500hPa.md (dev ou empacotado) ou None."""
+        candidates = [
+            Path(__file__).resolve().parents[2] / "docs" / "Estudo_Espessura_1000_500hPa.md",
+            Path.cwd() / "docs" / "Estudo_Espessura_1000_500hPa.md",
+        ]
+        if getattr(sys, "frozen", False):  # PyInstaller: docs/ empacotado em _MEIPASS
+            candidates.insert(0, Path(sys._MEIPASS) / "docs" / "Estudo_Espessura_1000_500hPa.md")
+        for p in candidates:
+            if p.exists():
+                return p
+        return None
+
+    def _show_study_espessura(self):
+        """Material de estudo 'Espessura 1000–500 hPa' — resumo + abre o material completo."""
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        from PyQt6.QtWidgets import QTextBrowser
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Estudo — Espessura 1000–500 hPa")
+        dlg.setMinimumSize(580, 560)
+        dlg.setStyleSheet(DARK_STYLE)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        html = """
+        <h2 style='color:#E67E22; margin-bottom:2px;'>Espessura da Camada 1000–500 hPa</h2>
+        <p style='color:#BDC3C7; margin-top:0;'><i>Material de estudo — interpretação sinótica
+        (Hemisfério Sul)</i></p>
+        <p style='color:#ECF0F1;'>A <b>espessura</b> entre 1000 e 500 hPa é proporcional à
+        <b>temperatura média</b> da camada: suas isolinhas funcionam como <b>isotermas</b> da
+        baixa/média troposfera.</p>
+        <table cellpadding='6' style='color:#ECF0F1; border-collapse:collapse;'>
+          <tr style='background:#1A252F;'><th>Padrão</th><th>Significado</th></tr>
+          <tr><td><b>Espessura alta</b></td>
+            <td>Ar <b>quente</b> / coluna expandida (tropical)</td></tr>
+          <tr><td><b>Espessura baixa</b></td>
+            <td>Ar <b>frio</b> / coluna contraída (polar)</td></tr>
+          <tr><td><b>Língua quente</b> (crista térmica)</td>
+            <td>Protuberância para o <b>polo</b> → advecção quente (dianteira do sistema)</td></tr>
+          <tr><td><b>Língua fria</b> (cavado térmico)</td>
+            <td>Reentrância para o <b>equador</b> → advecção fria (retaguarda)</td></tr>
+        </table>
+        <p style='color:#ECF0F1; margin-top:10px;'><b>Vento térmico no HS</b> (inverso do HN):
+        vento <b>girando no sentido horário</b> com a altura → <b>advecção fria</b>
+        (anticiclogênese); <b>anti-horário</b> → <b>advecção quente</b> (ciclogênese).</p>
+        <p style='color:#ECF0F1;'>A isoespessura de <b>5400 m</b> baliza o limite chuva–neve
+        (no Sul do Brasil, use <b>~5340 m</b>). Nas isóbaras de PNMM, o tempo <b>piora a leste
+        do cavado</b> (dianteira, ascensão) e melhora a oeste (retaguarda).</p>
+        <hr style='border-color:#5D6D7E;'>
+        <p style='color:#95A5A6; font-size:11px;'>Abra o material completo para as equações
+        (hipsométrica, temperatura virtual), as tabelas HS×HN e as regras de bolso.</p>
+        """
+        browser = QTextBrowser()
+        browser.setHtml(html)
+        browser.setOpenExternalLinks(True)
+        layout.addWidget(browser)
+
+        btn_row = QHBoxLayout()
+        open_btn = QPushButton("📖 Abrir Material Completo")
+        open_btn.setStyleSheet(
+            "QPushButton{background:#E67E22;padding:7px 14px;font-weight:bold;border-radius:4px;}"
+            "QPushButton:hover{background:#F39C12;}"
+        )
+
+        def _open_study():
+            p = self._espessura_study_path()
+            if p is None:
+                QMessageBox.information(
+                    dlg,
+                    "Material de Estudo",
+                    "O material de estudo não foi encontrado nesta instalação.\n"
+                    "Ele está disponível no repositório do CartoMet BR (docs/).",
+                )
+                return
+            try:
+                from cartomet_br.gui.methodology import render_methodology_html
+
+                html_path = render_methodology_html(
+                    p,
+                    title="Espessura 1000–500 hPa — Material de Estudo (CartoMet BR)",
+                    banner=(
+                        "📘 <b>CartoMet BR</b> — Material de estudo: Espessura da camada "
+                        "1000–500 hPa. Equações e fluxogramas são renderizados pelo seu navegador."
+                    ),
+                )
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(html_path)))
+            except Exception as exc:
+                logger.warning("Falha ao renderizar material de estudo em HTML: %s", exc)
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))  # fallback: abre o .md
+
+        open_btn.clicked.connect(_open_study)
+        close_btn = QPushButton("Fechar")
+        close_btn.clicked.connect(dlg.accept)
+        btn_row.addWidget(open_btn)
         btn_row.addStretch()
         btn_row.addWidget(close_btn)
         layout.addLayout(btn_row)

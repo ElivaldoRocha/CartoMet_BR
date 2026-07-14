@@ -21,7 +21,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Metodologia — Índice LOCZCIT-PA (CartoMet BR)</title>
+<title>{title}</title>
 <script>
   window.MathJax = {{
     tex: {{ inlineMath: [['$', '$']], displayMath: [['$$', '$$']] }},
@@ -60,8 +60,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="doc-banner">📘 <b>CartoMet BR v3.0</b> — Metodologia científica do Índice LOCZCIT-PA.
-Equações e fluxogramas são renderizados pelo seu navegador.</div>
+<div class="doc-banner">{banner}</div>
 {body}
 </body>
 </html>
@@ -86,12 +85,30 @@ def _protect(text: str, pattern: str, store: list, prefix: str, flags: int = 0) 
     return re.sub(pattern, _repl, text, flags=flags)
 
 
-def render_methodology_html(md_path: Path, out_path: Path | None = None) -> Path:
-    """Converte o Markdown da metodologia em HTML estilizado e retorna o caminho.
+_DEFAULT_TITLE = "Metodologia — Índice LOCZCIT-PA (CartoMet BR)"
+_DEFAULT_BANNER = (
+    "📘 <b>CartoMet BR v3.0</b> — Metodologia científica do Índice LOCZCIT-PA. "
+    "Equações e fluxogramas são renderizados pelo seu navegador."
+)
+
+
+def render_methodology_html(
+    md_path: Path,
+    out_path: Path | None = None,
+    *,
+    title: str = _DEFAULT_TITLE,
+    banner: str = _DEFAULT_BANNER,
+) -> Path:
+    """Converte um Markdown científico/didático em HTML estilizado e retorna o caminho.
 
     LaTeX (`$...$`, `$$...$$`) e blocos ```mermaid``` são protegidos antes da
     conversão Markdown e restaurados depois, evitando que o conversor os corrompa
     (ex.: subscritos `$T_s$` virando itálico).
+
+    ``title`` (aba do navegador) e ``banner`` (faixa no topo da página) são
+    parametrizáveis para reusar o mesmo pipeline em outros documentos além da
+    metodologia LOCZCIT-PA (ex.: materiais de estudo). Os defaults preservam o
+    comportamento das chamadas existentes.
     """
     import markdown as _md
 
@@ -119,7 +136,7 @@ def render_methodology_html(md_path: Path, out_path: Path | None = None) -> Path
     for i, expr in enumerate(math):
         body = body.replace(f"@@CMTOKMX{i}@@", expr)
 
-    html = _HTML_TEMPLATE.format(body=body)
+    html = _HTML_TEMPLATE.format(body=body, title=title, banner=banner)
 
     if out_path is None:
         # Nome derivado do .md de origem: a metodologia do LOCZCIT-PA e a do Bloqueio
