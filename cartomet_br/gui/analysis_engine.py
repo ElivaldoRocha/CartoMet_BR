@@ -299,3 +299,49 @@ class InstabilityWorker(QThread):
             return
         self.progress.emit("Instabilidade pronta.")
         self.finished_ok.emit(fields)
+
+
+class ConvectiveCellsWorker(QThread):
+    """Detecta células convectivas na (sub)grade IR recortada, fora da GUI.
+
+    Recebe a grade JÁ recortada ao extent visível (pelo canvas) e roda a
+    detecção vetorizada. CPU isolada: a GUI não trava e o usuário pode cancelar
+    (o resultado é abandonado se cancelado). Sem rede.
+    """
+
+    progress = pyqtSignal(str)
+    finished_ok = pyqtSignal(object)  # ConvectiveCellsResult
+    finished_error = pyqtSignal(str)
+
+    def __init__(self, data, x, y, *, threshold_c: float, min_area_km2=None, parent=None) -> None:
+        super().__init__(parent)
+        self.data = data
+        self.x = x
+        self.y = y
+        self.threshold_c = float(threshold_c)
+        self.min_area_km2 = min_area_km2
+
+    def run(self) -> None:
+        try:
+            from cartomet_br.data.convective_cells import (
+                DEFAULT_MIN_AREA_KM2,
+                detect_convective_cells,
+            )
+
+            self.progress.emit("Analisando a área visível…")
+            min_area = DEFAULT_MIN_AREA_KM2 if self.min_area_km2 is None else self.min_area_km2
+            result = detect_convective_cells(
+                self.data,
+                self.x,
+                self.y,
+                threshold_c=self.threshold_c,
+                min_area_km2=min_area,
+            )
+        except Exception as e:  # detecção nunca deve derrubar a GUI
+            logger.warning("Falha ao detectar células convectivas: %s", e)
+            self.finished_error.emit(
+                f"Não foi possível detectar as células convectivas.\n\nDetalhe técnico: {e}"
+            )
+            return
+        self.progress.emit(f"{result.n_kept} célula(s) detectada(s).")
+        self.finished_ok.emit(result)

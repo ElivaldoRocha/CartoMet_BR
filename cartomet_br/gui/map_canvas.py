@@ -487,6 +487,8 @@ class MapCanvas(FigureCanvas):
         self._blocking_artists: list = []
         self._blocking_colorbar = None
 
+        # Células convectivas (contornos derivados da imagem GOES-16 IR)
+        self._convective_cells_artists: list = []
         # Motor da mesa suspenso? (animação impõe geometria congelada por quadro)
         self._layout_suspended = False
         # Draws intermediários suprimidos? (operações em lote — batch_layout)
@@ -588,6 +590,7 @@ class MapCanvas(FigureCanvas):
         self._loczcit_axis_artists = []
         self._blocking_artists = []
         self._blocking_colorbar = None
+        self._convective_cells_artists = []
         # ax.clear() abaixo mata o anel do ímã e o destaque da edição — só
         # anular as referências. O sinal avisa a barra de status: sem ele, a
         # instrução "Delete apaga · Esc desmarca" sobreviveria ao rebuild.
@@ -4437,12 +4440,150 @@ class MapCanvas(FigureCanvas):
             self.draw()
 
     def remove_satellite(self) -> None:
-        """Remove imagem de satélite do mapa."""
+        """Remove imagem de satélite do mapa (e as células convectivas dela derivadas)."""
+        self.remove_convective_cells()
         if self._sat_artist is not None:
             with contextlib.suppress(ValueError, AttributeError):
                 self._sat_artist.remove()
             self._sat_artist = None
         self._sat_data = None
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  CÉLULAS CONVECTIVAS (detecção na imagem GOES-16 IR — inspirado na TATHU)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def crop_satellite_to_extent(self, margin_deg: float = 0.0):
+        """Recorta a grade do satélite ao ``extent`` visível do mapa.
+
+        Projeta uma malha de pontos do extent (lon/lat) para o
+        ``ccrs.Geostationary`` do satélite, pega o bounding-box finito em x/y e
+        fatia ``sat.data/x/y``. Assim a detecção roda só na **área com zoom** —
+        muito mais rápida. Retorna ``(data, x, y)`` recortados ou ``None`` se o
+        extent não intersecta o disco do satélite (área sem cobertura).
+
+        O recorte devolve **views** (fatias contíguas, sem cópia): roda no slot
+        do clique (thread da GUI) e a imagem full-disk tem ~29 Mpx — quem
+        materializa arrays é o worker, fora da GUI.
+        """
+        sat = self._sat_data
+        if sat is None:
+            return None
+        geos = ccrs.Geostationary(
+            central_longitude=sat.sat_lon,
+            satellite_height=sat.sat_h,
+            sweep_axis=sat.sat_sweep,
+        )
+        lon0, lon1, lat0, lat1 = self.ax.get_extent(crs=ccrs.PlateCarree())
+        lon0 -= margin_deg
+        lon1 += margin_deg
+        lat0 -= margin_deg
+        lat1 += margin_deg
+        lons = np.linspace(lon0, lon1, 40)
+        lats = np.linspace(lat0, lat1, 40)
+        mlon, mlat = np.meshgrid(lons, lats)
+        pts = geos.transform_points(ccrs.PlateCarree(), mlon.ravel(), mlat.ravel())
+        px, py = pts[:, 0], pts[:, 1]
+        finite = np.isfinite(px) & np.isfinite(py)
+        if not finite.any():
+            return None  # extent inteiramente fora do disco
+        xmin, xmax = float(px[finite].min()), float(px[finite].max())
+        ymin, ymax = float(py[finite].min()), float(py[finite].max())
+
+        x = np.asarray(sat.x, dtype=float)
+        y = np.asarray(sat.y, dtype=float)
+        col = np.nonzero((x >= xmin) & (x <= xmax))[0]
+        row = np.nonzero((y >= ymin) & (y <= ymax))[0]
+        if col.size == 0 or row.size == 0:
+            return None  # o recorte não cai sobre nenhum pixel do satélite
+        # Coordenadas monotônicas → a seleção é um trecho contíguo: fatia (view).
+        r0, r1 = int(row[0]), int(row[-1]) + 1
+        c0, c1 = int(col[0]), int(col[-1]) + 1
+        data_crop = np.asarray(sat.data)[r0:r1, c0:c1]
+        return data_crop, x[c0:c1], y[r0:r1]
+
+    def render_convective_cells(self, result, x=None, y=None) -> None:
+        """Desenha os contornos das células convectivas detectadas na imagem IR.
+
+        Reconstrói o ``ccrs.Geostationary`` a partir de ``self._sat_data`` (mesma
+        projeção de ``plot_satellite``) e traça o contorno da máscara + rótulo por
+        célula (T_min / área aprox.) no centroide. ``x``/``y`` são as coordenadas
+        (possivelmente **recortadas** ao extent) alinhadas a ``result.mask``; se
+        omitidas, usa a grade cheia do satélite. Guia objetivo de topos frios —
+        o previsor traça a simbologia por cima (*human-in-the-loop*).
+        """
+        self.remove_convective_cells()
+        sat = self._sat_data
+        if sat is None or result is None or getattr(result, "mask", None) is None:
+            self.draw()
+            return
+
+        cx = sat.x if x is None else x
+        cy = sat.y if y is None else y
+        geos = ccrs.Geostationary(
+            central_longitude=sat.sat_lon,
+            satellite_height=sat.sat_h,
+            sweep_axis=sat.sat_sweep,
+        )
+        halo = [pe.withStroke(linewidth=2.2, foreground="black")]
+        artists: list = []
+
+        if result.mask.any():
+            cs = self.ax.contour(
+                cx,
+                cy,
+                result.mask.astype(float),
+                levels=[0.5],
+                colors=["#39FF14"],  # verde-neon: alto contraste sobre a paleta IR
+                linewidths=1.6,
+                transform=geos,
+                zorder=6.0,
+            )
+            # mpl ≥3.8: o ContourSet é ele próprio um artista (sem .collections).
+            with contextlib.suppress(AttributeError):
+                cs.set_path_effects(halo)
+            artists.append(cs)
+
+        for cell in result.cells:
+            txt = self.ax.text(
+                cell.centroid_x,
+                cell.centroid_y,
+                f"{cell.t_min_c:.0f}°C\n≈{cell.area_km2 / 1000:.0f}k km²",
+                color="#FFFFFF",
+                fontsize=7,
+                fontweight="bold",
+                ha="center",
+                va="center",
+                zorder=7.0,
+                path_effects=halo,
+                transform=geos,
+            )
+            txt.set_clip_box(self.ax.bbox)
+            txt.set_clip_on(True)
+            artists.append(txt)
+
+        # Overlay de dados: fora da medição da mesa E do bbox 'tight' do export —
+        # get_tightbbox ignora o clip, e células fora da vista inflariam o recorte.
+        for art in artists:
+            with contextlib.suppress(AttributeError):
+                art.set_in_layout(False)
+        self._convective_cells_artists = artists
+        self.draw()
+
+    def toggle_convective_cells(self, visible: bool) -> None:
+        """Mostra ou oculta os contornos das células convectivas."""
+        for art in self._convective_cells_artists:
+            with contextlib.suppress(AttributeError):
+                art.set_visible(visible)
+        self.draw()
+
+    def remove_convective_cells(self, reflow: bool = False) -> None:
+        """Remove os contornos/rótulos das células convectivas do mapa."""
+        for art in self._convective_cells_artists:
+            with contextlib.suppress(ValueError, AttributeError, NotImplementedError, KeyError):
+                art.remove()
+        self._convective_cells_artists = []
+        if reflow:
+            self._reflow_layout()
 
     # ═══════════════════════════════════════════════════════════════════════
     #  TSM (MUR SST 1 km)

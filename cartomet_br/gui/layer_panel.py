@@ -58,6 +58,8 @@ class SatellitePanel(QWidget):
 
     download_requested = pyqtSignal(object)  # datetime alvo
     toggle_requested = pyqtSignal(bool)  # mostrar/ocultar
+    detect_cells_requested = pyqtSignal(float)  # detectar células convectivas (limiar °C)
+    cells_toggle_requested = pyqtSignal(bool)  # mostrar/ocultar as células
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -129,6 +131,51 @@ class SatellitePanel(QWidget):
         )
         layout.addWidget(self.toggle_check)
 
+        # ── Detecção de Células Convectivas (inspirado na TATHU/INPE) ──
+        thr_row = QHBoxLayout()
+        thr_row.addWidget(QLabel("Limiar de topo:"))
+        self.cells_threshold_combo = QComboBox()
+        for t in (-40.0, -50.0, -60.0, -70.0):
+            self.cells_threshold_combo.addItem(f"{t:.0f} °C", t)
+        self.cells_threshold_combo.setCurrentIndex(1)  # -50 °C
+        self.cells_threshold_combo.setToolTip(
+            "Temperatura de topo abaixo da qual o pixel é convecção profunda.\n"
+            "−40 °C franja · −50/−60 °C convecção profunda · −70 °C overshooting."
+        )
+        thr_row.addWidget(self.cells_threshold_combo)
+        layout.addLayout(thr_row)
+
+        self.detect_cells_btn = QPushButton("⛈ Detectar Células Convectivas")
+        self.detect_cells_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #8E44AD; padding: 7px;
+                font-size: 11px; font-weight: bold; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #9B59B6; }
+            QPushButton:disabled { background-color: #555; }
+        """)
+        self.detect_cells_btn.setToolTip(
+            "Contorna os núcleos convectivos (topos frios) na imagem IR e rotula\n"
+            "com temperatura mínima e área aproximada. Detecta na ÁREA VISÍVEL —\n"
+            "dê zoom na região de interesse para acelerar e refinar. Roda em\n"
+            "segundo plano (com Cancelar). Guia objetivo — o previsor traça por cima."
+        )
+        self.detect_cells_btn.setEnabled(False)  # habilita quando há imagem
+        self.detect_cells_btn.clicked.connect(
+            lambda: self.detect_cells_requested.emit(
+                float(self.cells_threshold_combo.currentData())
+            )
+        )
+        layout.addWidget(self.detect_cells_btn)
+
+        self.cells_toggle_check = QCheckBox("Mostrar células")
+        self.cells_toggle_check.setChecked(True)
+        self.cells_toggle_check.setVisible(False)
+        self.cells_toggle_check.stateChanged.connect(
+            lambda state: self.cells_toggle_requested.emit(state == Qt.CheckState.Checked.value)
+        )
+        layout.addWidget(self.cells_toggle_check)
+
         # Status
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("font-size: 10px; color: #7F8C8D;")
@@ -169,8 +216,30 @@ class SatellitePanel(QWidget):
     def set_loaded(self, time_str: str):
         self.toggle_check.setVisible(True)
         self.toggle_check.setChecked(True)
+        self.detect_cells_btn.setEnabled(True)  # há imagem: já dá p/ detectar
         self.status_label.setText(f"✓ {time_str}")
         self.status_label.setStyleSheet("font-size: 10px; color: #27AE60;")
+
+    def set_cells_detected(self, detected: bool):
+        """Revela o checkbox 'Mostrar células' após uma detecção bem-sucedida."""
+        self.cells_toggle_check.setVisible(detected)
+        if detected:
+            self.cells_toggle_check.setChecked(True)
+
+    def reset_state(self):
+        """Volta ao estado 'sem imagem' (mapa limpo / tema trocado), sem emitir sinais.
+
+        Espelha o canvas vazio: toggles ocultos (e re-armados para o próximo
+        download), botão de detecção desabilitado e status limpo.
+        """
+        for chk in (self.toggle_check, self.cells_toggle_check):
+            chk.blockSignals(True)
+            chk.setChecked(True)
+            chk.setVisible(False)
+            chk.blockSignals(False)
+        self.detect_cells_btn.setEnabled(False)
+        self.status_label.setText("")
+        self.status_label.setStyleSheet("font-size: 10px; color: #7F8C8D;")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

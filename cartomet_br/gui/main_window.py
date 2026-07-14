@@ -712,7 +712,11 @@ class MainWindow(QMainWindow):
         self.canvas.annotation_requested.connect(self._on_annotation_requested)
 
         self.satellite_panel.download_requested.connect(self._on_sat_download)
+        # Imagem IR e células convectivas: toggles INDEPENDENTES (pedido do
+        # previsor: ver só os contornos das células, sem a imagem por baixo)
         self.satellite_panel.toggle_requested.connect(self.canvas.toggle_satellite)
+        self.satellite_panel.detect_cells_requested.connect(self._on_detect_cells)
+        self.satellite_panel.cells_toggle_requested.connect(self.canvas.toggle_convective_cells)
 
         self.sst_panel.download_requested.connect(self._on_sst_download)
         self.sst_panel.toggle_requested.connect(self.canvas.toggle_sst)
@@ -1851,6 +1855,10 @@ class MainWindow(QMainWindow):
     def _on_sat_download_ok(self, sat_data):
         self.satellite_panel.set_downloading(False)
         self.satellite_panel.set_loaded(sat_data.time_str)
+        self.satellite_panel.set_cells_detected(False)  # imagem nova → células antigas somem
+        # Detecção em voo pertence à imagem ANTIGA: abandonada, senão o resultado
+        # tardio desenharia os contornos dela sobre a imagem nova.
+        self._abandon_cells_detection()
         self.canvas.plot_satellite(sat_data)
         # Sobre a imagem de satélite as linhas finas do mapa base somem —
         # liga o realce de contornos (o usuário pode desligar; nunca se desliga só).
@@ -1872,6 +1880,116 @@ class MainWindow(QMainWindow):
             self._sat_dl_dialog = None
 
         QMessageBox.warning(self, "Erro GOES", error_msg)
+
+    def _on_detect_cells(self, threshold_c: float):
+        """Detecta células convectivas na ÁREA VISÍVEL da imagem GOES-16 IR.
+
+        Recorta ao extent (o zoom manda), roda a detecção numa thread e mostra
+        janela de progresso com Cancelar — a GUI nunca trava.
+        """
+        if getattr(self, "cells_thread", None) and self.cells_thread.isRunning():
+            return
+        sat = getattr(self.canvas, "_sat_data", None)
+        if sat is None:
+            QMessageBox.information(
+                self,
+                "Detectar Células Convectivas",
+                "Carregue uma imagem de satélite (🛰️ Baixar Imagem IR) antes de detectar.",
+            )
+            return
+
+        crop = self.canvas.crop_satellite_to_extent()
+        if crop is None:
+            QMessageBox.information(
+                self,
+                "Detectar Células Convectivas",
+                "A área visível está fora da cobertura do satélite.\n\n"
+                "Reposicione o mapa (pan) ou afaste o zoom sobre a imagem e tente de novo.",
+            )
+            return
+        data_crop, x_crop, y_crop = crop
+        self._cells_threshold_c = float(threshold_c)
+        self._cells_xy = (x_crop, y_crop)
+
+        mpx = data_crop.size / 1.0e6
+        self._cells_dl_dialog = DownloadProgressDialog("Detectar Células Convectivas", parent=self)
+        self._cells_dl_dialog.setStyleSheet(DARK_STYLE)
+        self._cells_dl_dialog.set_indeterminate()
+        self._cells_dl_dialog.update_status(
+            f"Analisando {mpx:.1f} Mpx da área visível (topos ≤ {threshold_c:.0f} °C)…\n"
+            "Dica: dê mais zoom na área de interesse para acelerar."
+        )
+        self._cells_dl_dialog.cancel_requested.connect(self._cancel_cells)
+
+        self.cells_thread = ConvectiveCellsWorker(
+            data_crop, x_crop, y_crop, threshold_c=threshold_c, parent=self
+        )
+        self.cells_thread.progress.connect(self._on_cells_progress)
+        self.cells_thread.finished_ok.connect(self._on_cells_ok)
+        self.cells_thread.finished_error.connect(self._on_cells_error)
+        self.cells_thread.start()
+        self._cells_dl_dialog.show()
+
+    def _abandon_cells_detection(self):
+        """Abandona uma detecção em voo (sem status): solta a thread e fecha o diálogo.
+
+        Soltar a ref libera o guard de 'Detectar' NA HORA; o resultado tardio é
+        descartado pela checagem de identidade (sender). Chamar SEMPRE que a
+        imagem-mãe deixa de valer (imagem nova, Limpar mapa, troca de tema) —
+        senão o resultado velho desenha células de outra imagem e revive o
+        checkbox 'Mostrar células' num painel resetado.
+        """
+        self.cells_thread = None
+        if getattr(self, "_cells_dl_dialog", None):
+            self._cells_dl_dialog.reject()
+            self._cells_dl_dialog = None
+
+    def _cancel_cells(self):
+        """Cancela a detecção: fecha o diálogo e abandona o resultado tardio."""
+        self._abandon_cells_detection()
+        self.status_label.setText("● Detecção de células cancelada")
+        self.status_label.setStyleSheet("color: #F39C12;")
+
+    def _on_cells_progress(self, msg: str):
+        if getattr(self, "_cells_dl_dialog", None):
+            self._cells_dl_dialog.update_status(msg)
+
+    def _on_cells_ok(self, result):
+        if self.sender() is not getattr(self, "cells_thread", None):
+            return  # detecção abandonada (cancelada/substituída) — descarta
+        self.cells_thread = None
+        if getattr(self, "_cells_dl_dialog", None):
+            self._cells_dl_dialog.finish_ok()
+            self._cells_dl_dialog = None
+
+        x_crop, y_crop = getattr(self, "_cells_xy", (None, None))
+        self.canvas.render_convective_cells(result, x_crop, y_crop)
+        thr = getattr(self, "_cells_threshold_c", result.threshold_c)
+        self.satellite_panel.set_cells_detected(result.n_kept > 0)
+        if result.n_kept == 0:
+            self.status_label.setText(f"● Nenhuma célula ≤ {thr:.0f} °C na área visível")
+            self.status_label.setStyleSheet("color: #F39C12;")
+        else:
+            self.status_label.setText(
+                f"● {result.n_kept} célula(s) convectiva(s) ≤ {thr:.0f} °C na área visível"
+            )
+            self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_cells_error(self, error_msg: str):
+        if self.sender() is not getattr(self, "cells_thread", None):
+            return  # detecção abandonada (cancelada/substituída) — descarta
+        self.cells_thread = None
+        if getattr(self, "_cells_dl_dialog", None):
+            self._cells_dl_dialog.finish_error()
+            self._cells_dl_dialog = None
+        # Células de uma detecção anterior não podem ficar órfãs no mapa (o
+        # checkbox que as controla some junto com o set_cells_detected abaixo).
+        self.canvas.remove_convective_cells()
+        self.canvas.draw()
+        self.satellite_panel.set_cells_detected(False)
+        self.status_label.setText("● Erro ao detectar células convectivas")
+        self.status_label.setStyleSheet("color: #E74C3C;")
+        QMessageBox.warning(self, "Detectar Células Convectivas", error_msg)
 
     # ═══════════════════════════════════════════════════════════════════════
     #  HANDLERS PARA TSM (MUR SST)
@@ -4404,6 +4522,10 @@ class MainWindow(QMainWindow):
                 filename=file_path.name,
             )
 
+            # Detecção em voo pertence à imagem ANTERIOR — abandonada antes da
+            # troca (mesma regra de _on_sat_download_ok).
+            self._abandon_cells_detection()
+            self.satellite_panel.set_cells_detected(False)
             self.canvas.plot_satellite(sat_data)
             self.settings_panel.emphasis_check.setChecked(True)
             self.satellite_panel.toggle_check.setVisible(True)
