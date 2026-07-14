@@ -25,6 +25,7 @@ import cartopy.feature as cfeature
 import matplotlib.patheffects as pe
 import matplotlib.ticker as mticker
 import matplotlib.transforms as mtransforms
+from cartopy.mpl.gridliner import Gridliner
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -1790,6 +1791,18 @@ class MapCanvas(FigureCanvas):
                 p = a.get_position()
                 a.set_position([p.x0 + dx, p.y0, p.width, p.height])
 
+    def _layout_keep_artists(self) -> set:
+        """Artistas do ``self.ax`` que a medição da mesa DEVE contar.
+
+        O quadro do mapa = Gridliner (rótulos de lat/lon) + título. O Gridliner
+        é localizado por ``isinstance`` em ``get_children()``: o Cartopy o
+        registra via ``add_artist`` e não expõe lista pública (``ax._gridliners``
+        não existe no 0.25 — confiar nele excluía os rótulos da medição).
+        """
+        keep = {a for a in self.ax.get_children() if isinstance(a, Gridliner)}
+        keep.add(self.ax.title)
+        return keep
+
     def _fit_layout_to_figure(self, pad: float = 0.008) -> None:
         """Impede que rótulos e colorbars vazem da figura (a "mesa branca").
 
@@ -1801,7 +1814,21 @@ class MapCanvas(FigureCanvas):
         mais larga que a figura, encolhe-se tudo em torno do centro e
         desloca-se de novo. No-op quando tudo já cabe — os layouts que hoje
         estão bons não mudam.
+
+        Blindagem contra o "encolhe ao dar zoom": o CONTEÚDO ancorado em
+        coordenadas de dados (emoji, desenhos, símbolos, células/avisos) sai da
+        vista ao dar zoom e, como ``get_tightbbox`` ignora o clip, sua caixa é
+        projetada MUITO longe — a união explodia e encolhia toda a carta. O
+        layout só deve medir o QUADRO do mapa + rótulos do gridliner + título
+        (colorbars são eixos à parte). Excluímos o conteúdo do ``self.ax`` da
+        medição (``set_in_layout(False)`` temporário, restaurado no ``finally``).
         """
+        keep = self._layout_keep_artists()
+        content = [a for a in self.ax.get_children() if a not in keep]
+        saved_in_layout = [(a, a.get_in_layout()) for a in content]
+        for a in content:
+            with contextlib.suppress(AttributeError):
+                a.set_in_layout(False)
         try:
             # A medição NÃO exige render: GeoAxes.get_tightbbox roda o
             # _draw_preprocess (apply_aspect), o Gridliner do Cartopy regenera
@@ -1849,6 +1876,11 @@ class MapCanvas(FigureCanvas):
                     a.set_position([new_cx - new_w / 2.0, new_cy - new_h / 2.0, new_w, new_h])
         except Exception as e:
             logger.debug("Aviso ao ajustar o layout à figura: %s", e)
+        finally:
+            # Restaura o in_layout dos artistas de conteúdo (o toggle é só p/ medir).
+            for a, prev in saved_in_layout:
+                with contextlib.suppress(AttributeError):
+                    a.set_in_layout(prev)
 
     def previous_extent(self) -> None:
         """Volta ao extent anterior (pilha simples — substitui o Ctrl+Z reservado)."""
