@@ -376,3 +376,79 @@ class ConvectiveCellsWorker(QThread):
             return
         self.progress.emit(f"{result.n_kept} célula(s) detectada(s).")
         self.finished_ok.emit(result)
+
+
+class ThermalWindWorker(QThread):
+    """Monta a hodógrafa / vento térmico do IFS num ponto, fora da thread da GUI.
+
+    Reusa ``load_model_profile`` (coluna vertical do modelo, cache-first) — a
+    parte pesada/rede — e classifica a advecção por subcamada em
+    ``compute_thermal_wind`` (ciente do hemisfério). Emite um ``ThermalWindResult``
+    pronto para o overlay do canvas. Rede isolada: falha vira ``finished_error``.
+    """
+
+    progress = pyqtSignal(str)
+    finished_ok = pyqtSignal(object)  # ThermalWindResult
+    finished_error = pyqtSignal(str)
+
+    def __init__(
+        self,
+        lon: float,
+        lat: float,
+        base_p: int,
+        top_p: int,
+        cycle: int | None,
+        cycle_date: str | None,
+        step: int,
+        data_dir,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.lon = float(lon)
+        self.lat = float(lat)
+        self.base_p = int(base_p)
+        self.top_p = int(top_p)
+        self.cycle = cycle
+        self.cycle_date = cycle_date
+        self.step = step
+        self.data_dir = data_dir
+
+    def run(self) -> None:
+        self.progress.emit("Extraindo o perfil de vento do modelo…")
+        try:
+            from cartomet_br.data.ecmwf import PL_LEVELS, load_model_profile
+            from cartomet_br.data.thermal_wind import compute_thermal_wind
+
+            prof = load_model_profile(
+                self.lon,
+                self.lat,
+                step=self.step,
+                cycle=self.cycle,
+                cycle_date=self.cycle_date,
+                data_dir=self.data_dir,
+            )
+            # levels=PL_LEVELS: o diálogo oferece topo até 50 hPa; o default do
+            # motor (STANDARD_LEVELS) para em 300 e truncaria a camada escolhida.
+            result = compute_thermal_wind(
+                prof.pressures,
+                prof.u,
+                prof.v,
+                self.base_p,
+                self.top_p,
+                latitude=self.lat,
+                longitude=self.lon,
+                levels=PL_LEVELS,
+            )
+        except ValueError as e:  # camada sem níveis suficientes (relevo, base/topo)
+            self.finished_error.emit(str(e))
+            return
+        except Exception as e:  # rede, GRIB ausente, etc.
+            logger.warning("Falha ao montar o vento térmico (%.2f,%.2f): %s", self.lon, self.lat, e)
+            self.finished_error.emit(
+                "Não foi possível montar o vento térmico neste ponto.\n"
+                "Verifique a rodada/step (rede ou cache).\n\n"
+                f"Detalhe técnico: {e}"
+            )
+            return
+        self.progress.emit("Vento térmico pronto.")
+        self.finished_ok.emit(result)

@@ -410,3 +410,104 @@ class BaroclinicLevelDialog(QDialog):
     def selected_level(self) -> int:
         """Nível de pressão escolhido (hPa)."""
         return int(self.level_combo.currentData())
+
+
+class ThermalWindLevelDialog(QDialog):
+    """Escolha da camada (base → topo) para a hodógrafa de Vento Térmico.
+
+    Base default 1000 hPa, topo 500 hPa; os níveis-padrão entre eles entram
+    automaticamente. ``selected_layer()`` devolve ``(base_p, top_p)`` (base >
+    topo em hPa) após ``exec()`` retornar ``Accepted``.
+    """
+
+    def __init__(
+        self,
+        levels: list[int],
+        default_base: int = 1000,
+        default_top: int = 500,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle("Vento Térmico — Camada")
+        self.setModal(True)
+        self.setStyleSheet(DARK_STYLE)
+        self.setMinimumWidth(430)
+        self._setup_ui(levels, default_base, default_top)
+
+    def _setup_ui(self, levels: list[int], default_base: int, default_top: int):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(18, 16, 18, 16)
+
+        title = QLabel("<h3 style='color:#1ABC9C; margin:0;'>🌀 Vento Térmico</h3>")
+        layout.addWidget(title)
+
+        desc = QLabel(
+            "<p style='font-size:11px; color:#BDC3C7;'>"
+            "Hodógrafa no ponto: o vento de cada nível e o <b>vetor térmico</b> ligando "
+            "as pontas, colorido por advecção (🔴 quente / 🔵 fria). Escolha a base e o topo "
+            "— os níveis-padrão entre eles entram automaticamente.</p>"
+        )
+        desc.setWordWrap(True)
+        layout.addWidget(desc)
+
+        # Combos ordenados da base (maior pressão) ao topo (menor).
+        levels_desc = sorted(levels, reverse=True)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Base:"))
+        self.base_combo = QComboBox()
+        for lv in levels_desc:
+            self.base_combo.addItem(f"{lv} hPa", lv)
+        self.base_combo.setCurrentIndex(
+            levels_desc.index(default_base) if default_base in levels_desc else 0
+        )
+        self.base_combo.setMinimumWidth(110)
+        row.addWidget(self.base_combo)
+        row.addSpacing(12)
+        row.addWidget(QLabel("Topo:"))
+        self.top_combo = QComboBox()
+        for lv in levels_desc:
+            self.top_combo.addItem(f"{lv} hPa", lv)
+        self.top_combo.setCurrentIndex(
+            levels_desc.index(default_top) if default_top in levels_desc else len(levels_desc) - 1
+        )
+        self.top_combo.setMinimumWidth(110)
+        row.addWidget(self.top_combo)
+        row.addStretch()
+        layout.addLayout(row)
+
+        note = QLabel(
+            "<small style='color:#95A5A6;'>A camada clássica de espessura/vento térmico é "
+            "<b>1000 → 500 hPa</b>. A base deve ter pressão maior que o topo.</small>"
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton("Cancelar")
+        cancel_btn.setStyleSheet("background-color:#7F8C8D;")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+        ok_btn = QPushButton("✓ Traçar")
+        ok_btn.setStyleSheet("background-color:#27AE60; min-width:120px;")
+        ok_btn.setDefault(True)
+        ok_btn.clicked.connect(self._on_accept)
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+    def _on_accept(self):
+        base_p = int(self.base_combo.currentData())
+        top_p = int(self.top_combo.currentData())
+        if base_p <= top_p:
+            QMessageBox.warning(
+                self,
+                "Camada inválida",
+                "A base deve ter pressão MAIOR que o topo (ex.: base 1000 hPa, topo 500 hPa).",
+            )
+            return
+        self.accept()
+
+    def selected_layer(self) -> tuple[int, int]:
+        """Camada escolhida como ``(base_p, top_p)`` em hPa (base > topo)."""
+        return int(self.base_combo.currentData()), int(self.top_combo.currentData())

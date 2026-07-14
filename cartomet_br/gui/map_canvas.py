@@ -34,6 +34,14 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import QSizePolicy
 
+from cartomet_br.charts.hodograph_plot import (
+    KT,
+    TW_ADV_PT,
+    TW_COLORS,
+    ring_increment,
+    warp_components,
+    warp_radius,
+)
 from cartomet_br.charts.interactive import interpolar_pontos
 from cartomet_br.charts.synoptic import compute_persistence_maps, plot_maxmin_points
 from cartomet_br.core.config import COLORS, LEVELS, Config
@@ -301,6 +309,7 @@ class MapCanvas(FigureCanvas):
     meteogram_requested = pyqtSignal(float, float)  # (lon, lat) p/ meteograma (F6)
     wind_rose_requested = pyqtSignal(float, float)  # (lon, lat) p/ rosa dos ventos
     era5_series_requested = pyqtSignal(float, float)  # (lon, lat) p/ série temporal ERA5
+    thermal_wind_requested = pyqtSignal(float, float)  # (lon, lat) p/ hodógrafa de vento térmico
     cross_section_requested = pyqtSignal(
         float, float, float, float
     )  # (lon_a,lat_a,lon_b,lat_b) p/ corte vertical (F4)
@@ -489,8 +498,13 @@ class MapCanvas(FigureCanvas):
 
         # Avisos INMET (overlay de contexto — polígonos de alerta ao vivo)
         self._inmet_avisos_artists: list = []
+
         # Células convectivas (contornos derivados da imagem GOES-16 IR)
         self._convective_cells_artists: list = []
+
+        # Vento térmico (hodógrafa didática ancorada num ponto)
+        self._thermal_wind_artists: list = []
+
         # Motor da mesa suspenso? (animação impõe geometria congelada por quadro)
         self._layout_suspended = False
         # Draws intermediários suprimidos? (operações em lote — batch_layout)
@@ -594,6 +608,7 @@ class MapCanvas(FigureCanvas):
         self._blocking_colorbar = None
         self._inmet_avisos_artists = []
         self._convective_cells_artists = []
+        self._thermal_wind_artists = []
         # ax.clear() abaixo mata o anel do ímã e o destaque da edição — só
         # anular as referências. O sinal avisa a barra de status: sem ele, a
         # instrução "Delete apaga · Esc desmarca" sobreviveria ao rebuild.
@@ -1621,6 +1636,16 @@ class MapCanvas(FigureCanvas):
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
             self.clear_sounding_marker()  # desativar a feature some com a estrela na carta
 
+    def set_thermal_wind_mode(self, enabled: bool) -> None:
+        """Modo 'Vento Térmico' — o clique dispara a hodógrafa/vento térmico no ponto."""
+        if enabled:
+            self.interaction_mode = "thermal_wind"
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+        elif self.interaction_mode == "thermal_wind":
+            self.interaction_mode = None
+            self.clear_sounding_marker()  # desativar a feature some com a estrela na carta
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+
     def set_cross_section_mode(self, enabled: bool) -> None:
         """Modo 'Corte Vertical' (F4) — dois cliques (A→B) definem a reta do corte."""
         if enabled:
@@ -2137,6 +2162,10 @@ class MapCanvas(FigureCanvas):
         elif self.interaction_mode == "era5_series":
             self._mark_sounding_point(event.xdata, event.ydata, color="#16A085")
             self.era5_series_requested.emit(float(event.xdata), float(event.ydata))
+
+        elif self.interaction_mode == "thermal_wind":
+            self._mark_sounding_point(event.xdata, event.ydata, color="#D35400")
+            self.thermal_wind_requested.emit(float(event.xdata), float(event.ydata))
 
         elif self.interaction_mode == "cross_section":
             self._on_xsec_click(event.xdata, event.ydata)
@@ -3728,6 +3757,8 @@ class MapCanvas(FigureCanvas):
         self.remove_blocking()
         # Avisos INMET (overlay de contexto)
         self.remove_inmet_avisos()
+        # Vento térmico (hodógrafa de diagnóstico)
+        self.remove_thermal_wind()
         # Marcador temporário da estação de radiossondagem (estrela)
         self.clear_sounding_marker()
         # Camadas sinóticas
@@ -4587,6 +4618,258 @@ class MapCanvas(FigureCanvas):
             with contextlib.suppress(ValueError, AttributeError, NotImplementedError, KeyError):
                 art.remove()
         self._convective_cells_artists = []
+        if reflow:
+            self._reflow_layout()
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  VENTO TÉRMICO (hodógrafa didática ancorada num ponto)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    # Cores da advecção (mesma convenção do material de estudo).
+    # Constantes visuais/warp compartilhadas com o painel: charts/hodograph_plot
+    # (TW_COLORS, TW_ADV_PT, KT, ring_increment, warp_*). Aqui fica só o que é
+    # específico da versão ANCORADA no mapa:
+    _TW_RING_PX = 150.0  # raio (px) do anel externo — tamanho fixo, estável ao zoom
+
+    def render_thermal_wind(self, result, lon: float, lat: float) -> None:
+        """Desenha a hodógrafa rica (anéis, setas por altura, curva) ancorada no ponto.
+
+        **Estável ao zoom** e **sem distorção com a latitude**: um transform
+        ancorado no ponto (``ScaledTranslation`` sobre ``transData``) escala o
+        vento em **pixels**, e as magnitudes aparecem em **nós (kt)**. As setas
+        radiais mostram o vento de cada nível (cor por altura); a curva liga as
+        pontas e cada segmento é o **vetor de vento térmico** da subcamada,
+        colorido por advecção (🔴 quente / 🔵 fria / cinza neutra). Os artistas
+        ficam fora da mesa (``set_in_layout(False)``) e não são persistidos.
+        """
+        self.remove_thermal_wind()
+        if result is None or len(getattr(result, "levels", [])) < 2:
+            self.draw()
+            return
+
+        # Ventos por nível em nós; base→topo já vem ordenado.
+        us = np.asarray(result.u, dtype=float) * KT
+        vs = np.asarray(result.v, dtype=float) * KT
+        levels = list(result.levels)
+        n = len(levels)
+
+        # Escala pela velocidade máxima do VENTO (as pontas delimitam tudo que é
+        # desenhado; os vetores térmicos são só segmentos entre pontas — incluí-
+        # los aqui inflaria o alcance e encolheria a hodógrafa).
+        speeds = np.hypot(us, vs)
+        max_kt = float(max(speeds.max(), 5.0))
+        inc = ring_increment(max_kt)
+        n_rings = max(2, int(np.ceil(max_kt / inc)))
+        outer = n_rings * inc  # valor (kt) do anel externo
+
+        # Warp radial (raiz) compartilhado com o painel: magnitude REAL em kt →
+        # unidade de exibição, preservando a direção (giro intacto).
+        wu, wv = warp_components(us, vs)
+        r_out = warp_radius(outer)  # raio do anel externo em unidades de exibição
+        px_per_unit = self._TW_RING_PX / r_out
+
+        # unidades de exibição → pixels, transladado para a posição (lazy) do ponto.
+        trans = mtransforms.Affine2D().scale(px_per_unit) + mtransforms.ScaledTranslation(
+            float(lon), float(lat), self.ax.transData
+        )
+
+        halo = [pe.withStroke(linewidth=2.2, foreground="white")]
+        dark = [pe.withStroke(linewidth=2.4, foreground="black", alpha=0.35)]
+        cmap = matplotlib.colormaps["autumn_r"]  # amarelo (base) → vermelho (topo)
+        artists: list = []
+
+        def _add(art):
+            with contextlib.suppress(AttributeError):
+                art.set_in_layout(False)
+            with contextlib.suppress(AttributeError):
+                art.set_clip_box(self.ax.bbox)
+                art.set_clip_on(True)
+            artists.append(art)
+
+        th = np.linspace(0.0, 2.0 * np.pi, 120)
+
+        # ── Disco de fundo translúcido: isola a hodógrafa do relevo/mapa ─────
+        rbg = r_out * 1.16
+        disk = self.ax.fill(
+            rbg * np.cos(th),
+            rbg * np.sin(th),
+            transform=trans,
+            facecolor="white",
+            edgecolor="#5D6D7E",
+            lw=1.0,
+            alpha=0.62,
+            zorder=7.9,
+        )
+        for d in disk:
+            _add(d)
+
+        # ── Anéis de alcance concêntricos + rótulos (kt REAIS) ───────────────
+        # Posição = warp do valor em kt; o rótulo mostra o kt verdadeiro. Como o
+        # warp comprime o raio, os anéis internos ficam mais afastados entre si —
+        # é justamente isso que abre espaço para os ventos fracos.
+        for k in range(1, n_rings + 1):
+            r = k * inc  # kt real
+            rw = warp_radius(r)  # raio em unidades de exibição
+            (ring_ln,) = self.ax.plot(
+                rw * np.cos(th),
+                rw * np.sin(th),
+                transform=trans,
+                color="#9AA4AD",
+                lw=0.8,
+                ls=(0, (4, 4)),
+                alpha=0.9,
+                zorder=8.0,
+            )
+            _add(ring_ln)
+            rlbl = self.ax.text(
+                rw * np.cos(np.radians(138)),
+                rw * np.sin(np.radians(138)),
+                f"{r:.0f}" + (" kt" if k == n_rings else ""),
+                transform=trans,
+                color="#6B7680",
+                fontsize=6.5,
+                ha="center",
+                va="center",
+                zorder=8.1,
+                path_effects=halo,
+            )
+            _add(rlbl)
+
+        # ── Setas radiais do vento de cada nível (cor por altura) + cabeça ───
+        head_len = r_out * 0.06
+        head_w = r_out * 0.042
+        for i in range(n):
+            wx, wy = float(wu[i]), float(wv[i])
+            color = cmap(i / (n - 1) if n > 1 else 0.0)
+            magw = float(np.hypot(wx, wy))
+            if float(speeds[i]) < 0.5 or magw < 1e-6:  # calmaria: sem seta
+                continue
+            ux, uy = wx / magw, wy / magw  # direção (idêntica à do vento real)
+            bx, by = wx - ux * head_len, wy - uy * head_len  # base da cabeça
+            (shaft,) = self.ax.plot(
+                [0.0, bx],
+                [0.0, by],
+                transform=trans,
+                color=color,
+                lw=1.6,
+                solid_capstyle="round",
+                zorder=8.2,
+                path_effects=dark,
+            )
+            _add(shaft)
+            px, py = -uy, ux  # perpendicular unitário
+            head = self.ax.fill(
+                [wx, bx + px * head_w, bx - px * head_w],
+                [wy, by + py * head_w, by - py * head_w],
+                transform=trans,
+                color=color,
+                zorder=8.25,
+                lw=0.0,
+            )
+            for h in head:
+                _add(h)
+
+        # ── Curva da hodógrafa: segmentos = vento térmico, cor por advecção ──
+        for ly in result.layers:
+            i0 = levels.index(ly.p_bottom)
+            i1 = levels.index(ly.p_top)
+            (seg,) = self.ax.plot(
+                [wu[i0], wu[i1]],
+                [wv[i0], wv[i1]],
+                transform=trans,
+                color=TW_COLORS.get(ly.advection, "#7F8C8D"),
+                lw=3.4,
+                solid_capstyle="round",
+                zorder=8.4,
+                path_effects=dark,
+            )
+            _add(seg)
+
+        # ── Vértices: ponto + rótulo do nível (hPa) deslocado para fora ──────
+        # Agora TODOS os níveis são rotulados (o warp os separou o bastante para
+        # o previsor acompanhar o giro nível-a-nível).
+        for i in range(n):
+            wx, wy = float(wu[i]), float(wv[i])
+            (dot,) = self.ax.plot(
+                [wx],
+                [wy],
+                transform=trans,
+                marker="o",
+                mfc="white",
+                mec="#1B2631",
+                mew=1.1,
+                markersize=5.5,
+                zorder=8.6,
+            )
+            _add(dot)
+            magw = float(np.hypot(wx, wy))
+            ox, oy = (wx / magw, wy / magw) if magw > 1e-6 else (0.0, 1.0)
+            lbl = self.ax.text(
+                wx + ox * r_out * 0.12,
+                wy + oy * r_out * 0.12,
+                f"{levels[i]}",
+                transform=trans,
+                color="#1B2631",
+                fontsize=6.8,
+                fontweight="bold",
+                ha="center",
+                va="center",
+                zorder=8.66,
+                path_effects=halo,
+            )
+            _add(lbl)
+
+        # ── Origem: círculo destacado marcando o ponto/vento de base ─────────
+        (org,) = self.ax.plot(
+            [0.0],
+            [0.0],
+            transform=trans,
+            marker="o",
+            mfc="none",
+            mec="#2E4EB8",
+            mew=2.2,
+            markersize=12,
+            zorder=8.7,
+        )
+        _add(org)
+
+        # ── Legenda: camada, hemisfério, advecção líquida e vento de base ────
+        hemi = "HS" if lat < 0 else "HN"
+        spd0 = float(np.hypot(us[0], vs[0]))
+        wdir0 = float((270.0 - np.degrees(np.arctan2(vs[0], us[0]))) % 360.0)
+        adv_pt = TW_ADV_PT.get(result.net_advection, "—")
+        cap = self.ax.text(
+            0.0,
+            -r_out * 1.28,
+            f"Vento Térmico {levels[0]}→{levels[-1]} hPa · {hemi}\n"
+            f"advecção líquida: {adv_pt}  ·  base {wdir0:.0f}°/{spd0:.0f} kt",
+            transform=trans,
+            color=TW_COLORS.get(result.net_advection, "#2C3E50"),
+            fontsize=7.5,
+            fontweight="bold",
+            ha="center",
+            va="top",
+            zorder=8.6,
+            bbox={"boxstyle": "round,pad=0.3", "fc": "white", "ec": "#5D6D7E", "alpha": 0.85},
+        )
+        _add(cap)
+
+        self._thermal_wind_artists = artists
+        self.draw()
+
+    def toggle_thermal_wind(self, visible: bool) -> None:
+        """Mostra ou oculta a hodógrafa de vento térmico."""
+        for art in self._thermal_wind_artists:
+            with contextlib.suppress(AttributeError):
+                art.set_visible(visible)
+        self.draw()
+
+    def remove_thermal_wind(self, reflow: bool = False) -> None:
+        """Remove a hodógrafa de vento térmico do mapa."""
+        for art in self._thermal_wind_artists:
+            with contextlib.suppress(ValueError, AttributeError, NotImplementedError, KeyError):
+                art.remove()
+        self._thermal_wind_artists = []
         if reflow:
             self._reflow_layout()
 

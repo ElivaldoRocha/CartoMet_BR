@@ -46,6 +46,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from cartomet_br.charts.hodograph_plot import TW_ADV_PT
 from cartomet_br.core.config import Config
 from cartomet_br.data.ecmwf import (
     PL_LEVELS,
@@ -72,13 +73,21 @@ from cartomet_br.gui._constants import (
     get_logo_path,
 )
 from cartomet_br.gui.analysis_engine import (
+    ConvectiveCellsWorker,
     CrossSectionWorker,
+    InmetAvisosWorker,
     InstabilityWorker,
     MeteogramWorker,
+    ThermalWindWorker,
     WindRoseWorker,
 )
 from cartomet_br.gui.cross_section_panel import CrossSectionPanel
-from cartomet_br.gui.dialogs import BaroclinicLevelDialog, FirstRunDialog, WelcomeDialog
+from cartomet_br.gui.dialogs import (
+    BaroclinicLevelDialog,
+    FirstRunDialog,
+    ThermalWindLevelDialog,
+    WelcomeDialog,
+)
 from cartomet_br.gui.download_dialog import (
     BlockingThread,
     DownloadProgressDialog,
@@ -100,6 +109,7 @@ from cartomet_br.gui.meteogram_panel import MeteogramPanel
 from cartomet_br.gui.sounding_engine import ModelSoundingWorker, SoundingWorker
 from cartomet_br.gui.sounding_panel import SoundingPanel
 from cartomet_br.gui.themes import DARK_STYLE
+from cartomet_br.gui.thermal_wind_panel import ThermalWindPanel
 from cartomet_br.gui.wind_rose_config_dialog import WindRoseConfigDialog, load_wind_rose_config
 from cartomet_br.gui.wind_rose_panel import WindRosePanel
 from cartomet_br.gui.wind_style import WindStyleDialog
@@ -135,6 +145,13 @@ class MainWindow(QMainWindow):
         self._active_meteogram_point = None  # (lon, lat) do meteograma ativo
         self._wind_rose_worker = None  # worker da rosa dos ventos
         self._active_wind_rose_point = None  # (lon, lat) da rosa ativa
+        self._thermal_wind_worker = None  # worker do vento térmico (hodógrafa)
+        self._active_thermal_wind_point = None  # (lon, lat) da hodógrafa ativa
+        # Camada memorizada (base→topo, hPa) — QSettings; o clique calcula direto.
+        self._thermal_wind_layer: tuple[int, int] = self._load_thermal_wind_layer()
+        # Última busca de avisos INMET (lista completa, hoje+futuro) — o filtro
+        # "Incluir avisos futuros" re-renderiza daqui, sem nova consulta.
+        self._last_inmet_avisos: list | None = None
         # Config da rosa (nível/faixas/calmaria/stats) — defaults do QSettings.
         self._wind_rose_config = load_wind_rose_config()
         self._xsec_worker = None  # worker do corte vertical (F4)
@@ -277,6 +294,13 @@ class MainWindow(QMainWindow):
         self.wind_rose_panel.set_show_stats(bool(self._wind_rose_config["show_stats"]))
         self.wind_rose_panel.hide()
 
+        # Vento Térmico — dock direito deslizante (dinâmica da rosa), oculto até
+        # o 1º clique; a hodógrafa só vai ao mapa via "📌 Fixar no mapa".
+        self.thermal_wind_panel = ThermalWindPanel("Vento Térmico (Ponto)", self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.thermal_wind_panel)
+        self.thermal_wind_panel.set_layer_label(*self._thermal_wind_layer)
+        self.thermal_wind_panel.hide()
+
         # Série ERA5 (Fase 3) — dock direito deslizante, oculto até o 1º clique.
         self.era5_series_panel = ERA5SeriesPanel("Série ERA5 (Ponto)", self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.era5_series_panel)
@@ -413,6 +437,9 @@ class MainWindow(QMainWindow):
         inmet_about_action.triggered.connect(self._show_about_inmet_avisos)
         help_menu.addAction(inmet_about_action)
 
+        thermal_wind_about_action = QAction("Sobre o Vento Térmico", self)
+        thermal_wind_about_action.triggered.connect(self._show_about_thermal_wind)
+        help_menu.addAction(thermal_wind_about_action)
         help_menu.addSeparator()
 
         about_action = QAction("Sobre", self)
@@ -541,6 +568,20 @@ class MainWindow(QMainWindow):
         """)
         self.xsec_mode_btn.clicked.connect(self._toggle_xsec_mode)
         toolbar.addWidget(self.xsec_mode_btn)
+
+        self.thermal_wind_mode_btn = QPushButton("🌀 Vento Térmico")
+        self.thermal_wind_mode_btn.setCheckable(True)
+        self.thermal_wind_mode_btn.setToolTip(
+            "Clique num ponto do mapa para a hodógrafa: o vento do modelo IFS em cada "
+            "nível e o vetor de vento térmico ligando as pontas, colorido por advecção "
+            "(🔴 quente / 🔵 fria) — ciente do hemisfério (veering/backing)"
+        )
+        self.thermal_wind_mode_btn.setStyleSheet("""
+            QPushButton { background-color: #D35400; padding: 6px 14px; font-size: 11px; }
+            QPushButton:checked { background-color: #E74C3C; }
+        """)
+        self.thermal_wind_mode_btn.clicked.connect(self._toggle_thermal_wind_mode)
+        toolbar.addWidget(self.thermal_wind_mode_btn)
 
         toolbar.addSeparator()
 
@@ -743,6 +784,10 @@ class MainWindow(QMainWindow):
         self.wind_rose_panel.clear_pins_requested.connect(self.canvas.clear_wind_rose_insets)
         self.wind_rose_panel.config_requested.connect(self._on_wind_rose_config_requested)
         self.canvas.cross_section_requested.connect(self._on_cross_section_request)
+        self.canvas.thermal_wind_requested.connect(self._on_thermal_wind_point)
+        self.thermal_wind_panel.pin_requested.connect(self._on_pin_thermal_wind)
+        self.thermal_wind_panel.unpin_requested.connect(self._on_unpin_thermal_wind)
+        self.thermal_wind_panel.layer_config_requested.connect(self._on_thermal_wind_layer_config)
         self.settings_panel.step_combo.currentIndexChanged.connect(self._on_sounding_step_changed)
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -981,6 +1026,7 @@ class MainWindow(QMainWindow):
             ("wind_rose_mode_btn", self.canvas.set_wind_rose_mode),
             ("xsec_mode_btn", self.canvas.set_cross_section_mode),
             ("era5_series_mode_btn", self.canvas.set_era5_series_mode),
+            ("thermal_wind_mode_btn", self.canvas.set_thermal_wind_mode),
         )
         for attr, setter in analysis:
             btn = getattr(self, attr, None)
@@ -1020,6 +1066,7 @@ class MainWindow(QMainWindow):
             "wind_rose": ("wind_rose_mode_btn", self.canvas.set_wind_rose_mode),
             "cross_section": ("xsec_mode_btn", self.canvas.set_cross_section_mode),
             "era5_series": ("era5_series_mode_btn", self.canvas.set_era5_series_mode),
+            "thermal_wind": ("thermal_wind_mode_btn", self.canvas.set_thermal_wind_mode),
         }
         for key, (attr, setter) in analysis.items():
             if key == keep:
@@ -1117,6 +1164,22 @@ class MainWindow(QMainWindow):
             self.status_label.setStyleSheet("color: #8E44AD;")
         else:
             self.canvas.set_cross_section_mode(False)
+            self.status_label.setText("● Pronto")
+            self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _toggle_thermal_wind_mode(self, checked: bool) -> None:
+        """Liga/desliga o Vento Térmico, exclusivo dos demais modos de clique."""
+        if checked:
+            self._disable_other_click_modes(keep="thermal_wind")
+            self.canvas.set_thermal_wind_mode(True)
+            self.thermal_wind_panel.show()
+            self.thermal_wind_panel.raise_()
+            self.status_label.setText(
+                "● Vento Térmico — clique num ponto do mapa para a hodógrafa (vento por nível)"
+            )
+            self.status_label.setStyleSheet("color: #D35400;")
+        else:
+            self.canvas.set_thermal_wind_mode(False)
             self.status_label.setText("● Pronto")
             self.status_label.setStyleSheet("color: #27AE60;")
 
@@ -1490,6 +1553,134 @@ class MainWindow(QMainWindow):
         worker.finished_error.connect(self._on_wind_rose_error)
         self._wind_rose_worker = worker
         worker.start()
+
+    # ── Vento Térmico (hodógrafa num ponto) ──────────────────────────────────
+    @staticmethod
+    def _load_thermal_wind_layer() -> tuple[int, int]:
+        """Camada memorizada (base→topo) do QSettings; default clássico 1000→500."""
+        settings = QSettings("PPGGRD-UFPA", APP_NAME)
+        try:
+            base = int(settings.value("thermal_wind/base_p", 1000))
+            top = int(settings.value("thermal_wind/top_p", 500))
+        except (TypeError, ValueError):
+            return (1000, 500)
+        if base <= top or base not in PL_LEVELS or top not in PL_LEVELS:
+            return (1000, 500)
+        return (base, top)
+
+    def _on_thermal_wind_point(self, lon: float, lat: float) -> None:
+        """Clique no modo Vento Térmico → hodógrafa NO PAINEL (dinâmica da rosa).
+
+        Calcula direto com a camada memorizada (sem diálogo por clique); o
+        resultado aparece na janela e só vai ao mapa via "📌 Fixar no mapa".
+        """
+        if self._thermal_wind_worker is not None and self._thermal_wind_worker.isRunning():
+            return
+        self._active_thermal_wind_point = (float(lon), float(lat))
+        self.thermal_wind_panel.show()
+        self.thermal_wind_panel.raise_()
+        self._launch_thermal_wind()
+
+    def _launch_thermal_wind(self) -> None:
+        """Dispara o worker no ponto ativo com a camada memorizada.
+
+        Extraído de ``_on_thermal_wind_point`` para o botão "Camada…" poder
+        recalcular o mesmo ponto sem um novo clique no mapa.
+        """
+        pt = self._active_thermal_wind_point
+        if pt is None:
+            return
+        lon, lat = pt
+        base_p, top_p = self._thermal_wind_layer
+        ns = "N" if lat >= 0 else "S"
+        ew = "E" if lon >= 0 else "W"
+        label = f"{abs(lat):.1f}°{ns} {abs(lon):.1f}°{ew} · {base_p}→{top_p} hPa"
+        self.thermal_wind_panel.show_loading("Vento Térmico", label)
+        self.status_label.setText(f"● Vento Térmico em {label} — extraindo perfil…")
+        self.status_label.setStyleSheet("color: #D35400;")
+
+        worker = ThermalWindWorker(
+            lon=lon,
+            lat=lat,
+            base_p=base_p,
+            top_p=top_p,
+            cycle=self.settings_panel.get_cycle(),
+            cycle_date=self.settings_panel.get_cycle_date(),
+            step=self.settings_panel.get_step() or 0,
+            data_dir=self.config.grib_dir,
+            parent=self,
+        )
+        worker.progress.connect(self._on_thermal_wind_progress)
+        worker.finished_ok.connect(self._on_thermal_wind_ok)
+        worker.finished_error.connect(self._on_thermal_wind_error)
+        self._thermal_wind_worker = worker
+        worker.start()
+
+    def _on_thermal_wind_layer_config(self) -> None:
+        """ "Camada…" do painel → diálogo; a troca memoriza e recalcula o ponto ativo."""
+        base_p, top_p = self._thermal_wind_layer
+        dlg = ThermalWindLevelDialog(PL_LEVELS, default_base=base_p, default_top=top_p, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        new_layer = dlg.selected_layer()
+        if new_layer == self._thermal_wind_layer:
+            return
+        self._thermal_wind_layer = new_layer
+        settings = QSettings("PPGGRD-UFPA", APP_NAME)
+        settings.setValue("thermal_wind/base_p", new_layer[0])
+        settings.setValue("thermal_wind/top_p", new_layer[1])
+        self.thermal_wind_panel.set_layer_label(*new_layer)
+        if self._active_thermal_wind_point is None:
+            return
+        # Worker em voo calcula a camada ANTIGA: abandonado NA HORA (soltar a
+        # ref faz o resultado tardio cair na checagem de sender — padrão
+        # _abandon_cells_detection) e o recálculo parte já, sem ação adiada
+        # que pudesse disparar depois de o usuário desativar a ferramenta.
+        self._thermal_wind_worker = None
+        self._launch_thermal_wind()
+
+    def _on_thermal_wind_progress(self, msg: str) -> None:
+        self.status_label.setText(f"● {msg}")
+        self.status_label.setStyleSheet("color: #D35400;")
+
+    def _on_thermal_wind_ok(self, result) -> None:
+        if self.sender() is not self._thermal_wind_worker:
+            return  # worker abandonado (substituído) — descarta o resultado
+        self._thermal_wind_worker = None
+        self.thermal_wind_panel.render(result)
+        self.status_label.setText("● Vento Térmico pronto — fixe no mapa se quiser")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_thermal_wind_error(self, msg: str) -> None:
+        if self.sender() is not self._thermal_wind_worker:
+            return  # worker abandonado (substituído) — descarta o erro
+        self._thermal_wind_worker = None
+        self.thermal_wind_panel.show_error(msg)
+        self.canvas.clear_sounding_marker()
+        self.status_label.setText("● Vento Térmico indisponível")
+        self.status_label.setStyleSheet("color: #E74C3C;")
+
+    def _on_pin_thermal_wind(self, payload: dict) -> None:
+        """📌 do painel → hodógrafa ancorada no ponto (substitui a anterior)."""
+        result = payload["result"]
+        self.canvas.render_thermal_wind(result, float(payload["lon"]), float(payload["lat"]))
+        # Entrada no painel de camadas: esconder/remover SÓ a hodógrafa fixada,
+        # sem precisar limpar o mapa inteiro.
+        adv_pt = TW_ADV_PT.get(result.net_advection, result.net_advection)
+        detail = f"{result.levels[0]}→{result.levels[-1]} hPa · advecção {adv_pt}"
+        self.field_panel.remove_layer_entry("thermal_wind")
+        self.field_panel.add_layer_entry("thermal_wind", "Vento Térmico", detail)
+        self.canvas.clear_sounding_marker()  # a hodógrafa já marca o ponto
+        self.status_label.setText("● Hodógrafa fixada no mapa")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_unpin_thermal_wind(self) -> None:
+        """ "Remover do mapa" do painel → tira a hodógrafa fixada (idempotente)."""
+        self.canvas.remove_thermal_wind(reflow=True)
+        self.canvas.draw()
+        self.field_panel.remove_layer_entry("thermal_wind")
+        self.status_label.setText("● Hodógrafa removida do mapa")
+        self.status_label.setStyleSheet("color: #27AE60;")
 
     def _on_wind_rose_config_requested(self) -> None:
         """⚙ do painel → diálogo de config; mudanças de dado re-disparam a série."""
@@ -2679,6 +2870,9 @@ class MainWindow(QMainWindow):
         if layer_id == "inmet_avisos":
             self.canvas.toggle_inmet_avisos(visible)
             return
+        if layer_id == "thermal_wind":
+            self.canvas.toggle_thermal_wind(visible)
+            return
         # Re-habilitar linhas de corrente re-renderiza o streamplot (pesado) —
         # mesmo aviso do download para o usuário não achar que travou.
         is_stream = visible and self.canvas.is_stream_layer(layer_id)
@@ -2710,6 +2904,9 @@ class MainWindow(QMainWindow):
         elif layer_id == "inmet_avisos":
             self.canvas.remove_inmet_avisos(reflow=True)
             self._last_inmet_avisos = None  # o toggle de futuros não ressuscita
+            self.canvas.draw()
+        elif layer_id == "thermal_wind":
+            self.canvas.remove_thermal_wind(reflow=True)
             self.canvas.draw()
         else:
             self.canvas.remove_pl_layer(layer_id)
@@ -3242,6 +3439,15 @@ class MainWindow(QMainWindow):
             for s in self.canvas.export_layers_state()
             if s.get("kind") in static_kinds
         ]
+        # Overlays pontuais/ao vivo que a animação NÃO re-plota por step: ficam
+        # idênticos em todos os quadros — o previsor precisa saber que congelam.
+        for attr, label in (
+            ("_inmet_avisos_artists", "Avisos INMET (válidos agora)"),
+            ("_convective_cells_artists", "Células Convectivas (imagem atual)"),
+            ("_thermal_wind_artists", "Vento Térmico (hodógrafa do step atual)"),
+        ):
+            if getattr(self.canvas, attr, None):
+                static_labels.append(label)
 
         dlg = AnimationDialog(
             cycle=cycle,
@@ -4953,6 +5159,66 @@ class MainWindow(QMainWindow):
         <p style='color:#95A5A6; font-size:11px;'>Fonte: <b>INMET</b> — Instituto Nacional de
         Meteorologia (API pública <code>apiprevmet3</code>). Produto do INMET; o CartoMet BR
         apenas exibe as áreas como apoio à análise.</p>
+        """
+        browser = QTextBrowser()
+        browser.setHtml(html)
+        browser.setOpenExternalLinks(True)
+        layout.addWidget(browser)
+
+        close_btn = QPushButton("Fechar")
+        close_btn.setStyleSheet(
+            "QPushButton{background:#E67E22;padding:7px 14px;font-weight:bold;border-radius:4px;}"
+            "QPushButton:hover{background:#F39C12;}"
+        )
+        close_btn.clicked.connect(dlg.accept)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+
+        dlg.exec()
+
+    def _show_about_thermal_wind(self):
+        """Diálogo 'Sobre o Vento Térmico' — hodógrafa, cores e regra HS × HN."""
+        from PyQt6.QtWidgets import QTextBrowser
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Sobre o Vento Térmico")
+        dlg.setMinimumSize(580, 540)
+        dlg.setStyleSheet(DARK_STYLE)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        html = """
+        <h2 style='color:#E67E22; margin-bottom:2px;'>Vento Térmico (Hodógrafa no Ponto)</h2>
+        <p style='color:#BDC3C7; margin-top:0;'><i>Apoio didático — veering/backing e advecção</i></p>
+        <p style='color:#ECF0F1;'>Com a ferramenta <b>🌀 Vento Térmico</b>, clique num ponto: o
+        CartoMet extrai o vento do modelo IFS em cada nível da camada escolhida (botão
+        <b>Camada…</b> do painel; padrão 1000 → 500 hPa) e desenha <b>no painel lateral</b> a
+        <b>hodógrafa</b>: as setas do vento de cada nível e a <b>polilinha ligando as pontas</b> —
+        cada segmento é o <b>vetor de vento térmico</b> da subcamada. Use <b>📌 Fixar no mapa</b>
+        para ancorá-la no ponto clicado (e <b>Remover do mapa</b> para tirá-la).</p>
+        <table cellpadding='6' style='color:#ECF0F1; border-collapse:collapse;'>
+          <tr style='background:#1A252F;'><th>Giro do vento com a altura</th>
+            <th>Hemisfério Sul</th><th>Cor</th></tr>
+          <tr><td><b>Anti-horário</b> (<i>backing</i>)</td>
+            <td>Advecção <b>quente</b></td>
+            <td><span style='background:#C0392B; color:#C0392B;'>&nbsp;&nbsp;&nbsp;</span> Vermelho</td></tr>
+          <tr><td><b>Horário</b> (<i>veering</i>)</td>
+            <td>Advecção <b>fria</b></td>
+            <td><span style='background:#2471A3; color:#2471A3;'>&nbsp;&nbsp;&nbsp;</span> Azul</td></tr>
+        </table>
+        <p style='color:#ECF0F1; margin-top:10px;'>⚠️ No <b>Hemisfério Norte a regra se inverte</b>
+        (Coriolis): lá <i>veering</i> = quente. A ferramenta é <b>ciente do hemisfério</b> — usa a
+        latitude do ponto clicado.</p>
+        <p style='color:#ECF0F1;'>O vetor desenhado é a <b>diferença dos ventos</b> entre níveis
+        (cisalhamento), que <b>é</b> o vento térmico sob balanço geostrófico; perto da superfície e
+        em baixas latitudes é aproximado. É um <b>apoio à leitura</b>, não substitui a análise.</p>
+        <hr style='border-color:#5D6D7E;'>
+        <p style='color:#95A5A6; font-size:11px;'>Aprofunde no material
+        <b>Ajuda → 📚 Materiais de Estudo → Espessura 1000–500 hPa</b> (língua fria/quente, vento
+        térmico e advecção no HS).</p>
         """
         browser = QTextBrowser()
         browser.setHtml(html)
