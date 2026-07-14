@@ -80,6 +80,18 @@ def _probe_xarray_engines() -> None:
             raise RuntimeError(f"engine '{engine}' nao registrado; disponiveis: {sorted(engines)}")
 
 
+def _probe_cdsapi() -> None:
+    """Importa o cdsapi E a cadeia que ``cdsapi.Client()`` puxa só em runtime.
+
+    ``import cdsapi`` sozinho não toca ``ecmwf.datastores`` (o LegacyClient do
+    cdsapi>=0.7.6) nem ``multiurl`` — num .exe eles podem faltar com o cdsapi
+    presente, e o painel ERA5 morreria apenas ao conectar.
+    """
+    import cdsapi  # noqa: F401
+    import ecmwf.datastores  # noqa: F401
+    import multiurl  # noqa: F401
+
+
 def _probe_imageio_ffmpeg() -> None:
     """Confirma o módulo E o binário ffmpeg embutido (export MP4 da animação)."""
     import imageio_ffmpeg
@@ -158,7 +170,7 @@ _REQUIRED: list[tuple[str, str, Callable[[], None]]] = [
 _OPTIONAL: list[tuple[str, str, Callable[[], None]]] = [
     ("esda.moran", "Coerência Espacial (LISA)", _imp("esda.moran")),
     ("libpysal.weights", "Coerência Espacial (LISA)", _imp("libpysal.weights")),
-    ("cdsapi", "Reanálise ERA5 (CDS)", _imp("cdsapi")),
+    ("cdsapi (+ecmwf.datastores)", "Reanálise ERA5 (CDS)", _probe_cdsapi),
     ("imageio_ffmpeg (+binário)", "Export MP4 da animação", _probe_imageio_ffmpeg),
 ]
 
