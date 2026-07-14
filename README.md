@@ -65,6 +65,119 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 
 ---
 
+## Em desenvolvimento (main — ainda não lançado)
+
+> Já disponível rodando pelo **código-fonte**; entra no próximo instalador.
+
+### 🖱 Modo Edição — corrigir desenhos já traçados (fluxo colaborativo A→B)
+
+- Botão **"🖱 Editar"** (atalho `S`): **clique num sistema já desenhado** — frente, ZCAS, centro de pressão, anotação, emoji, traço de caneta ou forma — para selecioná-lo (halo dourado; o hit cobre a curva desenhada e os glifos do efeito) e então **apagar só ele** (`Delete`, sem destruir o que veio depois), **arrastar o desenho inteiro**, **arrastar vértices individuais** (com o 🧲 ímã aderindo a outra frente) ou **girar formas pela alça ○** acima da forma (Shift = passos de 15°)
+- Tudo desfazível com **[Z]/[Y]**: o histórico registra **operações** (criar/apagar/mover/vértice/girar) e desfazer um apagamento **ressuscita o desenho na ordem original** — quem recebe um `.cmbr` corrige a análise sem perder o trabalho posterior
+- **Autoria no `.cmbr` (schema v4)**: o arquivo registra o **analista original** e a **trilha de revisões** — ao abrir, *"Análise de: A · Revisões: A (data), B (data)"* — rastreabilidade do fluxo "A faz, B verifica e corrige"; o nome é pedido uma única vez e projetos antigos (≤ v3) abrem normalmente
+
+### 🧲 Ímã de vértices entre frentes (aderência)
+
+- Ao desenhar uma frente, o clique perto de um **vértice de outra frente** já traçada gruda na coordenada **exata** — inicial, final ou **intermediário** (estacionária nascendo no fim da fria; quente saindo do meio, como nas cartas oficiais); um **anel dourado** acende no candidato e o raio de captura é **em pixels** (acompanha o zoom)
+- Checkbox **"[I] Ímã"** na aba Simbologias (atalho `I`, ligado por padrão); a junção é **bit a bit** e sobrevive ao salvar/abrir o `.cmbr`
+
+### 👁 Visibilidade dos desenhos na carta
+
+- Três interruptores na aba Simbologias — **Simbologias e desenhos**, **Emojis** e **Anotações** — escondem/mostram cada grupo **sem apagar nada** (o traçado volta exatamente como estava; útil para conferir o campo por baixo)
+- Ativar um modo de desenho re-exibe o grupo correspondente (desenhar implica ver); o **"Salvar Imagem" respeita o que está visível** (WYSIWYG); undo/redo não é afetado
+
+### 🌀 Vento Térmico — hodógrafa num ponto (painel + fixar no mapa)
+
+- Botão **🌀 Vento Térmico**: clique num ponto e o **painel lateral** desenha a **hodógrafa rica** do vento do IFS na camada escolhida (botão **"Camada…"**, padrão **1000 → 500 hPa**, memorizada nas preferências) — disco, **anéis de alcance em nós reais**, setas do vento por nível coloridas por altura e a **polilinha ligando as pontas**, cujos segmentos são os **vetores de vento térmico coloridos por advecção** (🔴 quente / 🔵 fria); a escala radial **não linear (raiz)** espalha os ventos fracos sem expulsar o jato do disco
+- **📌 Fixar no mapa** ancora a hodógrafa no ponto clicado (estável ao zoom, com entrada própria no painel de **Camadas**); **"Remover do mapa"** tira a fixada. Regra **veering/backing ciente do hemisfério** (no **HS**, giro horário = advecção **fria** — o inverso do HN). *Cache-first* em segundo plano; menu **Ajuda → "Sobre o Vento Térmico"**
+
+### ⛈ Detecção de Células Convectivas (GOES-16 IR)
+
+- No painel de satélite, botão **"Detectar Células Convectivas"** que, sobre a imagem **GOES-16 IR (Banda 13)** já carregada, contorna os **núcleos convectivos** (topos frios abaixo de um limiar selecionável: **−40 / −50 / −60 / −70 °C**) e os rotula com **temperatura mínima** e **área aproximada**
+- Reimplementa, de forma enxuta e **sem dependências novas** (`scipy.ndimage.label` sobre a grade de temperatura de brilho já mantida pelo app), o *Detector + Descriptor* da biblioteca **TATHU** (INPE) — **detecção de imagem única** (sem rastreio temporal), na **área visível** (o zoom recorta e acelera), em segundo plano com progresso e Cancelar
+- **Guia objetivo** de convecção profunda (mesma família do LOCZCIT-PA por limiar de topo frio), *human-in-the-loop*: o software contorna, o previsor traça. Camada toggleável independente do "Mostrar imagem"; some junto com a imagem de satélite
+
+### ⚠ Avisos INMET (overlay de contexto)
+
+- Botão nas **Análises Prontas** que baixa, em *thread*, os **avisos meteorológicos ativos** do INMET (API pública `apiprevmet3`) e os desenha como **polígonos coloridos por severidade** — 🟡 Perigo Potencial, 🟠 Perigo, 🔴 Grande Perigo — com rótulo e liga/desliga pela camada *"Avisos INMET"*
+- É o análogo brasileiro do *SPC Convective Outlook* (MetPy `PlotGeometry`): um **produto vetorial pronto** que serve de **orientação** ao traçado manual — *human-in-the-loop*, o software mostra onde há alerta, o previsor traça
+- Mostra os avisos **publicados** no momento (sem histórico): os **em vigor** com contorno sólido e os **futuros** (já emitidos, validade por começar) **tracejados**, com preenchimento mais leve e rótulo *"(futuro)"* — o filtro **"Incluir avisos futuros"** os esconde/mostra na hora, sem nova consulta; falha de rede é tratada e **não trava** a interface. Menu **Ajuda → "Sobre os Avisos INMET"** com fonte, cores e ressalvas. Fonte: **INMET**
+
+### 📚 Materiais de Estudo (Ajuda)
+
+- Menu **Ajuda → "📚 Materiais de Estudo" → "Espessura 1000–500 hPa"**: material didático de sinótica com resumo no app e o **material completo** aberto no navegador (equações via MathJax, fluxograma e tabelas)
+- Cobre a **interpretação da espessura** (isoterma da temperatura média da camada), **língua quente/fria** (crista/cavado térmico), **vento térmico e advecção no Hemisfério Sul** (giro horário → advecção fria; anti-horário → quente, o inverso do HN), a **linha de 5400 m** (limite chuva–neve; ~5340 m no Sul do Brasil) e **isóbaras de PNMM** (como achar cavado/crista e o **tempo a leste do cavado**)
+
+### 🗺 Relevo Natural como tema padrão do mapa
+
+- O mapa e o seletor **"Tema:"** agora abrem no **relevo sombreado do Natural Earth** (offline, embutido no Cartopy)
+
+---
+
+## Novidades da v3.1
+
+### 🌍 ERA5 — reanálise Copernicus/CDS
+
+- Painel dedicado **"ERA5 — Reanálise (CDS)"**: dados de **reanálise** (não previsão) ao lado do IFS operacional, selecionados por **data/hora absolutas** e **período** (inicial/final), com **agregação por perfil de variável** — cada campo oferece só os modos fisicamente válidos, com default e unidade corretos (precipitação → *total do período*; rajada → *máxima*; campos de ciclo diurno → *média à hora fixa*) — para **estudo de casos, climatologia curta e verificação**
+- **Single Levels + Pressure Levels** (13 níveis, sobreponíveis ao mesmo campo do IFS para verificação visual) e catálogo com **+16 variáveis** (Tmáx/Tmín 2 m, radiação, **TSM *bulk*** — que o IFS grátis não tem —, CAPE/K/TT, rajada…)
+- **📉 Série no ponto (clique)**: evolução **horária** da variável/nível num ponto ao longo do período, em painel docado; **índices de evento** sobre o período baixado — veranico (CDD), CWD, dias úmidos, Rx5day, **dias quentes/onda de calor com limiar regional definido pelo usuário** e noites quentes
+- **Chave do CDS gerenciada pela interface** (menu *Arquivo → "Chave ERA5 (CDS)"*) — sem editar arquivos ocultos; extra opcional `reanalysis`. Publicada com ~5 dias de atraso (ERA5T)
+
+### 🌹 Rosa dos Ventos — distribuição direção×velocidade num ponto
+
+- Botão **🌹 Rosa dos Ventos**: clique num ponto e veja num painel docado a **distribuição do vento previsto** (IFS, 10 m ou nível de pressão) ao longo dos steps da rodada — **de onde sopra**, com que **intensidade** (faixas de velocidade empilhadas) e quanto de **calmaria** (centro)
+- Reusa o download do meteograma (cache-first, anti-429) em **thread**; render **próprio** em eixo polar (**sem** a dependência `windrose`); combo **Setores** (8/16/36) re-bina a série já baixada **sem rede**
+- Botão **"Configurar…"**: **nível** (10 m ou um dos **13 níveis isobáricos** — 1000…50 hPa, reusando o GRIB de perfil do Skew-T por step), **faixas de velocidade** customizáveis, **limiar de calmaria** e a linha **"vento médio · rumo predominante"**; persistida entre sessões; sobre relevo alto, steps sem o nível pedido são pulados com aviso
+- **📌 Fixar no mapa**: ancora a rosa como **inset georreferenciado** nas coordenadas do ponto — escala com o zoom, acompanha o *pan* (oculta durante o gesto, volta no repouso — a carta segue fluida), recortada ao retângulo da carta, sobrevive à troca de tema/região e entra no export; **salva no projeto `.cmbr`** (dado já binado — abrir não baixa nada); **"Limpar"** remove todas
+- *Badge* de honestidade: é a distribuição da **previsão**, **não** uma climatologia (mistura padrão sinótico + ciclo diurno de horas locais distintas) — *não confundir* com o **indicador de norte** (triângulo+N) da aba de traçado
+
+### 🎬 Animação de Steps (GIF/MP4)
+
+- **Arquivo → "Exportar Animação (GIF/MP4)…"** (`Ctrl+Shift+A`) ou botão **"🎬 Animar Steps…"** no painel *Previsão*: a **composição atual do mapa** (sinótica, campos em altitude/presets, **Bloqueio Z500**, **ZCIT LOCZCIT-PA**) é re-renderizada para cada *step* do intervalo escolhido e exportada como **GIF** (sempre disponível) ou **MP4 H.264** (extra `animation`)
+- O diálogo **só oferta steps válidos para a rodada** (06Z/18Z ≤ +144h; 00Z/12Z ≤ +240h) — impossível pedir um alcance inexistente. Passo nativo (3h; 6h após +144h) ou 6/12/24h; velocidade 1–6 quadros/s; 100 ou 150 DPI
+- **Escala congelada**: níveis de contorno/colorbar fixados pelas estatísticas do intervalo inteiro — a carta não "respira" entre quadros; título com rodada/step/validade atualiza a cada quadro
+- Pipeline em 3 fases com **preview ao vivo** no canvas, progresso unificado (inclui retries HTTP 429) e **cancelamento**; download **cache-first** (steps já baixados não vão à rede); ao final a composição original é **restaurada**
+- Com o filtro **LISA** do LOCZCIT-PA ativo, o diálogo avisa o custo (Monte Carlo por quadro) e sugere IQR — LISA disponível por opt-in (semente fixa = quadros consistentes)
+- **Leitura sinótica em movimento:** deslocamento de frentes e da espessura, a **persistência** de um bloqueio (critério temporal!) num loop de 5–10 dias, e a migração da banda da ZCIT ao longo da rodada
+
+### 🗺 Mapa regional de um clique — recorte por estado, cidades e contornos destacados
+
+- **Combo "Estado:"** no painel *Região* com as **27 UFs**: recorta a carta atual para o estado escolhido **preservando os dados carregados** (diferente do combo Região, que troca o domínio e limpa tudo); zoom/pan manual desmarca a seleção sozinho
+- **Camada "Cidades"** (checkbox em *Camadas sinóticas*): sedes municipais **IBGE** com nome — capitais em negrito e cidades maiores primeiro, com halo legível sobre satélite. Seletor **Densidade** (Baixa / **Média** / Alta / Máxima), como o das observações: mais densidade = mais sedes rotuladas, ajustadas ao zoom. Base empacotada (`assets/cidades_br.csv`, 2 678 municípios) — **sem rede e sem dependências novas**
+- **"Destacar contornos"** (checkbox): engrossa costa, fronteiras e divisas de estados com **halo de contraste** — essencial sobre **imagem de satélite** e campos preenchidos, onde as linhas finas do mapa base somem; **liga sozinho ao ativar o satélite**
+- **🧭 Rosa dos ventos** (checkbox): indicador de norte geográfico — triângulo preto + "N", padrão cartográfico clássico — no canto superior direito da carta, legível sobre qualquer fundo
+- Fluxo típico (inspirado no editor de cartas do SIPAM): escolher o estado → ligar *Cidades*, *Destacar contornos* e *Rosa dos ventos* → carimbar **emojis meteorológicos** e simbologia OMM → **📤 Exportar** PNG/PDF
+- O título da carta agora **sobrevive ao zoom por scroll e ao pan** (o layout se re-assenta ao fim do gesto), e a marca d'água ganhou halo — legível em qualquer fundo
+
+### 📤 Boletim de Análise Codificado (CODSAS)
+
+- **Exporta o traçado humano** num boletim de **texto aberto e compartilhável**, no espírito do *coded surface bulletin* do WPC/NOAA — frentes, ZCAS, ZCIT, cavados, altas/baixas e anotações como sequências de coordenadas `lat,lon` (decimais assinadas: o encoding compactado do WPC não representa longitude a leste de Greenwich, onde a ZCIT chega)
+- **Importa** boletins CODSAS **e boletins WPC genuínos** (via MetPy) de forma **aditiva e offline** — as feições entram no histórico (Desfazer funciona) e o mapa **auto-enquadra** se o boletim cair fora do enquadramento
+- Preenche a lacuna institucional: permite **compartilhar, arquivar e montar um banco de análises sinóticas** da América do Sul (menu *Arquivo*)
+
+### 🌡 Diagnóstico Baroclínico (apoio ao traçado manual de frentes)
+
+- Novo botão nas **Análises Prontas** que empilha, no nível escolhido (**850 hPa** por padrão, via diálogo), um conjunto de campos diagnósticos objetivos para o **traçado manual** de frentes — *human-in-the-loop*: o software **orienta**, o meteorologista **classifica e traça**
+- **Ligados por padrão:** **Gradiente de θe** (sombreado — intensidade do contraste entre massas de ar) e **Eixo da Frente — TFP** (*Thermal Front Parameter* = 0, Hewson 1998; **linha neutra-guia**, mascarada por `|∇θe|` mínimo). **Disponíveis, desligados:** **Advecção de θe** (auxilia a classificação fria/quente), **θe** e **Frontogênese de Petterssen**
+- **Máscara de terreno elevado** nos campos de θe: onde a pressão de superfície é menor que o nível, o θe a 850 hPa é subterrâneo/fictício — mascarado para o eixo TFP **não desenhar frentes-fantasma sobre os Andes**
+- Os quatro campos de θe também ficam **avulsos** em *Campos em Altitude*. Substitui a abordagem de detecção/traçado **automático** de frentes (abandonada por não convergir com a análise sinótica humana — cartas da Marinha do Brasil)
+
+### 🌡️ Temperatura Máxima e Mínima a 2 m (IFS)
+
+- Novos campos `tmax2m`/`tmin2m` do ECMWF Open Data gratuito: o **extremo das últimas 3 h** que antecedem o step (janela de 6 h além de +150h, com troca automática do parâmetro), em °C; step ≥ +3h validado na GUI e no diálogo de animação
+
+### ⛰ Centros H/L blindados contra os Andes
+
+- **Máscara orográfica** (sub-opção "⛰ Filtrar terreno elevado", ligada por padrão): onde a redução ao nível do mar acontece sob montanha (~≥ 1500 m, via `msl − sp`), a PNMM é extrapolação e criava máximos/mínimos **artificiais no Altiplano** — agora filtrados; desligar re-renderiza na hora
+- **Ranqueamento por persistência topológica** (MetPy ≥ 1.7): quando há mais candidatos que o teto de símbolos, vencem os centros **proeminentes** — não oscilações rasas
+
+### Refinamentos e correções (v3.1.0)
+
+- **Motor determinístico de layout** — a "mesa branca" domada: colorbars com eixo dedicado, título estável e medição sem sobressaltos ao trocar campos/temas/zoom
+- **Sonda Vertical observada de volta** — a Universidade de Wyoming aposentou o servidor antigo; novo cliente próprio (FM35 com *fallback* BUFR)
+- **Cancelar da animação destravado** mesmo com download lento do ECMWF; indicador de formato GIF/MP4 visível no tema escuro; placeholders sem "tofu"
+
+---
+
 ## Novidades da v3.0
 
 ### 🗂️ Carta OMM — cabeçalho institucional + legenda no export
@@ -78,23 +191,10 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 - Botão **📈 Meteograma**: clique num ponto e veja a **evolução do modelo IFS em +0…+72 h** num painel docado de 4 eixos — **temperatura** (1000 hPa) + **PNMM**, **vento de 10 m** (intensidade + barbelas), **precipitação por intervalo** e **água precipitável**
 - Download **serializado por step** (cache-first, anti-429) em **thread** — a GUI nunca trava; *badge* de honestidade (previsão **pontual** do modelo, aproximada)
 
-### 🌹 Rosa dos Ventos — distribuição direção×velocidade num ponto
-
-- Botão **🌹 Rosa dos Ventos**: clique num ponto e veja num painel docado a **distribuição do vento previsto** (IFS, 10 m ou nível de pressão) ao longo dos steps da rodada — **de onde sopra**, com que **intensidade** (faixas de velocidade empilhadas) e quanto de **calmaria** (centro)
-- Reusa o download do meteograma (cache-first, anti-429) em **thread**; render **próprio** em eixo polar (**sem** a dependência `windrose`); combo **Setores** (8/16/36) re-bina a série já baixada **sem rede**
-- Botão **"Configurar…"**: **nível** (10 m ou um dos **13 níveis isobáricos** — 1000…50 hPa, reusando o GRIB de perfil do Skew-T por step), **faixas de velocidade** customizáveis, **limiar de calmaria** e a linha **"vento médio · rumo predominante"**; persistida entre sessões; sobre relevo alto, steps sem o nível pedido são pulados com aviso
-- **📌 Fixar no mapa**: ancora a rosa como **inset georreferenciado** nas coordenadas do ponto — escala com o zoom, acompanha o *pan* (oculta durante o gesto, volta no repouso — a carta segue fluida), recortada ao retângulo da carta, sobrevive à troca de tema/região e entra no export; **salva no projeto `.cmbr`** (dado já binado — abrir não baixa nada); **"Limpar"** remove todas
-- *Badge* de honestidade: é a distribuição da **previsão**, **não** uma climatologia (mistura padrão sinótico + ciclo diurno de horas locais distintas) — *não confundir* com o **indicador de norte** (triângulo+N) da aba de traçado
-
 ### 🔪 Corte Vertical — seção (cross-section) A→B
 
 - Botão **🔪 Corte Vertical**: **dois cliques** (A → B) definem a reta e o painel desenha a **seção pressão × distância** de **ω** (ascendência/subsidência), **temperatura**, **umidade específica** e **vento**, por interpolação ao longo do caminho (13 níveis)
 - Eixo de pressão logarítmico invertido; re-desenha ao mudar **step/rodada**
-
-### 🌀 Vento Térmico — hodógrafa num ponto
-
-- Botão **🌀 Vento Térmico**: clique num ponto e escolha a camada (base → topo, ex.: **1000 → 500 hPa**) — o CartoMet extrai o vento do IFS em cada nível e desenha, **ancorada no ponto**, a **hodógrafa**: as setas do vento por nível e a **polilinha ligando as pontas**, cujos segmentos são os **vetores de vento térmico**, **coloridos por advecção** (🔴 quente / 🔵 fria)
-- A regra **veering/backing é ciente do hemisfério**: no **HS**, giro **horário** com a altura → advecção **fria**; **anti-horário** → **quente** (o **inverso do HN**). Desenho **estável ao zoom** (ancoragem em pixels); *cache-first* em segundo plano. Menu **Ajuda → "Sobre o Vento Térmico"** e material **📚 Espessura 1000–500 hPa**
 
 ### 🌩️ Campos de instabilidade — CAPE/CIN/LI/K
 
@@ -105,12 +205,6 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 
 - **Salvar/abrir** o **traçado manual + estado do mapa** num arquivo `.cmbr` (JSON versionado) — *handover* de turno, reedição e versionamento da carta
 - Reabrir **restaura offline** os desenhos/emojis/anotações e o enquadramento (**nunca dispara rede sozinho**); as camadas calculadas são **memorizadas para reativação manual** (*human-in-the-loop*)
-
-### 📤 Boletim de Análise Codificado (CODSAS)
-
-- **Exporta o traçado humano** num boletim de **texto aberto e compartilhável**, no espírito do *coded surface bulletin* do WPC/NOAA — frentes, ZCAS, ZCIT, cavados, altas/baixas e anotações como sequências de coordenadas `lat,lon` (decimais assinadas: o encoding compactado do WPC não representa longitude a leste de Greenwich, onde a ZCIT chega)
-- **Importa** boletins CODSAS **e boletins WPC genuínos** (via MetPy) de forma **aditiva e offline** — as feições entram no histórico (Desfazer funciona) e o mapa **auto-enquadra** se o boletim cair fora do enquadramento
-- Preenche a lacuna institucional: permite **compartilhar, arquivar e montar um banco de análises sinóticas** da América do Sul (menu *Arquivo*)
 
 ### Índice ZCIT (LOCZCIT-PA) — Potencial Acoplado
 
@@ -144,48 +238,6 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 - **Leitura sinótica:** anomalias **positivas persistentes** (≳ +100 gpm) em latitudes médias-altas sinalizam **bloqueio**; o clássico padrão **ômega** aparece como **dipolo A–B** (cordilheira anticiclônica ladeada por cavados). Em rodadas **06Z/18Z** usa-se o *slot* climatológico mais próximo, sinalizado com **"≈"** na carta
 - Cálculo e download em **thread separada** (cancelável); o GRIB de `gh` 500 hPa **compartilha o cache** com a camada normal de geopotencial
 - Menu **Ajuda → "Sobre a Análise de Bloqueio (Z500)"** com resumo e a metodologia completa. Climatologia: **ERA5** (Hersbach et al., 2020) via **Copernicus Climate Change Service (C3S)**
-
-### 🌡 Diagnóstico Baroclínico (apoio ao traçado manual de frentes)
-
-- Novo botão nas **Análises Prontas** que empilha, no nível escolhido (**850 hPa** por padrão, via diálogo), um conjunto de campos diagnósticos objetivos para o **traçado manual** de frentes — *human-in-the-loop*: o software **orienta**, o meteorologista **classifica e traça**
-- **Ligados por padrão:** **Gradiente de θe** (sombreado — intensidade do contraste entre massas de ar) e **Eixo da Frente — TFP** (*Thermal Front Parameter* = 0, Hewson 1998; **linha neutra-guia**, mascarada por `|∇θe|` mínimo). **Disponíveis, desligados:** **Advecção de θe** (auxilia a classificação fria/quente), **θe** e **Frontogênese de Petterssen**
-- **Máscara de terreno elevado** nos campos de θe: onde a pressão de superfície é menor que o nível, o θe a 850 hPa é subterrâneo/fictício — mascarado para o eixo TFP **não desenhar frentes-fantasma sobre os Andes**
-- Os quatro campos de θe também ficam **avulsos** em *Campos em Altitude*. Substitui a abordagem de detecção/traçado **automático** de frentes (abandonada por não convergir com a análise sinótica humana — cartas da Marinha do Brasil)
-
-### ⛈ Detecção de Células Convectivas (GOES-16 IR)
-
-- No painel de satélite, botão **"Detectar Células Convectivas"** que, sobre a imagem **GOES-16 IR (Banda 13)** já carregada, contorna os **núcleos convectivos** (topos frios abaixo de um limiar selecionável: **−40 / −50 / −60 / −70 °C**) e os rotula com **temperatura mínima** e **área aproximada**
-- Reimplementa, de forma enxuta e **sem dependências novas** (`scipy.ndimage.label` sobre a grade de temperatura de brilho já mantida pelo app), o *Detector + Descriptor* da biblioteca **TATHU** (INPE) — **detecção de imagem única** (sem rastreio temporal)
-- **Guia objetivo** de convecção profunda (mesma família do LOCZCIT-PA por limiar de topo frio), *human-in-the-loop*: o software contorna, o previsor traça. Camada toggleável; some junto com a imagem de satélite
-
-### ⚠ Avisos INMET (overlay de contexto)
-
-- Botão nas **Análises Prontas** que baixa, em *thread*, os **avisos meteorológicos ativos** do INMET (API pública `apiprevmet3`) e os desenha como **polígonos coloridos por severidade** — 🟡 Perigo Potencial, 🟠 Perigo, 🔴 Grande Perigo — com rótulo e liga/desliga pela camada *"Avisos INMET"*
-- É o análogo brasileiro do *SPC Convective Outlook* (MetPy `PlotGeometry`): um **produto vetorial pronto** que serve de **orientação** ao traçado manual — *human-in-the-loop*, o software mostra onde há alerta, o previsor traça
-- Mostra os avisos **publicados** no momento (sem histórico): os **em vigor** com contorno sólido e os **futuros** (já emitidos, validade por começar) **tracejados**, com preenchimento mais leve e rótulo *"(futuro)"* — o filtro **"Incluir avisos futuros"** os esconde/mostra na hora, sem nova consulta; falha de rede é tratada e **não trava** a interface. Menu **Ajuda → "Sobre os Avisos INMET"** com fonte, cores e ressalvas. Fonte: **INMET**
-
-### 📚 Materiais de Estudo (Ajuda)
-
-- Menu **Ajuda → "📚 Materiais de Estudo" → "Espessura 1000–500 hPa"**: material didático de sinótica com resumo no app e o **material completo** aberto no navegador (equações via MathJax, fluxograma e tabelas)
-- Cobre a **interpretação da espessura** (isoterma da temperatura média da camada), **língua quente/fria** (crista/cavado térmico), **vento térmico e advecção no Hemisfério Sul** (giro horário → advecção fria; anti-horário → quente, o inverso do HN), a **linha de 5400 m** (limite chuva–neve; ~5340 m no Sul do Brasil) e **isóbaras de PNMM** (como achar cavado/crista e o **tempo a leste do cavado**)
-
-### 🎬 Animação de Steps (GIF/MP4)
-
-- **Arquivo → "Exportar Animação (GIF/MP4)…"** (`Ctrl+Shift+A`) ou botão **"🎬 Animar Steps…"** no painel *Previsão*: a **composição atual do mapa** (sinótica, campos em altitude/presets, **Bloqueio Z500**, **ZCIT LOCZCIT-PA**) é re-renderizada para cada *step* do intervalo escolhido e exportada como **GIF** (sempre disponível) ou **MP4 H.264** (extra `animation`)
-- O diálogo **só oferta steps válidos para a rodada** (06Z/18Z ≤ +144h; 00Z/12Z ≤ +240h) — impossível pedir um alcance inexistente. Passo nativo (3h; 6h após +144h) ou 6/12/24h; velocidade 1–6 quadros/s; 100 ou 150 DPI
-- **Escala congelada**: níveis de contorno/colorbar fixados pelas estatísticas do intervalo inteiro — a carta não "respira" entre quadros; título com rodada/step/validade atualiza a cada quadro
-- Pipeline em 3 fases com **preview ao vivo** no canvas, progresso unificado (inclui retries HTTP 429) e **cancelamento**; download **cache-first** (steps já baixados não vão à rede); ao final a composição original é **restaurada**
-- Com o filtro **LISA** do LOCZCIT-PA ativo, o diálogo avisa o custo (Monte Carlo por quadro) e sugere IQR — LISA disponível por opt-in (semente fixa = quadros consistentes)
-- **Leitura sinótica em movimento:** deslocamento de frentes e da espessura, a **persistência** de um bloqueio (critério temporal!) num loop de 5–10 dias, e a migração da banda da ZCIT ao longo da rodada
-
-### 🗺 Mapa regional de um clique — recorte por estado, cidades e contornos destacados
-
-- **Combo "Estado:"** no painel *Região* com as **27 UFs**: recorta a carta atual para o estado escolhido **preservando os dados carregados** (diferente do combo Região, que troca o domínio e limpa tudo); zoom/pan manual desmarca a seleção sozinho
-- **Camada "Cidades"** (checkbox em *Camadas sinóticas*): sedes municipais **IBGE** com nome — capitais em negrito e cidades maiores primeiro, com halo legível sobre satélite. Seletor **Densidade** (Baixa / **Média** / Alta / Máxima), como o das observações: mais densidade = mais sedes rotuladas, ajustadas ao zoom. Base empacotada (`assets/cidades_br.csv`, 2 678 municípios) — **sem rede e sem dependências novas**
-- **"Destacar contornos"** (checkbox): engrossa costa, fronteiras e divisas de estados com **halo de contraste** — essencial sobre **imagem de satélite** e campos preenchidos, onde as linhas finas do mapa base somem; **liga sozinho ao ativar o satélite**
-- **🧭 Rosa dos ventos** (checkbox): indicador de norte geográfico — triângulo preto + "N", padrão cartográfico clássico — no canto superior direito da carta, legível sobre qualquer fundo
-- Fluxo típico (inspirado no editor de cartas do SIPAM): escolher o estado → ligar *Cidades*, *Destacar contornos* e *Rosa dos ventos* → carimbar **emojis meteorológicos** e simbologia OMM → **📤 Exportar** PNG/PDF
-- O título da carta agora **sobrevive ao zoom por scroll e ao pan** (o layout se re-assenta ao fim do gesto), e a marca d'água ganhou halo — legível em qualquer fundo
 
 ### ✏ Caneta e ⬜ Formas customizáveis
 
@@ -374,10 +426,11 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 | **Meteograma** | Série temporal do IFS num ponto (+0…+72 h): T, vento, precipitação, PNMM e água precipitável |
 | **Rosa dos Ventos** | Distribuição direção×velocidade do vento previsto (IFS, 10 m ou um dos 13 níveis isobáricos) num ponto ao longo dos steps da rodada — setores, faixas de velocidade e calmaria configuráveis, estatísticas (vento médio · rumo predominante); render próprio (sem `windrose`), previsão e não climatologia; **fixável** como inset georreferenciado no mapa e salva no `.cmbr` |
 | **Corte Vertical (A→B)** | Seção pressão × distância de ω, temperatura, umidade e vento ao longo de uma reta desenhada |
-| **Vento Térmico (hodógrafa)** | Vento do IFS por nível + vetores de vento térmico de cada subcamada ancorados num ponto, coloridos por advecção (veering/backing **ciente do hemisfério**); estável ao zoom |
+| **Vento Térmico (hodógrafa)** | Painel com o vento do IFS por nível + vetores de vento térmico de cada subcamada, coloridos por advecção (veering/backing **ciente do hemisfério**); camada base→topo escolhível e memorizada; **fixável no mapa** (ancorada no ponto, estável ao zoom) com entrada própria em Camadas |
 | **Instabilidade (CAPE/CIN/LI/K)** | Campos de instabilidade derivados do modelo — K-index nativo; LI/CAPE/CIN em grade engrossada; render contínuo (aprox.) |
 | **Carta OMM** | Export com cabeçalho institucional (instituição/analista/validade/logo) + legenda dos símbolos — PNG/PDF entregável |
-| **Projeto de análise (.cmbr)** | Salvar/abrir o traçado manual + estado do mapa; restauração offline (*human-in-the-loop*) |
+| **Projeto de análise (.cmbr)** | Salvar/abrir o traçado manual + estado do mapa; restauração offline (*human-in-the-loop*); **autoria e trilha de revisões** (schema v4 — "análise de A, revisada por B") |
+| **Modo Edição** | Clique seleciona um desenho já traçado para **apagar só ele, mover, ajustar vértices (com ímã entre frentes) ou girar formas pela alça** — tudo desfazível por operações; visibilidade por grupo (simbologias/emojis/anotações) sem apagar nada |
 | **Boletim Codificado (CODSAS)** | Exporta/importa as feições traçadas como boletim de texto estilo WPC adaptado à América do Sul (`lat,lon` decimais); importa boletins WPC genuínos (MetPy) com auto-enquadre |
 | **Observações SYNOP/METAR** | Sobreposição de observações reais de superfície (METAR via NOAA AWC; SYNOP via OGIMET) sincronizadas com o `valid_time` do modelo |
 | **Caneta e Formas** | Traço livre (mouse/mesa digitalizadora) e formas customizáveis (retângulo, elipse, seta, linha, polígono) com cor, preenchimento, espessura, estilo e opacidade — integrados ao undo/redo |
