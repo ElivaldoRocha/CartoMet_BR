@@ -1444,6 +1444,7 @@ class MapCanvas(FigureCanvas):
         elif self.interaction_mode == "meteogram":
             self.interaction_mode = None
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+            self.clear_sounding_marker()  # desativar a feature some com a estrela na carta
 
     def set_wind_rose_mode(self, enabled: bool) -> None:
         """Modo 'Rosa dos Ventos' — o clique dispara a rosa do vento previsto no ponto."""
@@ -1453,6 +1454,7 @@ class MapCanvas(FigureCanvas):
         elif self.interaction_mode == "wind_rose":
             self.interaction_mode = None
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+            self.clear_sounding_marker()  # desativar a feature some com a estrela na carta
 
     def set_era5_series_mode(self, enabled: bool) -> None:
         """Modo 'Série ERA5' — o clique dispara a série temporal (reanálise) no ponto."""
@@ -1462,6 +1464,7 @@ class MapCanvas(FigureCanvas):
         elif self.interaction_mode == "era5_series":
             self.interaction_mode = None
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+            self.clear_sounding_marker()  # desativar a feature some com a estrela na carta
 
     def set_cross_section_mode(self, enabled: bool) -> None:
         """Modo 'Corte Vertical' (F4) — dois cliques (A→B) definem a reta do corte."""
@@ -2056,11 +2059,19 @@ class MapCanvas(FigureCanvas):
         self.draw()
 
     def clear_sounding_marker(self) -> None:
-        """Remove o marcador temporário da estação ancorada."""
-        if self._sounding_marker is not None:
-            with contextlib.suppress(ValueError, AttributeError):
-                self._sounding_marker.remove()
-            self._sounding_marker = None
+        """Remove o marcador temporário da estação ancorada.
+
+        Idempotente e à prova de artista *stale*: anula a referência ANTES de
+        remover (re-entrância segura) e suprime também ``NotImplementedError`` —
+        que o ``Artist.remove()`` do matplotlib lança quando o marcador já foi
+        destacado do eixo (``_remove_method is None``) por um rebuild. Sem isso, o
+        ``remove()`` propagava e **fechava o app** ao "Limpar".
+        """
+        marker = self._sounding_marker
+        self._sounding_marker = None
+        if marker is not None:
+            with contextlib.suppress(ValueError, AttributeError, NotImplementedError, KeyError):
+                marker.remove()
             self.draw()
 
     def _place_point_symbol(self, x: float, y: float) -> None:
