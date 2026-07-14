@@ -28,9 +28,10 @@ from cartomet_br.gui.draw_tools import (
     ShapeCommand,
 )
 
-# v3: campo com "color"/"density" (estilo do vento). v2: "wind_roses". Versões
-# anteriores abrem normal — as chaves novas são aditivas e defaultadas na leitura.
-PROJECT_SCHEMA_VERSION = 3
+# v4: autoria leve ("author"/"revisions" — fluxo colaborativo A→B). v3: campo
+# com "color"/"density" (estilo do vento). v2: "wind_roses". Versões anteriores
+# abrem normal — as chaves novas são aditivas e defaultadas na leitura.
+PROJECT_SCHEMA_VERSION = 4
 PROJECT_EXTENSION = ".cmbr"
 
 
@@ -100,6 +101,7 @@ def command_to_record(cmd: object) -> dict[str, Any]:
             "points_y": _floats(cmd.points_y),
             "style": dict(cmd.style),
             "head_size_deg": float(cmd.head_size_deg),
+            "rotation_deg": float(cmd.rotation_deg),
         }
     raise ProjectError(f"Tipo de comando não serializável: {type(cmd).__name__}")
 
@@ -150,6 +152,8 @@ def record_to_command(rec: dict) -> object:
                 points_y=_floats(rec["points_y"]),
                 style=dict(rec.get("style", {})),
                 head_size_deg=float(rec.get("head_size_deg", 0.0)),
+                # Rotação (rect/ellipse) — aditiva ao v4; records antigos = 0
+                rotation_deg=float(rec.get("rotation_deg", 0.0)),
             )
     except (KeyError, TypeError, ValueError) as exc:
         raise ProjectError(f"Record de desenho '{kind}' malformado: {exc}") from exc
@@ -182,16 +186,24 @@ def build_project(
     drawings: list[dict],
     wind_roses: list[dict] | None = None,
     app_version: str = "",
+    author: str | None = None,
+    revisions: list[dict] | None = None,
 ) -> dict:
     """Monta o dict do projeto a partir das partes já prontas (records de desenho).
 
     ``wind_roses`` são as rosas dos ventos FIXADAS no mapa (dado já binado — abrir
     nunca dispara rede). Ausência da chave = projeto v1 (compatível).
+
+    ``author``/``revisions`` (v4) são a autoria leve do fluxo colaborativo:
+    o analista original e a trilha de salvamentos ({"name", "saved_at"}) —
+    "análise de A, revisada por B". Opcionais e retrocompatíveis.
     """
     return {
         "schema_version": PROJECT_SCHEMA_VERSION,
         "app_version": app_version,
         "saved_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "author": author,
+        "revisions": list(revisions or []),
         "map": {
             "extent": list(extent) if extent is not None else None,
             "theme": theme,
@@ -201,6 +213,29 @@ def build_project(
         "drawings": list(drawings or []),
         "wind_roses": list(wind_roses or []),
     }
+
+
+def make_revision(name: str) -> dict:
+    """Entrada de revisão (autoria leve): quem salvou e quando (UTC)."""
+    return {"name": str(name), "saved_at": datetime.now(UTC).isoformat(timespec="seconds")}
+
+
+def read_authorship(data: dict) -> dict:
+    """Autoria leve de um projeto carregado, com validação tolerante.
+
+    Projetos ≤ v3 (sem as chaves) devolvem ``{"author": None, "revisions": []}``;
+    entradas malformadas de ``revisions`` são simplesmente ignoradas.
+    """
+    author = data.get("author")
+    if not isinstance(author, str) or not author.strip():
+        author = None
+    revisions: list[dict] = []
+    raw = data.get("revisions")
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"]:
+                revisions.append({"name": item["name"], "saved_at": str(item.get("saved_at", ""))})
+    return {"author": author, "revisions": revisions}
 
 
 def dump_project(project: dict) -> str:

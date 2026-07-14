@@ -1,6 +1,6 @@
 """Testes para o sistema de undo/redo — DrawingHistory, DrawCommand, AnnotationCommand."""
 
-from cartomet_br.gui.draw_tools import PenCommand, ShapeCommand
+from cartomet_br.gui.draw_tools import CreateOp, PenCommand, ShapeCommand
 from cartomet_br.gui.map_canvas import AnnotationCommand, DrawCommand, DrawingHistory
 
 
@@ -90,22 +90,25 @@ class TestDrawingHistory:
         assert not h.can_redo
         assert h.undo_count == 1
 
-    def test_undo_returns_last_command(self):
+    def test_undo_returns_creation_op(self):
+        """v2: undo/redo devolvem a OPERAÇÃO (CreateOp) — o canvas a aplica."""
         h = DrawingHistory()
         cmd = self._make_draw_cmd("2")
         h.push(cmd)
         result = h.undo()
-        assert result is cmd
+        assert isinstance(result, CreateOp)
+        assert result.cmd is cmd
         assert not h.can_undo
         assert h.can_redo
 
-    def test_redo_returns_undone_command(self):
+    def test_redo_returns_undone_op(self):
         h = DrawingHistory()
         cmd = self._make_draw_cmd()
         h.push(cmd)
         h.undo()
         result = h.redo()
-        assert result is cmd
+        assert isinstance(result, CreateOp)
+        assert result.cmd is cmd
         assert h.can_undo
         assert not h.can_redo
 
@@ -134,27 +137,32 @@ class TestDrawingHistory:
         assert h.undo_count == 3
 
         r3 = h.undo()
-        assert r3.symbol_key == "3"
+        assert r3.cmd.symbol_key == "3"
         r2 = h.undo()
-        assert r2.symbol_key == "2"
+        assert r2.cmd.symbol_key == "2"
 
         # Redo should replay in order
         re2 = h.redo()
-        assert re2.symbol_key == "2"
+        assert re2.cmd.symbol_key == "2"
         re3 = h.redo()
-        assert re3.symbol_key == "3"
+        assert re3.cmd.symbol_key == "3"
 
-    def test_max_size_trims_oldest(self):
+    def test_max_size_trims_oldest_op_but_keeps_document(self):
+        """O trim descarta a OPERAÇÃO mais antiga; o documento fica intacto.
+
+        Regressão do bug antigo: o 6º push expulsava o desenho mais velho do
+        salvamento (a pilha ERA o documento).
+        """
         h = DrawingHistory(max_size=5)
         for i in range(10):
             h.push(self._make_draw_cmd(str(i)))
         assert h.undo_count == 5
+        assert len(h.commands) == 10  # todos continuam vivos/salváveis
         oldest = h.undo()
-        # The oldest remaining should be "5" (0-4 were trimmed)
-        # After 4 more undos, we should get "5"
+        # A operação mais antiga desfazível é a criação do "5" (0-4 trimados)
         while h.can_undo:
             oldest = h.undo()
-        assert oldest.symbol_key == "5"
+        assert oldest.cmd.symbol_key == "5"
 
     def test_clear_resets_everything(self):
         h = DrawingHistory()
@@ -176,9 +184,9 @@ class TestDrawingHistory:
         h.push(annot_cmd)
 
         result = h.undo()
-        assert isinstance(result, AnnotationCommand)
+        assert isinstance(result.cmd, AnnotationCommand)
         result = h.undo()
-        assert isinstance(result, DrawCommand)
+        assert isinstance(result.cmd, DrawCommand)
 
     def test_redo_after_multiple_undos(self):
         h = DrawingHistory()
@@ -190,7 +198,7 @@ class TestDrawingHistory:
         h.undo()
         assert h.redo_count == 3
         r = h.redo()
-        assert r.symbol_key == "1"
+        assert r.cmd.symbol_key == "1"
 
 
 class TestRemoveLastOf:
@@ -212,10 +220,10 @@ class TestRemoveLastOf:
             h.push(c)
         removed = h.remove_last_of((ShapeCommand,))
         assert removed is s
-        assert h.undo_count == 2
+        assert h.undo_count == 2  # a op de criação da forma foi expurgada
         # ordem dos demais preservada: undo devolve o traço mais recente
-        assert h.undo() is p2
-        assert h.undo() is p1
+        assert h.undo().cmd is p2
+        assert h.undo().cmd is p1
 
     def test_picks_latest_when_multiple_of_type(self):
         h = DrawingHistory()

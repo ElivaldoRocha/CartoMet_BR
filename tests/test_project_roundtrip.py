@@ -15,7 +15,7 @@ import pytest
 
 pytest.importorskip("PyQt6")
 
-from cartomet_br.core.config import EXTENT_BRASIL, Config
+from cartomet_br.core.config import Config
 from cartomet_br.gui.draw_tools import (
     AnnotationCommand,
     DrawCommand,
@@ -43,31 +43,6 @@ def _sample_commands() -> list:
         ShapeCommand("rect", [-10.0, -5.0], [0.0, 4.0], dict(style), 0.0),
         EmojiCommand(-38.0, 0.5, "⛈", 40),
     ]
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    try:
-        from PyQt6.QtWidgets import QApplication
-    except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"PyQt6 indisponível: {exc}")
-    app = QApplication.instance() or QApplication([])
-    yield app
-
-
-@pytest.fixture
-def canvas(qapp, tmp_path):
-    from cartomet_br.gui.map_canvas import MapCanvas
-
-    data_dir = tmp_path / "data"
-    out_dir = tmp_path / "out"
-    data_dir.mkdir()
-    out_dir.mkdir()
-    cfg = Config(extent=EXTENT_BRASIL.copy(), data_dir=data_dir, output_dir=out_dir)
-    try:
-        return MapCanvas(config=cfg)
-    except Exception as exc:  # noqa: BLE001 — ambiente sem render
-        pytest.skip(f"MapCanvas não pôde ser criado offscreen: {exc}")
 
 
 def _multiset(records):
@@ -102,7 +77,9 @@ def test_loaded_drawings_are_undoable(canvas):
     canvas.import_drawings_state(commands_to_records(_sample_commands()))
     assert canvas.history.can_undo
     n_before = len(canvas.history.commands)
-    canvas.undo_action() if hasattr(canvas, "undo_action") else canvas.history.undo()
+    # API pública do canvas (botão [Z]): a history devolve a OPERAÇÃO e o
+    # canvas a aplica — chamar history.undo() cru não mexe no documento.
+    canvas.undo_line()
     assert len(canvas.history.commands) == n_before - 1
 
 
@@ -206,7 +183,6 @@ def test_restore_layers_from_cache_miss_never_networks(canvas, tmp_path):
     import types
     from unittest.mock import patch
 
-    from cartomet_br.core.config import Config
     from cartomet_br.gui.main_window import MainWindow
 
     class _FieldPanelStub:

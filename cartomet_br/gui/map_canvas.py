@@ -9,7 +9,9 @@ Inclui sistema de undo/redo baseado no padrão Command.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import logging
+import math
 from pathlib import Path
 
 import matplotlib
@@ -59,17 +61,27 @@ from cartomet_br.gui.draw_tools import (
     SHAPE_MIN_DRAG_PIXELS,
     SHAPE_OUTLINE_ZORDER,
     AnnotationCommand,
+    CreateOp,
+    DeleteOp,
     DrawCommand,
     DrawStyle,
+    EditVertexOp,
     EmojiCommand,
+    MoveOp,
     PenCommand,
     PointCommand,
+    RotateOp,
     ShapeCommand,
     build_preview_ring,
     create_pen_artist,
     create_shape_artist,
     default_arrow_head_size,
+    get_command_geometry,
+    rotate_points,
+    set_command_geometry,
+    shape_rotation_center,
 )
+from cartomet_br.gui.edit_tools import hit_geometry, is_anchor_command, pick_command
 from cartomet_br.gui.themes import MAP_THEMES
 from cartomet_br.symbols import MODOS
 
@@ -129,6 +141,18 @@ DEFAULT_WIND_DENSITY: str = "media"
 FRONT_SYMBOL_KEYS: frozenset[str] = frozenset({"1", "2", "3", "4"})
 SNAP_RADIUS_PX: float = 12.0
 
+# Modo edição: arraste menor que isto (pixels) é tratado como CLIQUE de
+# seleção, não como movimento — evita micro-deslocamentos acidentais.
+EDIT_DRAG_MIN_PIXELS: float = 3.0
+# Raio de captura de um HANDLE de vértice (pixels): pegar o quadradinho tem
+# prioridade sobre mover o desenho inteiro.
+HANDLE_PICK_RADIUS_PX: float = 8.0
+# Alça de rotação de formas: distância (pixels) acima do topo da forma, e zona
+# morta angular abaixo da qual o arraste ainda não conta como rotação.
+ROTATE_HANDLE_OFFSET_PX: float = 22.0
+ROTATE_MIN_DEG: float = 0.5
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SISTEMA DE UNDO/REDO (Padrão Command)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -139,12 +163,23 @@ SNAP_RADIUS_PX: float = 12.0
 
 
 class DrawingHistory:
-    """Pilha de histórico com suporte a undo/redo."""
+    """Documento de desenhos vivos + pilhas de undo/redo por OPERAÇÕES.
+
+    O DOCUMENTO (``_document``) é o conjunto vivo de comandos, em ordem de
+    criação — é ele que alimenta o salvamento (`.cmbr`), o boletim CODSAS, o
+    ímã e a legenda. As PILHAS guardam operações (Create/Delete/Move/EditVertex
+    — ``draw_tools``) sobre esses comandos: desfazer um apagamento RECRIA o
+    desenho, em vez de só remover o topo. Quem aplica/desfaz o efeito de cada
+    operação (artistas, listas do canvas) é ``MapCanvas._apply_op``.
+    """
 
     def __init__(self, max_size: int = 50):
-        # Comandos: DrawCommand | PointCommand | AnnotationCommand
-        #           | PenCommand | ShapeCommand (draw_tools)
-        self._undo_stack: list[object] = []
+        # Documento: DrawCommand | PointCommand | AnnotationCommand
+        #            | PenCommand | ShapeCommand (draw_tools). Emojis vivem
+        #            fora (listas próprias do canvas), mas suas operações de
+        #            EDIÇÃO entram nas pilhas normalmente.
+        self._document: list[object] = []
+        self._undo_stack: list[object] = []  # operações (não comandos)
         self._redo_stack: list[object] = []
         self._max_size = max_size
 
@@ -166,46 +201,85 @@ class DrawingHistory:
 
     @property
     def commands(self) -> list:
-        """Snapshot (cópia) dos comandos ativos, em ordem de criação (p/ salvar projeto)."""
-        return list(self._undo_stack)
+        """Snapshot (cópia) dos comandos VIVOS, em ordem de criação (p/ salvar projeto)."""
+        return list(self._document)
 
     def push(self, cmd: DrawCommand | PointCommand | AnnotationCommand) -> None:
-        """Registra um comando executado. Limpa a pilha de redo."""
-        self._undo_stack.append(cmd)
+        """Registra um desenho recém-criado (documento + operação de criação)."""
+        self._document.append(cmd)
+        self.push_op(CreateOp(cmd))
+
+    def push_op(self, op: object) -> None:
+        """Registra uma operação JÁ APLICADA pelo canvas. Limpa a pilha de redo.
+
+        O trim do teto descarta só a operação mais antiga — o documento fica
+        intacto (desenho antigo continua vivo e salvável; apenas deixa de ser
+        desfazível).
+        """
+        self._undo_stack.append(op)
         self._redo_stack.clear()
         if len(self._undo_stack) > self._max_size:
             self._undo_stack.pop(0)
 
-    def undo(self) -> DrawCommand | PointCommand | AnnotationCommand | None:
-        """Remove o último comando e retorna-o para desfazer."""
+    def undo(self) -> object | None:
+        """Devolve a última operação para o canvas DESFAZER (ou None)."""
         if not self._undo_stack:
             return None
-        cmd = self._undo_stack.pop()
-        self._redo_stack.append(cmd)
-        return cmd
+        op = self._undo_stack.pop()
+        self._redo_stack.append(op)
+        return op
 
-    def redo(self) -> DrawCommand | PointCommand | AnnotationCommand | None:
-        """Refaz o último comando desfeito."""
+    def redo(self) -> object | None:
+        """Devolve a última operação desfeita para o canvas REAPLICAR (ou None)."""
         if not self._redo_stack:
             return None
-        cmd = self._redo_stack.pop()
-        self._undo_stack.append(cmd)
-        return cmd
+        op = self._redo_stack.pop()
+        self._undo_stack.append(op)
+        return op
 
     def remove_last_of(self, types: tuple) -> object | None:
-        """Remove e devolve o comando MAIS RECENTE cujo tipo ∈ `types`.
+        """Remove e devolve o comando VIVO mais recente cujo tipo ∈ `types`.
 
-        Busca da ponta para a base da pilha de undo (pode remover do meio, se
-        outros desenhos vieram depois). Não interage com a pilha de redo —
-        mesma semântica do "desfazer emoji" (sem refazer dedicado).
+        Busca da ponta para a base do documento (pode remover do meio, se
+        outros desenhos vieram depois). As operações que referenciam o comando
+        removido são expurgadas das duas pilhas (sem refazer dedicado) — mesma
+        semântica do "desfazer emoji".
         """
-        for i in range(len(self._undo_stack) - 1, -1, -1):
-            if isinstance(self._undo_stack[i], types):
-                return self._undo_stack.pop(i)
+        for i in range(len(self._document) - 1, -1, -1):
+            if isinstance(self._document[i], types):
+                cmd = self._document.pop(i)
+                self.purge_ops_for(cmd)
+                return cmd
         return None
 
+    def purge_ops_for(self, cmd: object) -> None:
+        """Expurga das pilhas toda operação que referencia `cmd` (removido por fora).
+
+        Obrigatório quando um desenho sai do documento SEM passar pelas pilhas
+        ("desfazer traço/forma/emoji", limpezas parciais) — sem isso, um redo
+        posterior tentaria reviver um comando que não existe mais.
+        """
+        self._undo_stack = [op for op in self._undo_stack if getattr(op, "cmd", None) is not cmd]
+        self._redo_stack = [op for op in self._redo_stack if getattr(op, "cmd", None) is not cmd]
+
+    def document_remove(self, cmd: object) -> int:
+        """Tira `cmd` do documento e devolve o índice em que estava (p/ DeleteOp)."""
+        idx = self._document.index(cmd)
+        self._document.pop(idx)
+        return idx
+
+    def document_insert(self, index: int, cmd: object) -> None:
+        """Reinsere `cmd` no documento na posição original (undo de DeleteOp)."""
+        index = max(0, min(index, len(self._document)))
+        self._document.insert(index, cmd)
+
+    def document_append(self, cmd: object) -> None:
+        """Recoloca `cmd` no fim do documento (redo de CreateOp)."""
+        self._document.append(cmd)
+
     def clear(self) -> None:
-        """Limpa todo o histórico."""
+        """Limpa documento e histórico."""
+        self._document.clear()
         self._undo_stack.clear()
         self._redo_stack.clear()
 
@@ -216,6 +290,7 @@ class MapCanvas(FigureCanvas):
     point_added = pyqtSignal(float, float)
     coords_updated = pyqtSignal(float, float)
     annotation_requested = pyqtSignal(float, float)
+    edit_selection_changed = pyqtSignal(str)  # descrição do desenho ("" = nada selecionado)
     shape_draft_changed = pyqtSignal(int)  # nº de vértices do polígono em rascunho
     extent_changed = pyqtSignal(list)  # [lon_min, lat_min, lon_max, lat_max] após zoom/recorte
     figure_zoom_requested = pyqtSignal(int)  # +1 ampliar / -1 reduzir a FIGURA (Ctrl+roda)
@@ -296,10 +371,38 @@ class MapCanvas(FigureCanvas):
             "emojis": True,
             "annotations": True,
         }
+
         # Ímã de vértices entre frentes (aderência). Estado de sessão.
         self._snap_enabled: bool = True
         self._snap_marker = None  # anel de hover do candidato (Line2D)
         self._snap_hover_xy: tuple[float, float] | None = None
+
+        # Modo edição: desenho SELECIONADO (referência ao comando vivo) e os
+        # artistas de destaque por cima dele (halo dourado + anel no âncora).
+        self._edit_selected: object | None = None
+        self._edit_highlight: list = []
+        # Arraste (mover) do modo edição: armado no press, confirmado após
+        # EDIT_DRAG_MIN_PIXELS; o original some e um fantasma tracejado segue
+        # o mouse; o commit (MoveOp) acontece só no release.
+        self._edit_drag_cmd: object | None = None
+        self._edit_drag_anchor: tuple[float, float] | None = None  # lon/lat do press
+        self._edit_drag_anchor_px: tuple[float, float] | None = None
+        self._edit_drag_geometry: tuple[list[float], list[float]] | None = None
+        self._edit_drag_hit: tuple[list[float], list[float]] | None = None
+        self._edit_drag_delta: tuple[float, float] = (0.0, 0.0)
+        self._edit_ghost = None  # Line2D tracejada do arraste
+        # Arraste de UM vértice (handles): índice, posição original e a
+        # posição-candidata corrente (já aderida pelo ímã, se for frente).
+        self._edit_vertex_index: int | None = None
+        self._edit_vertex_old: tuple[float, float] | None = None
+        self._edit_vertex_pos: tuple[float, float] | None = None
+        # Rotação de forma pela alça: posição da alça (dados), centro e ângulos.
+        self._edit_rotate_handle_xy: tuple[float, float] | None = None
+        self._edit_rotate_center: tuple[float, float] | None = None
+        self._edit_rotate_start_deg: float | None = None
+        self._edit_rotate_base_deg: float = 0.0
+        self._edit_rotate_delta: float = 0.0
+
         # Mobília de "carta OMM" (F7) — cabeçalho institucional + legenda dos
         # símbolos. Só existe transitoriamente, em volta do export; nunca é
         # desenhada na edição ao vivo. Guardada aqui só p/ poder remover depois.
@@ -485,9 +588,33 @@ class MapCanvas(FigureCanvas):
         self._loczcit_axis_artists = []
         self._blocking_artists = []
         self._blocking_colorbar = None
+        # ax.clear() abaixo mata o anel do ímã e o destaque da edição — só
+        # anular as referências. O sinal avisa a barra de status: sem ele, a
+        # instrução "Delete apaga · Esc desmarca" sobreviveria ao rebuild.
+        # getattr: no 1º _setup_base_map (dentro do __init__) os atributos de
+        # edição ainda não existem.
+        had_edit_selection = getattr(self, "_edit_selected", None) is not None or bool(
+            getattr(self, "_edit_highlight", [])
+        )
         self._snap_marker = None
         self._snap_hover_xy = None
+        self._edit_selected = None
+        self._edit_highlight = []
+        self._edit_drag_cmd = None
+        self._edit_drag_anchor = None
+        self._edit_drag_anchor_px = None
+        self._edit_drag_geometry = None
+        self._edit_drag_hit = None
+        self._edit_ghost = None
+        self._edit_vertex_index = None
+        self._edit_vertex_old = None
+        self._edit_vertex_pos = None
+        self._edit_rotate_handle_xy = None
+        self._edit_rotate_center = None
+        self._edit_rotate_start_deg = None
         self.history.clear()
+        if had_edit_selection:
+            self.edit_selection_changed.emit("")
 
         self.ax.clear()
 
@@ -1588,7 +1715,7 @@ class MapCanvas(FigureCanvas):
         self._view_settle_timer.start()
 
     def _on_release(self, event: object) -> None:
-        """Fim do pan, do traço de caneta ou do arraste de forma."""
+        """Fim do pan, do traço de caneta, do arraste de forma ou do movimento (edição)."""
         if self._pan_active:
             self._pan_active = False
             self._pan_start = None
@@ -1596,6 +1723,13 @@ class MapCanvas(FigureCanvas):
             self._end_pen_stroke()
         if self._shape_anchor is not None:
             self._end_shape_drag(event.x, event.y)
+        if self._edit_drag_cmd is not None:
+            if self._edit_rotate_start_deg is not None:
+                self._end_rotate_drag()
+            elif self._edit_vertex_index is not None:
+                self._end_vertex_drag()
+            else:
+                self._end_edit_drag()
 
     def _pan_to(self, event: object) -> None:
         """Desloca o mapa conforme o arraste (modo pan)."""
@@ -2204,6 +2338,533 @@ class MapCanvas(FigureCanvas):
         else:
             self.clear_snap_marker()
 
+    # ─── Modo edição (selecionar / apagar desenhos finalizados) ──────────────
+
+    def set_edit_mode(self, enabled: bool) -> None:
+        """Modo 'edição' — clicar num desenho finalizado o seleciona."""
+        if enabled:
+            self.cancel_active_draft()
+            self.interaction_mode = "edit"
+            self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        elif self.interaction_mode == "edit":
+            self.interaction_mode = None
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        if not enabled:
+            self.clear_edit_selection()
+
+    def _edit_candidates(self) -> list:
+        """Comandos vivos elegíveis à seleção, em ordem de criação.
+
+        Documento primeiro, emojis (listas próprias) depois; grupos com a
+        visibilidade desligada ficam fora — não se edita o que não se vê.
+        """
+        vis = self._drawings_visible
+        out: list = []
+        for cmd in self.history.commands:
+            kind = "annotations" if isinstance(cmd, AnnotationCommand) else "symbology"
+            if vis.get(kind, True):
+                out.append(cmd)
+        if vis.get("emojis", True):
+            out.extend(self._emoji_records)
+        return out
+
+    def _find_edit_target(self, px: float, py: float) -> object | None:
+        """Desenho sob o pixel (px, py), pelo hit-testing puro de ``edit_tools``."""
+        return pick_command(self._edit_candidates(), px, py, to_pixels=self.ax.transData.transform)
+
+    def _on_edit_click(self, event) -> None:
+        """Press no modo edição: seleciona o desenho atingido e ARMA o arraste.
+
+        O movimento só é confirmado se o mouse andar mais que
+        ``EDIT_DRAG_MIN_PIXELS`` antes do release — senão foi só um clique de
+        seleção. Clique no vazio desseleciona.
+        """
+        selected = self._edit_selected
+        # Alça de ROTAÇÃO da forma selecionada: prioridade máxima (fica fora
+        # da forma — sem ela, o clique cairia no vazio e desselecionaria).
+        if (
+            isinstance(selected, ShapeCommand)
+            and self._edit_rotate_handle_xy is not None
+            and event.xdata is not None
+            and event.ydata is not None
+        ):
+            hx, hy = self.ax.transData.transform(self._edit_rotate_handle_xy)
+            if (hx - event.x) ** 2 + (hy - event.y) ** 2 <= HANDLE_PICK_RADIUS_PX**2:
+                cx, cy = shape_rotation_center(selected)
+                self._edit_drag_cmd = selected
+                self._edit_rotate_center = (cx, cy)
+                self._edit_rotate_start_deg = math.degrees(
+                    math.atan2(float(event.ydata) - cy, float(event.xdata) - cx)
+                )
+                self._edit_rotate_base_deg = selected.rotation_deg
+                self._edit_drag_geometry = get_command_geometry(selected)
+                self._edit_rotate_delta = 0.0
+                return
+
+        # Handle de vértice do desenho JÁ selecionado tem prioridade sobre o move
+        if selected is not None and event.xdata is not None:
+            idx = self._find_vertex_handle(selected, event.x, event.y)
+            if idx is not None:
+                self._edit_drag_cmd = selected
+                self._edit_vertex_index = idx
+                self._edit_vertex_old = (
+                    float(selected.points_x[idx]),  # type: ignore[attr-defined]
+                    float(selected.points_y[idx]),  # type: ignore[attr-defined]
+                )
+                self._edit_vertex_pos = self._edit_vertex_old
+                return
+
+        target = self._find_edit_target(event.x, event.y)
+        if target is None:
+            self.clear_edit_selection()
+            return
+        if target is not self._edit_selected:
+            self._select_command(target)
+        if event.xdata is None or event.ydata is None:
+            return
+        self._edit_drag_cmd = target
+        self._edit_drag_anchor = (float(event.xdata), float(event.ydata))
+        self._edit_drag_anchor_px = (float(event.x), float(event.y))
+        self._edit_drag_geometry = get_command_geometry(target)
+        self._edit_drag_hit = hit_geometry(target)
+        self._edit_drag_delta = (0.0, 0.0)
+
+    def _select_command(self, cmd: object) -> None:
+        """Marca `cmd` como selecionado e acende o destaque por cima dele."""
+        self._clear_edit_highlight()
+        self._edit_selected = cmd
+        xs, ys = hit_geometry(cmd)
+        if is_anchor_command(cmd):
+            (ring,) = self.ax.plot(
+                xs[0],
+                ys[0],
+                marker="o",
+                markersize=22,
+                markerfacecolor="none",
+                markeredgecolor="#F1C40F",
+                markeredgewidth=2.4,
+                transform=ccrs.PlateCarree(),
+                zorder=30,
+            )
+            self._edit_highlight.append(ring)
+        else:
+            (halo,) = self.ax.plot(
+                xs,
+                ys,
+                color="#F1C40F",
+                linewidth=7.0,
+                alpha=0.35,
+                solid_capstyle="round",
+                transform=ccrs.PlateCarree(),
+                zorder=30,
+            )
+            self._edit_highlight.append(halo)
+        self._show_edit_handles(cmd)
+        self.edit_selection_changed.emit(self._describe_command(cmd))
+        self.draw_idle()
+
+    def _show_edit_handles(self, cmd: object) -> None:
+        """Quadradinhos nos vértices CRUS editáveis do desenho selecionado.
+
+        Linhas OMM e formas têm vértices arrastáveis; caneta fica de fora
+        (pontos decimados aos montes — mover cobre o caso) e pontuais não têm
+        vértices. Um único Line2D (linestyle none) — barato e fácil de limpar.
+        """
+        if not isinstance(cmd, (DrawCommand, ShapeCommand)):
+            return
+        rotated = isinstance(cmd, ShapeCommand) and cmd.rotation_deg != 0.0
+        if not rotated:
+            # Forma girada NÃO expõe handles de vértice: a diagonal crua não
+            # coincide mais com os cantos visíveis (editá-la moveria o centro
+            # e a forma "pularia"). Mover e girar continuam disponíveis.
+            (handles,) = self.ax.plot(
+                cmd.points_x,
+                cmd.points_y,
+                marker="s",
+                markersize=7,
+                markerfacecolor="#FFFFFF",
+                markeredgecolor="#B9770E",
+                markeredgewidth=1.6,
+                linestyle="none",
+                transform=ccrs.PlateCarree(),
+                zorder=32,
+            )
+            self._edit_highlight.append(handles)
+        if isinstance(cmd, ShapeCommand):
+            self._show_rotate_handle(cmd)
+
+    def _show_rotate_handle(self, cmd: ShapeCommand) -> None:
+        """Alça circular ↻ acima do topo da forma (offset em PIXELS).
+
+        Arrastar a alça gira a forma ao redor do centro. A posição fica em
+        ``_edit_rotate_handle_xy`` (dados) para o hit do press.
+        """
+        xs, ys = hit_geometry(cmd)
+        pts = self.ax.transData.transform(np.column_stack([xs, ys]))
+        pts = pts[np.isfinite(pts).all(axis=1)]
+        if pts.shape[0] == 0:
+            self._edit_rotate_handle_xy = None
+            return
+        cx, cy = shape_rotation_center(cmd)
+        cx_px, _ = self.ax.transData.transform((cx, cy))
+        top_py = float(pts[:, 1].max()) + ROTATE_HANDLE_OFFSET_PX
+        lon, lat = self.ax.transData.inverted().transform((float(cx_px), top_py))
+        self._edit_rotate_handle_xy = (float(lon), float(lat))
+        (knob,) = self.ax.plot(
+            lon,
+            lat,
+            marker="o",
+            markersize=9,
+            markerfacecolor="#FFFFFF",
+            markeredgecolor="#B9770E",
+            markeredgewidth=1.8,
+            linestyle="none",
+            transform=ccrs.PlateCarree(),
+            zorder=32,
+        )
+        self._edit_highlight.append(knob)
+
+    def _find_vertex_handle(self, cmd: object, px: float, py: float) -> int | None:
+        """Índice do vértice de `cmd` sob o pixel (px, py), dentro do raio do handle."""
+        if not isinstance(cmd, (DrawCommand, ShapeCommand)):
+            return None
+        if isinstance(cmd, ShapeCommand) and cmd.rotation_deg:
+            return None  # forma girada não expõe vértices (ver _show_edit_handles)
+        pts = self.ax.transData.transform(np.column_stack([cmd.points_x, cmd.points_y]))
+        d2 = (pts[:, 0] - px) ** 2 + (pts[:, 1] - py) ** 2
+        d2 = np.where(np.isfinite(d2), d2, np.inf)
+        i = int(np.argmin(d2))
+        if d2[i] <= HANDLE_PICK_RADIUS_PX**2:
+            return i
+        return None
+
+    def _clear_edit_highlight(self) -> None:
+        """Apaga os artistas de destaque (idempotente, à prova de artista stale)."""
+        artists = self._edit_highlight
+        self._edit_highlight = []
+        self._edit_rotate_handle_xy = None  # a alça vive junto do destaque
+        for art in artists:
+            with contextlib.suppress(ValueError, AttributeError, NotImplementedError, KeyError):
+                art.remove()
+
+    def clear_edit_selection(self) -> None:
+        """Desseleciona o desenho atual (Esc, saída do modo, clique no vazio).
+
+        Cancela também um arraste em andamento — o original reaparece onde
+        estava, sem commit.
+        """
+        self._cancel_edit_drag()
+        had = self._edit_selected is not None or bool(self._edit_highlight)
+        self._edit_selected = None
+        self._clear_edit_highlight()
+        if had:
+            self.edit_selection_changed.emit("")
+            self.draw_idle()
+
+    def _release_edit_selection_if(self, cmd: object) -> None:
+        """Desmarca a seleção se `cmd` saiu do mapa POR FORA das pilhas.
+
+        Obrigatório nos irmãos do ``purge_ops_for`` (desfazer última
+        forma/caneta/anotação/emoji, limpezas parciais): sem isso a seleção
+        aponta para um comando fora do documento — o halo fica órfão e o
+        Delete seguinte estoura ``ValueError`` no ``_detach_command``.
+        """
+        if cmd is not None and cmd is self._edit_selected:
+            self.clear_edit_selection()
+
+    def _forget_command(self, cmd: object) -> None:
+        """Remoção POR FORA das pilhas, completa — o choke point.
+
+        Trio obrigatório de todo caminho que tira um desenho do mapa sem
+        passar pelo undo/redo: expurga as operações que o referenciam, solta
+        a seleção do modo edição (se era ele) e remove o artista. Chamar ISTO
+        — e não as partes avulsas — torna impossível um call site novo
+        reintroduzir o halo órfão + crash do Delete.
+        """
+        self.history.purge_ops_for(cmd)
+        self._release_edit_selection_if(cmd)
+        self._remove_command_artist(cmd)
+
+    # ── Arraste (mover) do modo edição ───────────────────────────────────────
+
+    def _update_edit_drag(self, event) -> None:
+        """Motion com arraste armado: fantasma tracejado segue o mouse.
+
+        O original NÃO é reconstruído por motion — só some (``set_visible``) e
+        um único Line2D é atualizado (``set_data``). Deslocar a geometria de
+        hit é exato: a spline é invariante por translação.
+        """
+        if event.inaxes != self.ax or event.xdata is None or event.ydata is None:
+            return
+        assert self._edit_drag_anchor_px is not None and self._edit_drag_anchor is not None
+        dx_px = float(event.x) - self._edit_drag_anchor_px[0]
+        dy_px = float(event.y) - self._edit_drag_anchor_px[1]
+        if self._edit_ghost is None and dx_px**2 + dy_px**2 < EDIT_DRAG_MIN_PIXELS**2:
+            return  # ainda dentro da zona morta de clique
+        dx = float(event.xdata) - self._edit_drag_anchor[0]
+        dy = float(event.ydata) - self._edit_drag_anchor[1]
+        self._edit_drag_delta = (dx, dy)
+        assert self._edit_drag_hit is not None
+        hx, hy = self._edit_drag_hit
+        gx = [v + dx for v in hx]
+        gy = [v + dy for v in hy]
+        if self._edit_ghost is None:
+            self._begin_edit_ghost(gx, gy)
+        else:
+            self._edit_ghost.set_data(gx, gy)
+        self.draw_idle()
+
+    def _begin_edit_ghost(self, xs: list[float], ys: list[float]) -> None:
+        """Arraste confirmado: esconde o original e acende o fantasma."""
+        self._clear_edit_highlight()
+        cmd = self._edit_drag_cmd
+        if cmd is not None and getattr(cmd, "artist", None) is not None:
+            with contextlib.suppress(AttributeError):
+                cmd.artist.set_visible(False)  # type: ignore[attr-defined]
+        (ghost,) = self.ax.plot(
+            xs,
+            ys,
+            color="#F1C40F",
+            linewidth=1.8,
+            linestyle="--",
+            alpha=0.9,
+            marker="o" if len(xs) == 1 else None,
+            markersize=10,
+            transform=ccrs.PlateCarree(),
+            zorder=31,
+        )
+        self._edit_ghost = ghost
+        self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
+
+    def _remove_edit_ghost(self) -> None:
+        """Apaga o fantasma e restaura o cursor do modo (idempotente)."""
+        ghost = self._edit_ghost
+        self._edit_ghost = None
+        if ghost is not None:
+            with contextlib.suppress(ValueError, AttributeError, NotImplementedError, KeyError):
+                ghost.remove()
+        if self.interaction_mode == "edit":
+            self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+    def _reset_edit_drag_state(self) -> None:
+        self._edit_drag_cmd = None
+        self._edit_drag_anchor = None
+        self._edit_drag_anchor_px = None
+        self._edit_drag_geometry = None
+        self._edit_drag_hit = None
+        self._edit_drag_delta = (0.0, 0.0)
+        self._edit_vertex_index = None
+        self._edit_vertex_old = None
+        self._edit_vertex_pos = None
+        self._edit_rotate_center = None
+        self._edit_rotate_start_deg = None
+        self._edit_rotate_base_deg = 0.0
+        self._edit_rotate_delta = 0.0
+
+    # ── Arraste de UM vértice (handles) ──────────────────────────────────────
+
+    def _update_vertex_drag(self, event) -> None:
+        """Motion com handle pego: o vértice segue o mouse (com ímã, se frente).
+
+        O fantasma re-interpola a spline a cada motion — barato (≤ ~20 vértices,
+        sub-ms; é o mesmo custo do preview de desenho). Arrastando vértice de
+        frente, o ímã adere a OUTRA frente (nunca à própria) — correção com
+        junção exata, coerente com a criação.
+        """
+        if event.inaxes != self.ax or event.xdata is None or event.ydata is None:
+            return
+        cmd = self._edit_drag_cmd
+        idx = self._edit_vertex_index
+        if cmd is None or idx is None:
+            return
+        x, y = float(event.xdata), float(event.ydata)
+        if (
+            self._snap_enabled
+            and isinstance(cmd, DrawCommand)
+            and cmd.symbol_key in FRONT_SYMBOL_KEYS
+        ):
+            target = self._find_snap_target(event.x, event.y, exclude_cmd=cmd)
+            if target != self._snap_hover_xy:
+                self._snap_hover_xy = target
+                if target is not None:
+                    self._show_snap_marker(*target)
+                else:
+                    self.clear_snap_marker()
+            if target is not None:
+                x, y = target
+        self._edit_vertex_pos = (x, y)
+
+        assert isinstance(cmd, (DrawCommand, ShapeCommand))
+        xs = list(cmd.points_x)
+        ys = list(cmd.points_y)
+        xs[idx] = x
+        ys[idx] = y
+        gx, gy = hit_geometry(dataclasses.replace(cmd, points_x=xs, points_y=ys))
+        if self._edit_ghost is None:
+            self._begin_edit_ghost(gx, gy)
+        else:
+            self._edit_ghost.set_data(gx, gy)
+        self.draw_idle()
+
+    def _end_vertex_drag(self) -> None:
+        """Release do handle: commit do vértice (EditVertexOp) — ou nada."""
+        cmd = self._edit_drag_cmd
+        idx = self._edit_vertex_index
+        old = self._edit_vertex_old
+        pos = self._edit_vertex_pos
+        moved = self._edit_ghost is not None
+        self._remove_edit_ghost()
+        self._reset_edit_drag_state()
+        self._snap_hover_xy = None
+        self.clear_snap_marker()
+        if not moved or cmd is None or idx is None or old is None or pos is None or pos == old:
+            return
+        assert isinstance(cmd, (DrawCommand, ShapeCommand))
+        cmd.points_x[idx], cmd.points_y[idx] = pos
+        self._refresh_artist(cmd)
+        self.history.push_op(EditVertexOp(cmd, idx, old, pos))
+        self._select_command(cmd)  # halo + handles na geometria nova
+        self.draw()
+
+    # ── Rotação de forma pela alça ───────────────────────────────────────────
+
+    def _update_rotate_drag(self, event) -> None:
+        """Motion com a alça pega: a forma gira ao redor do centro (fantasma).
+
+        Delta = ângulo(mouse→centro) − ângulo do press; com Shift, trava em
+        passos de 15°. O fantasma vem de ``hit_geometry`` sobre uma cópia
+        girada do comando — rect/ellipse via ``rotation_deg``, os demais
+        girando os vértices (rotação assada).
+        """
+        if event.inaxes != self.ax or event.xdata is None or event.ydata is None:
+            return
+        cmd = self._edit_drag_cmd
+        center = self._edit_rotate_center
+        start = self._edit_rotate_start_deg
+        if not isinstance(cmd, ShapeCommand) or center is None or start is None:
+            return
+        cx, cy = center
+        ang = math.degrees(math.atan2(float(event.ydata) - cy, float(event.xdata) - cx))
+        delta = ang - start
+        if getattr(event, "key", None) == "shift":
+            delta = round(delta / 15.0) * 15.0
+        if self._edit_ghost is None and abs(delta) < ROTATE_MIN_DEG:
+            return  # zona morta angular — ainda é só um clique na alça
+        self._edit_rotate_delta = delta
+        if cmd.tool in ("rect", "ellipse"):
+            ghost_cmd = dataclasses.replace(cmd, rotation_deg=self._edit_rotate_base_deg + delta)
+        else:
+            assert self._edit_drag_geometry is not None
+            oxs, oys = self._edit_drag_geometry
+            rxs, rys = rotate_points(oxs, oys, cx, cy, delta)
+            ghost_cmd = dataclasses.replace(cmd, points_x=rxs, points_y=rys)
+        gx, gy = hit_geometry(ghost_cmd)
+        if self._edit_ghost is None:
+            self._begin_edit_ghost(gx, gy)
+        else:
+            self._edit_ghost.set_data(gx, gy)
+        self.draw_idle()
+
+    def _end_rotate_drag(self) -> None:
+        """Release da alça: commit da rotação — ou nada, se foi só um clique.
+
+        rect/ellipse gravam ``rotation_deg`` (RotateOp); line/arrow/polygon
+        assam os vértices girados (MoveOp de cópias — undo bit-exato).
+        """
+        cmd = self._edit_drag_cmd
+        center = self._edit_rotate_center
+        base = self._edit_rotate_base_deg
+        delta = self._edit_rotate_delta
+        geometry = self._edit_drag_geometry
+        moved = self._edit_ghost is not None
+        self._remove_edit_ghost()
+        self._reset_edit_drag_state()
+        if not moved or not isinstance(cmd, ShapeCommand) or center is None:
+            return
+        if cmd.tool in ("rect", "ellipse"):
+            # Normaliza para (-180, 180] só o valor final (o arquivo fica limpo);
+            # o RotateOp guarda old/new exatos → undo bit-exato.
+            new_deg = ((base + delta + 180.0) % 360.0) - 180.0
+            cmd.rotation_deg = new_deg
+            self._refresh_artist(cmd)
+            self.history.push_op(RotateOp(cmd, base, new_deg))
+        else:
+            assert geometry is not None
+            old_x, old_y = geometry
+            new_x, new_y = rotate_points(old_x, old_y, center[0], center[1], delta)
+            set_command_geometry(cmd, new_x, new_y)
+            self._refresh_artist(cmd)
+            self.history.push_op(MoveOp(cmd, list(old_x), list(old_y), new_x, new_y))
+        self._select_command(cmd)  # halo + alça na pose nova
+        self.draw()
+
+    def _end_edit_drag(self) -> None:
+        """Release: commit do movimento (MoveOp) — ou nada, se foi só clique."""
+        cmd = self._edit_drag_cmd
+        geometry = self._edit_drag_geometry
+        dx, dy = self._edit_drag_delta
+        moved = self._edit_ghost is not None
+        self._remove_edit_ghost()
+        self._reset_edit_drag_state()
+        if not moved or cmd is None or geometry is None:
+            return
+        old_x, old_y = geometry
+        new_x = [v + dx for v in old_x]
+        new_y = [v + dy for v in old_y]
+        set_command_geometry(cmd, new_x, new_y)
+        self._refresh_artist(cmd)
+        self.history.push_op(MoveOp(cmd, list(old_x), list(old_y), list(new_x), list(new_y)))
+        self._select_command(cmd)  # halo re-acende na posição nova
+        self.draw()
+
+    def _cancel_edit_drag(self) -> None:
+        """Aborta o arraste sem commit (Esc / saída do modo): original volta."""
+        cmd = self._edit_drag_cmd
+        moved = self._edit_ghost is not None
+        was_vertex = self._edit_vertex_index is not None
+        self._remove_edit_ghost()
+        self._reset_edit_drag_state()
+        if was_vertex:
+            self._snap_hover_xy = None
+            self.clear_snap_marker()
+        if moved and cmd is not None and getattr(cmd, "artist", None) is not None:
+            with contextlib.suppress(AttributeError):
+                cmd.artist.set_visible(True)  # type: ignore[attr-defined]
+            self.draw_idle()
+
+    def delete_selected_drawing(self) -> None:
+        """Apaga o desenho selecionado (Delete/Backspace) — desfazível com [Z]."""
+        cmd = self._edit_selected
+        if cmd is None:
+            return
+        self.clear_edit_selection()
+        index = self._detach_command(cmd)
+        self.history.push_op(DeleteOp(cmd, index))
+        self.draw()
+
+    @staticmethod
+    def _describe_command(cmd: object) -> str:
+        """Nome amigável do desenho selecionado (barra de status)."""
+        if isinstance(cmd, (DrawCommand, PointCommand)):
+            return str(MODOS.get(cmd.symbol_key, {}).get("nome", "Símbolo"))
+        if isinstance(cmd, AnnotationCommand):
+            texto = cmd.text if len(cmd.text) <= 30 else cmd.text[:27] + "…"
+            return f'Anotação "{texto}"'
+        if isinstance(cmd, EmojiCommand):
+            return f"Emoji {cmd.emoji}"
+        if isinstance(cmd, PenCommand):
+            return "Traço de caneta"
+        if isinstance(cmd, ShapeCommand):
+            nomes = {
+                "rect": "Retângulo",
+                "ellipse": "Elipse",
+                "arrow": "Seta",
+                "line": "Linha",
+                "polygon": "Polígono",
+            }
+            return nomes.get(cmd.tool, "Forma")
+        return "Desenho"
+
     def _place_point_symbol(self, x: float, y: float) -> None:
         """Coloca um símbolo pontual (ex.: centro de pressão, furacão) com um único clique."""
         modo = MODOS[self.current_symbol]
@@ -2244,6 +2905,14 @@ class MapCanvas(FigureCanvas):
         if event.inaxes == self.ax and event.xdata and event.ydata:
             self.coords_updated.emit(event.xdata, event.ydata)
         self._update_snap_hover(event)
+        # Modo edição: arraste armado no press → fantasma segue o mouse
+        if self._edit_drag_cmd is not None:
+            if self._edit_rotate_start_deg is not None:
+                self._update_rotate_drag(event)
+            elif self._edit_vertex_index is not None:
+                self._update_vertex_drag(event)
+            else:
+                self._update_edit_drag(event)
         if self._pan_active and event.inaxes == self.ax:
             self._pan_to(event)
         # Caneta: acumula pontos decimados durante o arraste
@@ -2572,15 +3241,15 @@ class MapCanvas(FigureCanvas):
                 artist.set_visible(False)  # type: ignore[attr-defined]
 
     def _remove_last_drawing_of(self, types: tuple) -> None:
-        """Remove o último desenho finalizado do(s) tipo(s) dado(s) (padrão do emoji)."""
+        """Remove o último desenho finalizado do(s) tipo(s) dado(s) (padrão do emoji).
+
+        ``remove_last_of`` já expurga das pilhas as operações que referenciam
+        o comando removido (sem refazer dedicado).
+        """
         cmd = self.history.remove_last_of(types)
-        if cmd is None or cmd.artist is None:
+        if cmd is None:
             return
-        with contextlib.suppress(ValueError, AttributeError):
-            cmd.artist.remove()
-        if cmd.artist in self.lines:
-            self.lines.remove(cmd.artist)
-        cmd.artist = None
+        self._forget_command(cmd)  # purge redundante (remove_last_of já expurga) — barato
         self.draw()
 
     def remove_last_pen_stroke(self) -> None:
@@ -2603,34 +3272,148 @@ class MapCanvas(FigureCanvas):
             self.undo_line()
 
     def undo_line(self):
-        """Desfaz a última linha/anotação/ponto finalizado via histórico."""
-        cmd = self.history.undo()
-        if cmd is None:
+        """Desfaz a última OPERAÇÃO (criação, apagamento, arraste ou vértice)."""
+        op = self.history.undo()
+        if op is None:
             return
-        if (
-            isinstance(cmd, (DrawCommand, PointCommand, PenCommand, ShapeCommand))
-            and cmd.artist is not None
-        ):
-            with contextlib.suppress(ValueError, AttributeError):
-                cmd.artist.remove()
-            if cmd.artist in self.lines:
-                self.lines.remove(cmd.artist)
-            cmd.artist = None
-        elif isinstance(cmd, AnnotationCommand) and cmd.artist is not None:
-            with contextlib.suppress(ValueError, AttributeError):
-                cmd.artist.remove()
-            if cmd.artist in self._annotations:
-                self._annotations.remove(cmd.artist)
-            cmd.artist = None
+        self._apply_op(op, forward=False)
+        self._sync_selection_after_op(op)
         self.draw()
 
     def redo_action(self):
-        """Refaz a última ação desfeita."""
-        cmd = self.history.redo()
-        if cmd is None:
+        """Refaz a última operação desfeita."""
+        op = self.history.redo()
+        if op is None:
             return
-        self._rebuild_artist(cmd)
+        self._apply_op(op, forward=True)
+        self._sync_selection_after_op(op)
         self.draw()
+
+    def _sync_selection_after_op(self, op: object) -> None:
+        """Pós undo/redo: o destaque acompanha o desenho selecionado (ou some).
+
+        Se a operação tocou o desenho selecionado: geometria mudou → re-acende
+        o halo na posição nova; desenho saiu do mapa → desseleciona.
+        """
+        cmd = self._edit_selected
+        if cmd is None or getattr(op, "cmd", None) is not cmd:
+            return
+        alive = any(c is cmd for c in self.history.commands) or any(
+            c is cmd for c in self._emoji_records
+        )
+        if alive:
+            self._select_command(cmd)
+        else:
+            self.clear_edit_selection()
+
+    def _apply_op(self, op: object, forward: bool) -> None:
+        """Executor ÚNICO de operações de histórico (padrão Command, v2).
+
+        Aplica (``forward=True``, redo) ou desfaz (``forward=False``, undo) o
+        efeito de uma operação sobre o documento, as listas de artistas e o
+        mapa. Move/EditVertex restauram CÓPIAS completas da geometria (nunca
+        deltas — bit-exato, preserva junções do ímã). NÃO chama ``draw()``.
+        """
+        if isinstance(op, CreateOp):
+            if forward:
+                self.history.document_append(op.cmd)
+                self._rebuild_artist(op.cmd)
+            else:
+                self.history.document_remove(op.cmd)
+                self._remove_command_artist(op.cmd)
+        elif isinstance(op, DeleteOp):
+            if forward:
+                # Reapaga: recalcula o índice (o documento pode ter mudado
+                # entre o undo e este redo por outras operações desfeitas).
+                op.index = self._detach_command(op.cmd)
+            else:
+                self._restore_command(op.cmd, op.index)
+        elif isinstance(op, MoveOp):
+            xs, ys = (op.new_x, op.new_y) if forward else (op.old_x, op.old_y)
+            set_command_geometry(op.cmd, xs, ys)
+            self._refresh_artist(op.cmd)
+        elif isinstance(op, EditVertexOp) and isinstance(
+            op.cmd, (DrawCommand, PenCommand, ShapeCommand)
+        ):
+            x, y = op.new_xy if forward else op.old_xy
+            op.cmd.points_x[op.vertex] = x
+            op.cmd.points_y[op.vertex] = y
+            self._refresh_artist(op.cmd)
+        elif isinstance(op, RotateOp) and isinstance(op.cmd, ShapeCommand):
+            op.cmd.rotation_deg = op.new_deg if forward else op.old_deg
+            self._refresh_artist(op.cmd)
+
+    def _remove_command_artist(self, cmd) -> None:
+        """Remove o artista vivo de um comando (qualquer tipo), exception-safe.
+
+        Anula a referência ANTES de remover (re-entrância segura) e tira o
+        artista da lista interna correspondente (``lines`` / ``_annotations`` /
+        ``_emoji_annotations``).
+        """
+        artist = cmd.artist
+        cmd.artist = None
+        if artist is None:
+            return
+        if isinstance(cmd, EmojiCommand):
+            self._remove_emoji_artist(artist)
+            if artist in self._emoji_annotations:
+                self._emoji_annotations.remove(artist)
+            return
+        with contextlib.suppress(ValueError, AttributeError, NotImplementedError):
+            artist.remove()
+        if artist in self.lines:
+            self.lines.remove(artist)
+        if artist in self._annotations:
+            self._annotations.remove(artist)
+
+    def _detach_command(self, cmd) -> int:
+        """Apaga um comando do mapa e do documento; devolve o índice original.
+
+        Emojis (fora do documento) saem das listas paralelas próprias — o
+        índice devolvido é o de ``_emoji_records``.
+        """
+        if isinstance(cmd, EmojiCommand):
+            idx = self._emoji_records.index(cmd)
+            self._emoji_records.pop(idx)
+            self._remove_command_artist(cmd)
+            return idx
+        idx = self.history.document_remove(cmd)
+        self._remove_command_artist(cmd)
+        return idx
+
+    def _restore_command(self, cmd, index: int) -> None:
+        """Ressuscita um comando apagado (undo de DeleteOp) na posição original."""
+        if isinstance(cmd, EmojiCommand):
+            index = max(0, min(index, len(self._emoji_records)))
+            self._emoji_records.insert(index, cmd)
+            artist = self._build_emoji_artist(cmd)
+            cmd.artist = artist
+            self._emoji_annotations.insert(index, artist)
+            self._apply_drawing_visibility("emojis", artist)
+            return
+        self.history.document_insert(index, cmd)
+        self._rebuild_artist(cmd)
+
+    def _refresh_artist(self, cmd) -> None:
+        """Re-renderiza um comando cuja GEOMETRIA mudou (move/vértice).
+
+        Remove o artista atual e reconstrói pela fonte única de cada tipo,
+        preservando a posição do emoji nas listas paralelas. NÃO chama draw().
+        """
+        if isinstance(cmd, EmojiCommand):
+            old = cmd.artist
+            try:
+                pos = self._emoji_annotations.index(old)
+            except ValueError:
+                pos = len(self._emoji_annotations)
+            self._remove_command_artist(cmd)
+            artist = self._build_emoji_artist(cmd)
+            cmd.artist = artist
+            self._emoji_annotations.insert(pos, artist)
+            self._apply_drawing_visibility("emojis", artist)
+            return
+        self._remove_command_artist(cmd)
+        self._rebuild_artist(cmd)
 
     def _rebuild_artist(self, cmd) -> None:
         """Cria o artista matplotlib de um comando e o registra na lista interna.
@@ -2692,6 +3475,7 @@ class MapCanvas(FigureCanvas):
                 cmd.points_y,
                 DrawStyle.from_dict(cmd.style),
                 head_size_deg=cmd.head_size_deg,
+                rotation_deg=cmd.rotation_deg,
                 transform=ccrs.PlateCarree(),
             )
             cmd.artist = artist
@@ -2909,6 +3693,7 @@ class MapCanvas(FigureCanvas):
         self._clear_ruler()
         self._snap_hover_xy = None
         self.clear_snap_marker()
+        self.clear_edit_selection()
         self.history.clear()
         # Desenhos apagados → toggles de visibilidade re-armados
         self._drawings_visible = dict.fromkeys(self._drawings_visible, True)
@@ -3348,15 +4133,18 @@ class MapCanvas(FigureCanvas):
         self.draw()
 
     def remove_last_annotation(self) -> None:
-        """Remove a última anotação adicionada."""
-        if self._annotations:
-            txt = self._annotations.pop()
-            with contextlib.suppress(ValueError, AttributeError):
-                txt.remove()
-            self.draw()
+        """Remove a última anotação adicionada (artista E comando do documento).
+
+        Antes só o artista sumia — o ``AnnotationCommand`` ficava no histórico
+        e a anotação "apagada" ressuscitava ao salvar/reabrir o projeto.
+        """
+        self._remove_last_drawing_of((AnnotationCommand,))
 
     def clear_annotations(self) -> None:
-        """Remove todas as anotações."""
+        """Remove todas as anotações (artistas + documento + operações)."""
+        while (cmd := self.history.remove_last_of((AnnotationCommand,))) is not None:
+            self._forget_command(cmd)
+        # Sobras defensivas: artista de anotação sem comando correspondente.
         for txt in self._annotations:
             with contextlib.suppress(ValueError, AttributeError):
                 txt.remove()
@@ -3410,11 +4198,15 @@ class MapCanvas(FigureCanvas):
         except Exception:
             return None
 
-    def add_emoji(self, lon: float, lat: float, emoji: str, fontsize: int = 28) -> None:
-        """Coloca um emoji meteorológico no mapa na posição (lon, lat)."""
+    def _build_emoji_artist(self, cmd: EmojiCommand) -> object:
+        """Cria (sem registrar) o artista de um EmojiCommand na posição do comando.
+
+        Fonte única do artista de emoji — usada pela criação (``add_emoji``) e
+        pela reconstrução do modo edição (apagar/mover + undo/redo).
+        """
         from matplotlib.offsetbox import AnnotationBbox, OffsetImage
 
-        arr = self._render_emoji_image(emoji, fontsize)
+        arr = self._render_emoji_image(cmd.emoji, cmd.fontsize)
         if arr is not None:
             # OffsetImage zoom=1 → displayed at fontsize*2 screen pixels;
             # zoom=0.5 brings it back to ~fontsize screen pixels.
@@ -3425,7 +4217,7 @@ class MapCanvas(FigureCanvas):
             # _remove_method so that artist.remove() works correctly.
             artist: object = AnnotationBbox(
                 im,
-                (lon, lat),
+                (cmd.x, cmd.y),
                 xycoords="data",
                 frameon=False,
                 zorder=26,
@@ -3436,22 +4228,26 @@ class MapCanvas(FigureCanvas):
         else:
             # Fallback: plain text (monochrome, but better than nothing)
             artist = self.ax.text(
-                lon,
-                lat,
-                emoji,
-                fontsize=fontsize,
+                cmd.x,
+                cmd.y,
+                cmd.emoji,
+                fontsize=cmd.fontsize,
                 ha="center",
                 va="center",
                 transform=ccrs.PlateCarree(),
                 zorder=26,
                 clip_on=True,
             )
+        return artist
+
+    def add_emoji(self, lon: float, lat: float, emoji: str, fontsize: int = 28) -> None:
+        """Coloca um emoji meteorológico no mapa na posição (lon, lat)."""
+        cmd = EmojiCommand(x=float(lon), y=float(lat), emoji=emoji, fontsize=int(fontsize))
+        artist = self._build_emoji_artist(cmd)
+        cmd.artist = artist
         self._emoji_annotations.append(artist)
-        self._emoji_records.append(
-            EmojiCommand(
-                x=float(lon), y=float(lat), emoji=emoji, fontsize=int(fontsize), artist=artist
-            )
-        )
+        self._apply_drawing_visibility("emojis", artist)
+        self._emoji_records.append(cmd)
         self.draw()
 
     def _remove_emoji_artist(self, artist: object) -> None:
@@ -3471,18 +4267,23 @@ class MapCanvas(FigureCanvas):
 
     def remove_last_emoji(self) -> None:
         """Desfaz o último emoji colocado."""
-        if self._emoji_annotations:
+        if self._emoji_records:
+            # _forget_command remove o artista das listas paralelas junto.
+            self._forget_command(self._emoji_records.pop())
+            self.draw()
+        elif self._emoji_annotations:  # sobra defensiva: artista sem comando
             self._remove_emoji_artist(self._emoji_annotations.pop())
-            if self._emoji_records:
-                self._emoji_records.pop()
             self.draw()
 
     def clear_emojis(self) -> None:
         """Remove todos os emojis do mapa."""
+        for cmd in list(self._emoji_records):
+            self._forget_command(cmd)
+        self._emoji_records.clear()
+        # Sobras defensivas: artistas sem comando correspondente.
         for artist in self._emoji_annotations:
             self._remove_emoji_artist(artist)
         self._emoji_annotations.clear()
-        self._emoji_records.clear()
         self.draw()
 
     # ═══════════════════════════════════════════════════════════════════════

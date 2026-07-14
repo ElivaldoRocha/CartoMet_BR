@@ -147,6 +147,10 @@ class MainWindow(QMainWindow):
         self._last_loczcit_result = None
         self._animation_controller = None  # orquestrador da animação de steps
         self._animation_dialog = None
+        # Autoria leve do projeto aberto/salvo (fluxo A→B): autor original +
+        # trilha de revisões ({"name","saved_at"}). Zera em "Limpar mapa".
+        self._project_authorship: dict = {"author": None, "revisions": []}
+        self._analyst_prompt_declined = False  # cancelou o nome → não re-pergunta na sessão
 
         self.setWindowTitle(f"{APP_NAME} — {APP_DESCRIPTION}")
         self.setMinimumSize(1200, 800)
@@ -448,6 +452,22 @@ class MainWindow(QMainWindow):
         self.draw_mode_btn.clicked.connect(self._toggle_draw_mode)
         toolbar.addWidget(self.draw_mode_btn)
 
+        self.edit_mode_btn = QPushButton("🖱 Editar")
+        self.edit_mode_btn.setCheckable(True)
+        self.edit_mode_btn.setToolTip(
+            "Selecione um desenho já traçado clicando nele (atalho S).\n"
+            "Delete/Backspace apaga; arraste move; quadradinhos ajustam vértices;\n"
+            "a alça ○ acima de uma forma a GIRA ao redor do centro (Shift = 15°).\n"
+            "Esc desmarca; [Z] desfaz. Ideal para corrigir a análise recebida\n"
+            "de outro meteorologista."
+        )
+        self.edit_mode_btn.setStyleSheet("""
+            QPushButton { background-color: #B9770E; padding: 6px 14px; font-size: 11px; }
+            QPushButton:checked { background-color: #E74C3C; }
+        """)
+        self.edit_mode_btn.clicked.connect(self._toggle_edit_mode)
+        toolbar.addWidget(self.edit_mode_btn)
+
         self.annotate_btn = QPushButton("Aa Anotar")
         self.annotate_btn.setCheckable(True)
         self.annotate_btn.setStyleSheet("""
@@ -655,6 +675,7 @@ class MainWindow(QMainWindow):
         self.symbol_panel.shape_undo_requested.connect(self.canvas.remove_last_shape)
         self.symbol_panel.drawings_visibility_toggled.connect(self.canvas.set_drawings_visible)
         self.symbol_panel.snap_toggled.connect(self.canvas.set_snap_enabled)
+        self.canvas.edit_selection_changed.connect(self._on_edit_selection_changed)
         self.canvas.shape_draft_changed.connect(self._on_shape_draft_changed)
 
         self.canvas.point_added.connect(self._on_point_added)
@@ -864,10 +885,48 @@ class MainWindow(QMainWindow):
         elif self.canvas.interaction_mode == "shape":
             self._show_shape_status(self.canvas.shape_tool)
 
+    def _toggle_edit_mode(self, checked: bool) -> None:
+        """Liga/desliga o modo edição (selecionar/apagar desenhos finalizados)."""
+        if checked:
+            self._disable_other_click_modes(keep="edit")
+            self.canvas.set_edit_mode(True)
+            self._show_edit_status()
+        else:
+            self.canvas.set_edit_mode(False)
+            self.status_label.setText("● Pronto")
+            self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _show_edit_status(self) -> None:
+        self.status_label.setText("● Edição — clique num desenho para selecioná-lo")
+        self.status_label.setStyleSheet("color: #B9770E;")
+
+    def _on_edit_selection_changed(self, desc: str) -> None:
+        """Barra de status acompanha a seleção do modo edição."""
+        if self.canvas.interaction_mode != "edit":
+            return
+        if desc:
+            self.status_label.setText(f"● Edição — {desc} (Delete apaga · Esc desmarca)")
+            self.status_label.setStyleSheet("color: #B9770E;")
+        else:
+            self._show_edit_status()
+
+    def _delete_selected_drawing(self) -> None:
+        """Delete/Backspace: apaga o desenho selecionado (só no modo edição)."""
+        if self.canvas.interaction_mode == "edit":
+            self.canvas.delete_selected_drawing()
+
+    def _uncheck_edit_button(self) -> None:
+        """Desativa o modo edição (exclusividade com os demais modos de clique)."""
+        btn = getattr(self, "edit_mode_btn", None)
+        if btn is not None and btn.isChecked():
+            btn.setChecked(False)
+        self.canvas.set_edit_mode(False)
+
     def _on_escape(self) -> None:
-        """Esc cancela o retângulo de zoom E qualquer rascunho de caneta/forma."""
+        """Esc cancela zoom/rascunhos e desmarca a seleção do modo edição."""
         self.canvas.cancel_rectangle()
         self.canvas.cancel_active_draft()
+        self.canvas.clear_edit_selection()
 
     def _uncheck_zoom_buttons(self) -> None:
         """Desativa botões de zoom/pan (exclusividade com desenho/anotação/etc.)."""
@@ -877,6 +936,7 @@ class MainWindow(QMainWindow):
         self.canvas.set_zoom_area_mode(False)
         self.canvas.set_pan_mode(False)
         self._uncheck_sounding_button()
+        self._uncheck_edit_button()
 
     def _uncheck_draw_buttons(self) -> None:
         """Desativa botões de desenho/anotação/régua/emoji ao entrar em zoom/pan."""
@@ -897,6 +957,7 @@ class MainWindow(QMainWindow):
         if hasattr(self.symbol_panel, "reset_shapes_mode"):
             self.symbol_panel.reset_shapes_mode()
         self._uncheck_sounding_button()
+        self._uncheck_edit_button()
 
     def _uncheck_sounding_button(self) -> None:
         """Desativa as análises de clique (Sonda Vertical, Meteograma, Corte).
@@ -957,6 +1018,9 @@ class MainWindow(QMainWindow):
             if btn is not None and btn.isChecked():
                 btn.setChecked(False)
             setter(False)
+        # Modo edição (a menos que seja ele o ativado).
+        if keep != "edit":
+            self._uncheck_edit_button()
 
     def _toggle_zoom_area_mode(self, checked: bool) -> None:
         if checked:
@@ -1592,6 +1656,13 @@ class MainWindow(QMainWindow):
         ctrl0.activated.connect(self._figure_zoom_fit)
         esc = QShortcut(QKeySequence("Esc"), self)
         esc.activated.connect(self._on_escape)
+        # Modo edição: S alterna; Delete/Backspace apagam o desenho selecionado
+        # (com guarda — só agem quando o modo edição está ativo).
+        edit_sc = QShortcut(QKeySequence("S"), self)
+        edit_sc.activated.connect(self.edit_mode_btn.click)
+        for key in ("Delete", "Backspace"):
+            del_sc = QShortcut(QKeySequence(key), self)
+            del_sc.activated.connect(self._delete_selected_drawing)
 
     def _on_previous_extent(self) -> None:
         self.canvas.previous_extent()
@@ -3294,6 +3365,7 @@ class MainWindow(QMainWindow):
                 }
             )
 
+        author, revisions = self._authorship_for_save()
         project = project_io.build_project(
             extent=list(self.config.extent),
             theme=self.canvas.current_theme,
@@ -3313,6 +3385,9 @@ class MainWindow(QMainWindow):
             # Rosas dos ventos fixadas: dado já binado (abrir não dispara rede).
             wind_roses=self.canvas.export_wind_roses(),
             app_version=APP_VERSION,
+            # Autoria leve (v4): autor original preservado + revisão desta gravação.
+            author=author,
+            revisions=revisions,
         )
         try:
             path.write_text(project_io.dump_project(project), encoding="utf-8")
@@ -3325,6 +3400,43 @@ class MainWindow(QMainWindow):
             return
         self.status_label.setText(f"● Projeto salvo: {path.name}")
         self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _get_analyst_name(self) -> str | None:
+        """Nome do analista (QSettings); pergunta UMA vez se ainda não houver.
+
+        Cancelar o diálogo salva sem autor e não re-pergunta na sessão.
+        """
+        settings = QSettings("PPGGRD-UFPA", APP_NAME)
+        name = str(settings.value("project/analyst_name", "") or "").strip()
+        if name:
+            return name
+        if self._analyst_prompt_declined:
+            return None
+        text, ok = QInputDialog.getText(
+            self,
+            "Nome do Analista",
+            "Seu nome (assina a autoria/revisões do projeto .cmbr).\n"
+            "Fica salvo nas preferências — pergunta única:",
+        )
+        text = (text or "").strip()
+        if not ok or not text:
+            self._analyst_prompt_declined = True
+            return None
+        settings.setValue("project/analyst_name", text)
+        return text
+
+    def _authorship_for_save(self) -> tuple[str | None, list[dict]]:
+        """Autoria desta gravação: preserva o autor original e appenda a revisão."""
+        from cartomet_br.gui import project_io
+
+        name = self._get_analyst_name()
+        author = self._project_authorship.get("author") or name
+        revisions = list(self._project_authorship.get("revisions") or [])
+        if name:
+            revisions.append(project_io.make_revision(name))
+        # O estado em memória passa a refletir o arquivo recém-salvo.
+        self._project_authorship = {"author": author, "revisions": revisions}
+        return author, revisions
 
     def _open_project(self):
         """Abre um .cmbr e restaura o traçado + enquadramento. NÃO baixa dados."""
@@ -3346,6 +3458,10 @@ class MainWindow(QMainWindow):
         except (OSError, project_io.ProjectError) as e:
             QMessageBox.warning(self, "Abrir Projeto", f"Não foi possível abrir o projeto:\n\n{e}")
             return
+
+        # Autoria leve (v4; ≤v3 abre com defaults) — próxima gravação appenda
+        # a revisão do usuário atual preservando o autor original.
+        self._project_authorship = project_io.read_authorship(data)
 
         mp = data.get("map", {}) or {}
         theme = mp.get("theme") or self.canvas.current_theme
@@ -3381,6 +3497,7 @@ class MainWindow(QMainWindow):
             n_layers,
             missed,
             reactivate,
+            authorship=self._project_authorship,
         )
         self.status_label.setText(f"● Projeto aberto: {Path(filepath).name}")
         self.status_label.setStyleSheet("color: #27AE60;")
@@ -3505,18 +3622,26 @@ class MainWindow(QMainWindow):
         n_layers: int = 0,
         missed: list | None = None,
         reactivate: list | None = None,
+        authorship: dict | None = None,
     ) -> None:
-        """Resumo da abertura: traçados restaurados, camadas redesenhadas do cache,
-        o que ficou fora do cache, as camadas memorizadas p/ reativação manual, e a
-        rodada/step do projeto. Nunca baixa nada."""
+        """Resumo da abertura: autoria, traçados restaurados, camadas redesenhadas
+        do cache, o que ficou fora do cache, as camadas memorizadas p/ reativação
+        manual, e a rodada/step do projeto. Nunca baixa nada."""
         missed = missed or []
         reactivate = reactivate or []
         plural = lambda n: "s" if n != 1 else ""  # noqa: E731
 
+        linhas = []
+        autoria = self._format_authorship(authorship)
+        if autoria:
+            linhas.append(autoria)
+
         if n_drawings > 0:
-            linhas = [f"{n_drawings} traçado{plural(n_drawings)} restaurado{plural(n_drawings)}."]
+            linhas.append(
+                f"{n_drawings} traçado{plural(n_drawings)} restaurado{plural(n_drawings)}."
+            )
         else:
-            linhas = ["Este projeto não contém traçados."]
+            linhas.append("Este projeto não contém traçados.")
 
         if n_layers > 0:
             linhas.append(
@@ -3558,6 +3683,25 @@ class MainWindow(QMainWindow):
             "Projeto aberto",
             f"{restaurado}\n\nProjeto feito para:\n  {' · '.join(partes)}{nota}",
         )
+
+    @staticmethod
+    def _format_authorship(authorship: dict | None) -> str:
+        """Linha "Análise de: A · Revisões: A (data), B (data)" (ou "" se anônimo)."""
+        if not authorship:
+            return ""
+        author = authorship.get("author")
+        revisions = authorship.get("revisions") or []
+        partes = []
+        if author:
+            partes.append(f"Análise de: {author}")
+        if revisions:
+            revs = ", ".join(
+                f"{r.get('name', '?')} ({str(r.get('saved_at', ''))[:10]})" for r in revisions[-4:]
+            )
+            if len(revisions) > 4:
+                revs = "… " + revs
+            partes.append(f"Revisões: {revs}")
+        return " · ".join(partes)
 
     def _layer_label(self, spec: dict) -> str:
         """Rótulo humano de uma camada (p/ as listas de status da abertura)."""
@@ -3792,6 +3936,7 @@ class MainWindow(QMainWindow):
         # 3) Desliga modos de interação e solta os botões da toolbar
         for btn in (
             getattr(self, "draw_mode_btn", None),
+            getattr(self, "edit_mode_btn", None),
             getattr(self, "annotate_btn", None),
             getattr(self, "ruler_btn", None),
             getattr(self, "zoom_area_btn", None),
@@ -3800,10 +3945,14 @@ class MainWindow(QMainWindow):
             if btn is not None:
                 btn.setChecked(False)
         self.canvas.set_drawing_mode(False)
+        self.canvas.set_edit_mode(False)
         self.canvas.set_annotation_mode(False)
         self.canvas.set_ruler_mode(False)
         self.canvas.set_zoom_area_mode(False)
         self.canvas.set_pan_mode(False)
+
+        # Mapa limpo = análise nova → zera a autoria herdada do projeto anterior.
+        self._project_authorship = {"author": None, "revisions": []}
 
         self.status_label.setText("● Mapa limpo")
         self.status_label.setStyleSheet("color: #27AE60;")

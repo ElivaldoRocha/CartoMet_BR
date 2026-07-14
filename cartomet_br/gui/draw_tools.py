@@ -149,14 +149,108 @@ class PenCommand:
 
 @dataclass
 class ShapeCommand:
-    """Forma inserida (rect/ellipse/arrow/line: [x0,x1]; polygon: vértices)."""
+    """Forma inserida (rect/ellipse/arrow/line: [x0,x1]; polygon: vértices).
+
+    ``rotation_deg`` só é usado por rect/ellipse (geometria presa à diagonal
+    alinhada a eixos): o anel é girado ao redor do ponto médio da diagonal no
+    render/hit. line/arrow/polygon têm vértices livres — a rotação é ASSADA
+    direto em ``points_x/points_y`` e o campo permanece 0.
+    """
 
     tool: str
     points_x: list[float]
     points_y: list[float]
     style: dict
     head_size_deg: float = 0.0  # escala da ponta da seta congelada no finalize
+    rotation_deg: float = 0.0  # rect/ellipse: giro anti-horário ao redor do centro
     artist: object = field(default=None, repr=False)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  OPERAÇÕES DE HISTÓRICO (modo edição — undo/redo sobre desenhos JÁ finalizados)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Com o modo edição, a pilha de undo/redo deixa de guardar os comandos em si e
+# passa a guardar OPERAÇÕES sobre eles: criar, apagar, mover, editar vértice.
+# O documento (conjunto vivo de desenhos) fica separado, em ``DrawingHistory``.
+# As operações de geometria guardam CÓPIAS COMPLETAS (não deltas): soma de
+# float não é bit-exata e quebraria as junções do ímã ao desfazer um arraste.
+
+
+@dataclass
+class CreateOp:
+    """Criação de um desenho (o push clássico)."""
+
+    cmd: object
+
+
+@dataclass
+class DeleteOp:
+    """Remoção de um desenho específico (modo edição)."""
+
+    cmd: object
+    index: int  # posição no documento, p/ reinserção na ordem original no undo
+
+
+@dataclass
+class MoveOp:
+    """Translação de um desenho inteiro (modo edição)."""
+
+    cmd: object
+    old_x: list[float]
+    old_y: list[float]
+    new_x: list[float]
+    new_y: list[float]
+
+
+@dataclass
+class EditVertexOp:
+    """Reposicionamento de UM vértice de um desenho (modo edição)."""
+
+    cmd: object
+    vertex: int
+    old_xy: tuple[float, float]
+    new_xy: tuple[float, float]
+
+
+@dataclass
+class RotateOp:
+    """Rotação de uma forma rect/ellipse (campo ``rotation_deg``; modo edição).
+
+    Formas de vértices livres (line/arrow/polygon) NÃO usam esta operação: a
+    rotação delas é assada nos pontos e desfeita por ``MoveOp`` (cópias).
+    """
+
+    cmd: object
+    old_deg: float
+    new_deg: float
+
+
+def get_command_geometry(cmd: object) -> tuple[list[float], list[float]]:
+    """Geometria CRUA (cópia) de um comando, como par de listas lon/lat.
+
+    Comandos de linha devolvem seus vértices; os pontuais (símbolo, texto,
+    emoji), a âncora como lista de 1 elemento. Par simétrico de
+    ``set_command_geometry`` — juntos são a interface única do executor de
+    operações e do modo edição.
+    """
+    if isinstance(cmd, (DrawCommand, PenCommand, ShapeCommand)):
+        return list(cmd.points_x), list(cmd.points_y)
+    if isinstance(cmd, (PointCommand, AnnotationCommand, EmojiCommand)):
+        return [float(cmd.x)], [float(cmd.y)]
+    raise TypeError(f"comando sem geometria editável: {type(cmd).__name__}")
+
+
+def set_command_geometry(cmd: object, xs: list[float], ys: list[float]) -> None:
+    """Aplica uma geometria COPIADA a um comando (listas ou âncora escalar)."""
+    if isinstance(cmd, (DrawCommand, PenCommand, ShapeCommand)):
+        cmd.points_x = list(xs)
+        cmd.points_y = list(ys)
+    elif isinstance(cmd, (PointCommand, AnnotationCommand, EmojiCommand)):
+        cmd.x = float(xs[0])
+        cmd.y = float(ys[0])
+    else:
+        raise TypeError(f"comando sem geometria editável: {type(cmd).__name__}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -164,14 +258,18 @@ class ShapeCommand:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def build_rectangle_ring(x0: float, y0: float, x1: float, y1: float):
+def build_rectangle_ring(
+    x0: float, y0: float, x1: float, y1: float
+) -> tuple[list[float], list[float]]:
     """Anel fechado de 5 pontos do retângulo definido pela diagonal (x0,y0)-(x1,y1)."""
     xs = [x0, x1, x1, x0, x0]
     ys = [y0, y0, y1, y1, y0]
     return xs, ys
 
 
-def build_ellipse_ring(x0: float, y0: float, x1: float, y1: float, n: int = 120):
+def build_ellipse_ring(
+    x0: float, y0: float, x1: float, y1: float, n: int = 120
+) -> tuple[list[float], list[float]]:
     """Anel paramétrico fechado da elipse inscrita na caixa (x0,y0)-(x1,y1).
 
     n pontos com fechamento (último == primeiro) — só segmentos retos, sem
@@ -205,7 +303,7 @@ def build_arrow_geometry(x0: float, y0: float, x1: float, y1: float, head_size_d
     return shaft_xs, shaft_ys, head_verts
 
 
-def close_polygon_ring(xs: list[float], ys: list[float]):
+def close_polygon_ring(xs: list[float], ys: list[float]) -> tuple[list[float], list[float]]:
     """Fecha o anel do polígono repetindo o primeiro vértice no final."""
     if not xs:
         return list(xs), list(ys)
@@ -219,6 +317,38 @@ def close_polygon_ring(xs: list[float], ys: list[float]):
 def default_arrow_head_size(extent_width_deg: float, linewidth: float) -> float:
     """Escala padrão da ponta da seta, proporcional ao domínio e à espessura."""
     return float(extent_width_deg) * 0.018 * max(1.0, float(linewidth) / 2.0)
+
+
+def rotate_points(
+    xs: list[float], ys: list[float], cx: float, cy: float, deg: float
+) -> tuple[list[float], list[float]]:
+    """Gira os pontos ``deg`` graus (anti-horário) ao redor de (cx, cy).
+
+    Rotação em COORDENADAS DE DADOS: no GeoAxes PlateCarree o aspecto é igual
+    em graus (mesmo precedente de ``build_arrow_geometry``), então o ângulo em
+    dados coincide com o ângulo na tela.
+    """
+    if not deg:
+        return list(xs), list(ys)
+    rad = math.radians(deg)
+    cos_r, sin_r = math.cos(rad), math.sin(rad)
+    out_x, out_y = [], []
+    for x, y in zip(xs, ys, strict=True):
+        dx, dy = x - cx, y - cy
+        out_x.append(cx + dx * cos_r - dy * sin_r)
+        out_y.append(cy + dx * sin_r + dy * cos_r)
+    return out_x, out_y
+
+
+def shape_rotation_center(cmd: ShapeCommand) -> tuple[float, float]:
+    """Centro de rotação de uma forma: meio da diagonal/extremos; polygon = média."""
+    if cmd.tool == "polygon":
+        n = max(1, len(cmd.points_x))
+        return sum(cmd.points_x) / n, sum(cmd.points_y) / n
+    return (
+        (cmd.points_x[0] + cmd.points_x[-1]) / 2.0,
+        (cmd.points_y[0] + cmd.points_y[-1]) / 2.0,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -294,12 +424,15 @@ def create_shape_artist(
     points_y: list[float],
     style: DrawStyle,
     head_size_deg: float = 0.0,
+    rotation_deg: float = 0.0,
     transform=None,
 ):
     """Cria o(s) artista(s) finais de uma forma. Fonte única p/ finalize E redo.
 
     rect/ellipse/line/arrow: points = [x0, x1] / [y0, y1] (diagonal ou extremos).
     polygon: points = vértices clicados (anel é fechado aqui).
+    ``rotation_deg`` gira o anel de rect/ellipse ao redor do meio da diagonal
+    (nos demais a rotação já vem assada nos pontos e o parâmetro é ignorado).
     Retorna Line2D (forma simples sem fill) ou ShapeArtistGroup (composta).
     """
     line_kwargs = {
@@ -340,6 +473,13 @@ def create_shape_artist(
         xs, ys = close_polygon_ring(points_x, points_y)
     else:
         raise ValueError(f"Ferramenta de forma desconhecida: {tool!r}")
+
+    # Rotação (só rect/ellipse chegam aqui com rotation_deg ≠ 0): o contorno e
+    # o fill compartilham o MESMO anel girado ao redor do meio da diagonal.
+    if rotation_deg and tool in ("rect", "ellipse"):
+        cx = (points_x[0] + points_x[-1]) / 2.0
+        cy = (points_y[0] + points_y[-1]) / 2.0
+        xs, ys = rotate_points(xs, ys, cx, cy, rotation_deg)
 
     (outline,) = ax.plot(xs, ys, **line_kwargs)
     if style.fill_color:
