@@ -53,3 +53,29 @@ def config_amsul(tmp_data_dir, tmp_output_dir):
         data_dir=tmp_data_dir,
         output_dir=tmp_output_dir,
     )
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """QApplication offscreen compartilhada (singleton do processo)."""
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"PyQt6 indisponível: {exc}")
+    app = QApplication.instance() or QApplication([])
+    yield app
+
+
+@pytest.fixture
+def canvas(qapp, config_brasil):
+    """MapCanvas offscreen sobre o config Brasil — fixture única dos testes de GUI.
+
+    Fonte única (era copiada em ~12 arquivos): mudanças na construção do
+    MapCanvas se propagam daqui.
+    """
+    from cartomet_br.gui.map_canvas import MapCanvas
+
+    try:
+        return MapCanvas(config=config_brasil)
+    except Exception as exc:  # noqa: BLE001 — ambiente sem render
+        pytest.skip(f"MapCanvas não pôde ser criado offscreen: {exc}")
