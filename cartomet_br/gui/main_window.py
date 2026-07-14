@@ -654,6 +654,7 @@ class MainWindow(QMainWindow):
         self.symbol_panel.shape_style_changed.connect(self.canvas.set_shape_style)
         self.symbol_panel.shape_undo_requested.connect(self.canvas.remove_last_shape)
         self.symbol_panel.drawings_visibility_toggled.connect(self.canvas.set_drawings_visible)
+        self.symbol_panel.snap_toggled.connect(self.canvas.set_snap_enabled)
         self.canvas.shape_draft_changed.connect(self._on_shape_draft_changed)
 
         self.canvas.point_added.connect(self._on_point_added)

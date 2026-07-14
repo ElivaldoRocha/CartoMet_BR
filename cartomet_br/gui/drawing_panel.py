@@ -191,6 +191,8 @@ class SymbologyPanel(QWidget):
     # Toggle de visibilidade de um grupo de desenhos: ("symbology"|"emojis"|
     # "annotations", visível). Esconde/mostra na carta SEM apagar nada.
     drawings_visibility_toggled = pyqtSignal(str, bool)
+    # Ímã de vértices entre frentes: clique adere ao vértice de frente próxima
+    snap_toggled = pyqtSignal(bool)
 
     current_key: str
     buttons: dict[str, SymbolButton]
@@ -199,6 +201,7 @@ class SymbologyPanel(QWidget):
     status_label: QLabel
     points_label: QLabel
     flip_check: QCheckBox
+    snap_check: QCheckBox
     _sat_insert_index: int
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -285,6 +288,21 @@ class SymbologyPanel(QWidget):
         flip_layout.addWidget(self.flip_check)
         flip_layout.addStretch()
         layout.addLayout(flip_layout)
+
+        # Ímã (aderência): ao desenhar uma frente, o clique gruda no vértice
+        # de frente já traçada — junção exata, como na carta oficial.
+        snap_layout = QHBoxLayout()
+        snap_layout.addWidget(QLabel("[I] Ímã:"))
+        self.snap_check = QCheckBox()
+        self.snap_check.setChecked(True)
+        self.snap_check.setToolTip(
+            "Aderência entre frentes: o clique gruda no vértice de uma\n"
+            "frente já desenhada (inicial, final ou intermediário)."
+        )
+        self.snap_check.stateChanged.connect(self._on_snap_changed)
+        snap_layout.addWidget(self.snap_check)
+        snap_layout.addStretch()
+        layout.addLayout(snap_layout)
 
         # Intensidade (visível só para símbolos que a suportam, ex.: ZCIT)
         self.intensity_row = QWidget()
@@ -474,6 +492,7 @@ class SymbologyPanel(QWidget):
                 lambda k=key: self._select_symbol(k)
             )
         QShortcut(QKeySequence("F"), self).activated.connect(self._toggle_flip)
+        QShortcut(QKeySequence("I"), self).activated.connect(self._toggle_snap)
         QShortcut(QKeySequence("Return"), self).activated.connect(self.finalize_requested.emit)
         QShortcut(QKeySequence("Z"), self).activated.connect(self.undo_requested.emit)
         QShortcut(QKeySequence("Y"), self).activated.connect(self.redo_requested.emit)
@@ -537,6 +556,12 @@ class SymbologyPanel(QWidget):
 
     def _toggle_flip(self) -> None:
         self.flip_check.setChecked(not self.flip_check.isChecked())
+
+    def _on_snap_changed(self, state: int) -> None:
+        self.snap_toggled.emit(state == Qt.CheckState.Checked.value)
+
+    def _toggle_snap(self) -> None:
+        self.snap_check.setChecked(not self.snap_check.isChecked())
 
     def update_points(self, count: int) -> None:
         self.points_label.setText(f"Pontos: {count}")

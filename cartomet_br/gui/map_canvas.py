@@ -121,6 +121,13 @@ WIND_DENSITY_SKIP: dict[str, int] = {"baixa": 12, "media": 8, "alta": 5}
 DEFAULT_WIND_COLOR: str = "gray"
 DEFAULT_WIND_DENSITY: str = "media"
 
+# Ímã de vértices entre frentes (aderência): ao desenhar uma frente, o clique
+# gruda no vértice cru mais próximo de uma frente já traçada — junção exata,
+# como nas cartas sinóticas oficiais (estacionária nascendo no fim da fria,
+# quente saindo de vértice intermediário). Raio de captura em PIXELS de tela
+# (independe do zoom); só frentes participam (origem e alvo).
+FRONT_SYMBOL_KEYS: frozenset[str] = frozenset({"1", "2", "3", "4"})
+SNAP_RADIUS_PX: float = 12.0
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SISTEMA DE UNDO/REDO (Padrão Command)
@@ -289,6 +296,10 @@ class MapCanvas(FigureCanvas):
             "emojis": True,
             "annotations": True,
         }
+        # Ímã de vértices entre frentes (aderência). Estado de sessão.
+        self._snap_enabled: bool = True
+        self._snap_marker = None  # anel de hover do candidato (Line2D)
+        self._snap_hover_xy: tuple[float, float] | None = None
         # Mobília de "carta OMM" (F7) — cabeçalho institucional + legenda dos
         # símbolos. Só existe transitoriamente, em volta do export; nunca é
         # desenhada na edição ao vivo. Guardada aqui só p/ poder remover depois.
@@ -474,6 +485,8 @@ class MapCanvas(FigureCanvas):
         self._loczcit_axis_artists = []
         self._blocking_artists = []
         self._blocking_colorbar = None
+        self._snap_marker = None
+        self._snap_hover_xy = None
         self.history.clear()
 
         self.ax.clear()
@@ -1930,10 +1943,20 @@ class MapCanvas(FigureCanvas):
             if modo.get("ponto", False):
                 self._place_point_symbol(event.xdata, event.ydata)
             else:
-                self.points_x.append(event.xdata)
-                self.points_y.append(event.ydata)
-                self.point_added.emit(event.xdata, event.ydata)
+                x, y = event.xdata, event.ydata
+                # Ímã: desenhando uma frente, o clique perto de um vértice de
+                # outra frente adere à coordenada EXATA (junção sem vão).
+                if self._snap_enabled and self.current_symbol in FRONT_SYMBOL_KEYS:
+                    target = self._find_snap_target(event.x, event.y)
+                    if target is not None:
+                        x, y = target
+                self.points_x.append(x)
+                self.points_y.append(y)
+                self.point_added.emit(x, y)
                 self._update_preview()
+
+        elif self.interaction_mode == "edit":
+            self._on_edit_click(event)
 
         elif self.interaction_mode == "annotate":
             self._request_annotation(event.xdata, event.ydata)
@@ -2083,6 +2106,104 @@ class MapCanvas(FigureCanvas):
                 marker.remove()
             self.draw()
 
+    # ─── Ímã de vértices entre frentes (aderência) ───────────────────────────
+
+    def set_snap_enabled(self, enabled: bool) -> None:
+        """Liga/desliga o ímã de vértices (checkbox "[I] Ímã" da aba Simbologias)."""
+        self._snap_enabled = bool(enabled)
+        if not self._snap_enabled:
+            self._snap_hover_xy = None
+            self.clear_snap_marker()
+
+    def _snap_candidates(self, exclude_cmd: object = None) -> list[tuple[float, float]]:
+        """Vértices CRUS (cliques originais) de todas as frentes já traçadas.
+
+        Fonte: ``history.commands`` (só a pilha ativa — linha desfeita não é
+        alvo). NUNCA ler ``line.get_xdata()``: o artista carrega a spline
+        interpolada (150 pts), não os vértices. Com o grupo "symbology" oculto
+        não há candidatos — não se adere ao que não se vê. ``exclude_cmd``
+        tira uma frente do jogo (arrastar vértice não pode aderir a si mesma).
+        """
+        if not self._drawings_visible.get("symbology", True):
+            return []
+        return [
+            (float(x), float(y))
+            for cmd in self.history.commands
+            if (
+                isinstance(cmd, DrawCommand)
+                and cmd.symbol_key in FRONT_SYMBOL_KEYS
+                and cmd is not exclude_cmd
+            )
+            for x, y in zip(cmd.points_x, cmd.points_y, strict=True)
+        ]
+
+    def _find_snap_target(
+        self, px: float, py: float, exclude_cmd: object = None
+    ) -> tuple[float, float] | None:
+        """Vértice de frente mais próximo do pixel (px, py), dentro do raio.
+
+        Distância medida em PIXELS de tela (``transData``) — o alvo de captura
+        acompanha o zoom. Devolve o par lon/lat ORIGINAL do vértice (cópia
+        exata → junção bit a bit, que sobrevive ao round-trip do ``.cmbr``).
+        """
+        candidates = self._snap_candidates(exclude_cmd)
+        if not candidates:
+            return None
+        pts = self.ax.transData.transform(np.asarray(candidates))
+        d2 = (pts[:, 0] - px) ** 2 + (pts[:, 1] - py) ** 2
+        d2 = np.where(np.isfinite(d2), d2, np.inf)
+        i = int(np.argmin(d2))
+        if d2[i] <= SNAP_RADIUS_PX**2:
+            return candidates[i]
+        return None
+
+    def _show_snap_marker(self, lon: float, lat: float) -> None:
+        """Acende o anel dourado sobre o vértice-candidato do ímã."""
+        self.clear_snap_marker()
+        (marker,) = self.ax.plot(
+            lon,
+            lat,
+            marker="o",
+            markersize=14,
+            markerfacecolor="none",
+            markeredgecolor="#F1C40F",
+            markeredgewidth=2.2,
+            transform=ccrs.PlateCarree(),
+            zorder=26,
+        )
+        self._snap_marker = marker
+        self.draw_idle()
+
+    def clear_snap_marker(self) -> None:
+        """Apaga o anel do ímã (idempotente, à prova de artista *stale*)."""
+        marker = self._snap_marker
+        self._snap_marker = None
+        if marker is not None:
+            with contextlib.suppress(ValueError, AttributeError, NotImplementedError, KeyError):
+                marker.remove()
+            self.draw_idle()
+
+    def _update_snap_hover(self, event: object) -> None:
+        """Hover do ímã: acende/move/apaga o anel do vértice-candidato.
+
+        Só redesenha quando o candidato MUDA (aparece, some ou troca) — motion
+        comum dentro/fora do raio tem custo zero de render.
+        """
+        active = (
+            self._snap_enabled
+            and self.interaction_mode == "draw"
+            and self.current_symbol in FRONT_SYMBOL_KEYS
+            and event.inaxes == self.ax
+        )
+        target = self._find_snap_target(event.x, event.y) if active else None
+        if target == self._snap_hover_xy:
+            return
+        self._snap_hover_xy = target
+        if target is not None:
+            self._show_snap_marker(*target)
+        else:
+            self.clear_snap_marker()
+
     def _place_point_symbol(self, x: float, y: float) -> None:
         """Coloca um símbolo pontual (ex.: centro de pressão, furacão) com um único clique."""
         modo = MODOS[self.current_symbol]
@@ -2122,6 +2243,7 @@ class MapCanvas(FigureCanvas):
     def _on_motion(self, event: object) -> None:
         if event.inaxes == self.ax and event.xdata and event.ydata:
             self.coords_updated.emit(event.xdata, event.ydata)
+        self._update_snap_hover(event)
         if self._pan_active and event.inaxes == self.ax:
             self._pan_to(event)
         # Caneta: acumula pontos decimados durante o arraste
@@ -2785,6 +2907,8 @@ class MapCanvas(FigureCanvas):
         self.clear_annotations()
         self.clear_emojis()
         self._clear_ruler()
+        self._snap_hover_xy = None
+        self.clear_snap_marker()
         self.history.clear()
         # Desenhos apagados → toggles de visibilidade re-armados
         self._drawings_visible = dict.fromkeys(self._drawings_visible, True)
