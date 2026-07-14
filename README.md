@@ -65,9 +65,7 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 
 ---
 
-## Em desenvolvimento (main — ainda não lançado)
-
-> Já disponível rodando pelo **código-fonte**; entra no próximo instalador.
+## Novidades da v3.1
 
 ### 🖱 Modo Edição — corrigir desenhos já traçados (fluxo colaborativo A→B)
 
@@ -110,10 +108,6 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 ### 🗺 Relevo Natural como tema padrão do mapa
 
 - O mapa e o seletor **"Tema:"** agora abrem no **relevo sombreado do Natural Earth** (offline, embutido no Cartopy)
-
----
-
-## Novidades da v3.1
 
 ### 🌍 ERA5 — reanálise Copernicus/CDS
 
@@ -471,7 +465,7 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 
 ### Método 1: Instalador Windows (Recomendado para Usuários Windows)
 
-1. Baixe `Instalador_CartoMet_BR_v3.0.1.exe` na seção [Releases](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest)
+1. Baixe `Instalador_CartoMet_BR_v3.1.0.exe` na seção [Releases](https://github.com/ElivaldoRocha/CartoMet_BR/releases/latest)
 2. Execute o instalador e siga as instruções
 3. Abra o CartoMet BR pelo atalho no Menu Iniciar ou Desktop
 

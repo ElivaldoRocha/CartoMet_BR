@@ -5,7 +5,7 @@ Todas as mudanças notáveis do **CartoMet BR** são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [3.1.0] — 2026-07-14
 
 ### Adicionado
 
@@ -213,11 +213,6 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   antigo é **abandonado na hora** (o resultado tardio é descartado) e o
   recálculo da camada nova parte imediatamente — sem ação adiada que pudesse
   disparar depois de o usuário desativar a ferramenta ou limpar o mapa.
-
-## [3.1.0] — 2026-07-11
-
-### Corrigido
-
 - **🎬 Cancelamento da animação não trava mais com download lento do ECMWF.**
   A Fase 1 (preparar dados) baixava cada campo via `client.retrieve()` — uma
   chamada de rede **bloqueante e sem timeout** —, e o cancelamento é cooperativo
