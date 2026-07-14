@@ -22,11 +22,17 @@ def test_all_required_modules_importable():
 
 
 def test_pint_and_grib_stack_are_exercised():
-    """Probes de causa-raiz passam: pint (default_en.txt) e o engine cfgrib do xarray."""
+    """Probes de causa-raiz passam: pint (default_en.txt) e os engines do xarray.
+
+    O probe de engines cobre `cfgrib` (GRIB do IFS) E `netcdf4` (imagem GOES das
+    células convectivas + arquivos da reanálise ERA5) — ambos descobertos por
+    entry-point, o que exige os `.dist-info` no bundle do exe.
+    """
     by_name = {r.name: r for r in run_checks()}
+    engines = "xarray engines (cfgrib+netcdf4)"
     assert by_name["pint.UnitRegistry()"].ok, by_name["pint.UnitRegistry()"].detail
     assert by_name["metpy.units('degC')"].ok, by_name["metpy.units('degC')"].detail
-    assert by_name["xarray engines (cfgrib)"].ok, by_name["xarray engines (cfgrib)"].detail
+    assert by_name[engines].ok, by_name[engines].detail
 
 
 def test_run_selftest_ok_with_full_stack():

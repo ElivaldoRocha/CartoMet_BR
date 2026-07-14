@@ -66,16 +66,27 @@ def _probe_metpy_units() -> None:
 
 
 def _probe_xarray_engines() -> None:
-    """Confirma que o xarray descobriu o backend de GRIB por entry-point.
+    """Confirma que o xarray descobriu os backends de leitura por entry-point.
 
-    Depende dos metadados (`.dist-info`) do cfgrib estarem no bundle — o gap que
-    o ``copy_metadata`` no .spec resolve.
+    Depende dos metadados (`.dist-info`) do cfgrib/netCDF4 estarem no bundle — o
+    gap que o ``copy_metadata`` no .spec resolve. O engine ``netcdf4`` é o que lê
+    a imagem GOES (células convectivas) e os arquivos da reanálise ERA5.
     """
     import xarray as xr
 
     engines = xr.backends.list_engines()
-    if "cfgrib" not in engines:
-        raise RuntimeError(f"engine 'cfgrib' nao registrado; disponiveis: {sorted(engines)}")
+    for engine in ("cfgrib", "netcdf4"):
+        if engine not in engines:
+            raise RuntimeError(f"engine '{engine}' nao registrado; disponiveis: {sorted(engines)}")
+
+
+def _probe_imageio_ffmpeg() -> None:
+    """Confirma o módulo E o binário ffmpeg embutido (export MP4 da animação)."""
+    import imageio_ffmpeg
+
+    exe = imageio_ffmpeg.get_ffmpeg_exe()  # levanta se o binário não foi embarcado
+    if not Path(exe).exists():
+        raise RuntimeError(f"binario ffmpeg inexistente: {exe}")
 
 
 # (nome exibido, feature, probe). REQUIRED = sem isto o .exe está quebrado.
@@ -113,7 +124,7 @@ _REQUIRED: list[tuple[str, str, Callable[[], None]]] = [
     ("cfgrib", "Leitura de GRIB", _imp("cfgrib")),
     ("eccodes", "Definições GRIB (eccodes)", _imp("eccodes")),
     ("xarray", "Tensores de dados", _imp("xarray")),
-    ("xarray engines (cfgrib)", "Backends de leitura do xarray", _probe_xarray_engines),
+    ("xarray engines (cfgrib+netcdf4)", "Backends de leitura do xarray", _probe_xarray_engines),
     ("netCDF4", "Leitura NetCDF (climatologia/SST)", _imp("netCDF4")),
     (
         "siphon.simplewebservice.wyoming",
@@ -142,10 +153,13 @@ _REQUIRED: list[tuple[str, str, Callable[[], None]]] = [
     ("ssl", "TLS/HTTPS", _imp("ssl")),
 ]
 
-# OPTIONAL = degradam graciosamente (extra `spatial`); ausência não reprova o .exe.
+# OPTIONAL = degradam graciosamente (extras `spatial`/`animation`/`reanalysis`);
+# ausência não reprova o .exe — mas o build de DISTRIBUIÇÃO deve tê-los todos OK.
 _OPTIONAL: list[tuple[str, str, Callable[[], None]]] = [
     ("esda.moran", "Coerência Espacial (LISA)", _imp("esda.moran")),
     ("libpysal.weights", "Coerência Espacial (LISA)", _imp("libpysal.weights")),
+    ("cdsapi", "Reanálise ERA5 (CDS)", _imp("cdsapi")),
+    ("imageio_ffmpeg (+binário)", "Export MP4 da animação", _probe_imageio_ffmpeg),
 ]
 
 
@@ -185,7 +199,7 @@ def format_report(results: list[CheckResult]) -> str:
         f"Frozen:  {frozen}   Python: {sys.version.split()[0]}",
         "",
         f"REQUIRED: {req_ok}/{len(req)} OK",
-        f"OPTIONAL: {opt_ok}/{len(opt)} OK (LISA/Coerência Espacial)",
+        f"OPTIONAL: {opt_ok}/{len(opt)} OK (extras: LISA, ERA5/CDS, MP4)",
         "",
     ]
     for r in results:

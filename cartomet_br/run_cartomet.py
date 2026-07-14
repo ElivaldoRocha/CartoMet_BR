@@ -85,6 +85,15 @@ def setup_environment():
                 logger.info("CARTOPY_DIR: %s", os.environ["CARTOPY_DIR"])
                 break
 
+        # O cartopy (>=0.19) só consulta CARTOPY_DATA_DIR (config
+        # 'pre_existing_data_dir', lido no import — que acontece depois deste
+        # setup). Aponta para os shapefiles Natural Earth embarcados pelo .spec;
+        # sem isto o exe tentaria baixá-los da internet no primeiro uso.
+        cartopy_data = BASE_DIR / "cartopy" / "data"
+        if cartopy_data.exists():
+            os.environ["CARTOPY_DATA_DIR"] = str(cartopy_data)
+            logger.info("CARTOPY_DATA_DIR: %s", cartopy_data)
+
         # === eccodes ===
         eccodes_paths = [
             BASE_DIR / "eccodes",
