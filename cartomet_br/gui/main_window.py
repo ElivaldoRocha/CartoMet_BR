@@ -637,7 +637,7 @@ class MainWindow(QMainWindow):
         self.symbol_panel.flip_changed.connect(self.canvas.set_flip)
         self.symbol_panel.intensity_changed.connect(self.canvas.set_zcit_intensity)
         self.symbol_panel.finalize_requested.connect(self._finalize_line)
-        self.symbol_panel.clear_requested.connect(self.canvas.clear_all)
+        self.symbol_panel.clear_requested.connect(self._on_clear_drawings)
         self.symbol_panel.undo_requested.connect(self.canvas.undo_point)
         self.symbol_panel.redo_requested.connect(self.canvas.redo_action)
         self.symbol_panel.emoji_mode_toggled.connect(self._on_emoji_mode_toggled)
@@ -653,6 +653,7 @@ class MainWindow(QMainWindow):
         self.symbol_panel.shape_tool_changed.connect(self._on_shape_tool_changed)
         self.symbol_panel.shape_style_changed.connect(self.canvas.set_shape_style)
         self.symbol_panel.shape_undo_requested.connect(self.canvas.remove_last_shape)
+        self.symbol_panel.drawings_visibility_toggled.connect(self.canvas.set_drawings_visible)
         self.canvas.shape_draft_changed.connect(self._on_shape_draft_changed)
 
         self.canvas.point_added.connect(self._on_point_added)
@@ -716,11 +717,23 @@ class MainWindow(QMainWindow):
     #  MODOS DE INTERAÇÃO
     # ═══════════════════════════════════════════════════════════════════════
 
+    def _reveal_drawing_group(self, kind: str) -> None:
+        """Ativar um modo de desenho re-exibe o grupo oculto (desenhar implica ver)."""
+        self.canvas.set_drawings_visible(kind, True)
+        self.symbol_panel.set_visibility_checked(kind, True)
+
+    def _on_clear_drawings(self) -> None:
+        """Botão 'Limpar' da aba Simbologias: apaga os desenhos e re-arma os toggles."""
+        self.canvas.clear_all()
+        for kind in ("symbology", "emojis", "annotations"):
+            self.symbol_panel.set_visibility_checked(kind, True)
+
     def _toggle_draw_mode(self, checked):
         if checked:
             self.annotate_btn.setChecked(False)
             self.ruler_btn.setChecked(False)
             self._uncheck_zoom_buttons()
+            self._reveal_drawing_group("symbology")
         self.canvas.set_drawing_mode(checked)
         if checked:
             self.status_label.setText("● Modo Desenho — clique para adicionar pontos")
@@ -736,6 +749,7 @@ class MainWindow(QMainWindow):
             self.draw_mode_btn.setChecked(False)
             self.ruler_btn.setChecked(False)
             self._uncheck_zoom_buttons()
+            self._reveal_drawing_group("annotations")
             self.canvas.set_annotation_mode(True)
             self.status_label.setText("● Modo Anotação — clique no mapa para inserir texto")
             self.status_label.setStyleSheet("color: #F39C12;")
@@ -749,6 +763,7 @@ class MainWindow(QMainWindow):
             self.draw_mode_btn.setChecked(False)
             self.annotate_btn.setChecked(False)
             self._uncheck_zoom_buttons()
+            self._reveal_drawing_group("symbology")
             self.canvas.set_ruler_mode(True)
             self.status_label.setText("● Régua — clique em dois pontos para medir distância")
             self.status_label.setStyleSheet("color: #1ABC9C;")
@@ -766,6 +781,7 @@ class MainWindow(QMainWindow):
             self.canvas.set_drawing_mode(False)
             self.canvas.set_annotation_mode(False)
             self.canvas.set_ruler_mode(False)
+            self._reveal_drawing_group("emojis")
             self.canvas.set_emoji_mode(True)
             self.status_label.setText("● Modo Emoji — clique no mapa para inserir")
             self.status_label.setStyleSheet("color: #F39C12;")
@@ -796,6 +812,7 @@ class MainWindow(QMainWindow):
             self.canvas.set_emoji_mode(False)
             self.canvas.set_shape_mode(False)
             self._uncheck_zoom_buttons()
+            self._reveal_drawing_group("symbology")
             self.canvas.set_pen_mode(True)
             self.status_label.setText("● Modo Caneta — pressione e arraste para desenhar")
             self.status_label.setStyleSheet("color: #1ABC9C;")
@@ -816,6 +833,7 @@ class MainWindow(QMainWindow):
             self.canvas.set_emoji_mode(False)
             self.canvas.set_pen_mode(False)
             self._uncheck_zoom_buttons()
+            self._reveal_drawing_group("symbology")
             self.canvas.set_shape_mode(True)
             self._show_shape_status(self.canvas.shape_tool)
         else:

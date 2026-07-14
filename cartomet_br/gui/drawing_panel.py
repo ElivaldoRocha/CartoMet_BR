@@ -188,9 +188,13 @@ class SymbologyPanel(QWidget):
     shape_tool_changed = pyqtSignal(str)  # rect|ellipse|arrow|line|polygon
     shape_style_changed = pyqtSignal(dict)  # estilo das formas (borda/fill/etc.)
     shape_undo_requested = pyqtSignal()  # desfazer a última forma colocada
+    # Toggle de visibilidade de um grupo de desenhos: ("symbology"|"emojis"|
+    # "annotations", visível). Esconde/mostra na carta SEM apagar nada.
+    drawings_visibility_toggled = pyqtSignal(str, bool)
 
     current_key: str
     buttons: dict[str, SymbolButton]
+    _visibility_checks: dict[str, QCheckBox]
     status_group: QGroupBox
     status_label: QLabel
     points_label: QLabel
@@ -217,6 +221,31 @@ class SymbologyPanel(QWidget):
             padding: 8px; background-color: #1A252F; border-radius: 5px;
         """)
         layout.addWidget(title)
+
+        # Visibilidade dos desenhos do usuário — esconde/mostra sem apagar.
+        # Três grupos independentes (pedido do previsor: conferir o campo por
+        # baixo do traçado sem perder o trabalho).
+        vis_group = QGroupBox("Visibilidade na carta")
+        vis_layout = QVBoxLayout(vis_group)
+        vis_layout.setSpacing(2)
+        vis_layout.setContentsMargins(8, 4, 8, 6)
+        self._visibility_checks = {}
+        for kind, texto in (
+            ("symbology", "Simbologias e desenhos"),
+            ("emojis", "Emojis"),
+            ("annotations", "Anotações"),
+        ):
+            chk = QCheckBox(texto)
+            chk.setChecked(True)
+            chk.setToolTip("Esconde/mostra este grupo na carta sem apagar nada.")
+            chk.stateChanged.connect(
+                lambda state, k=kind: self.drawings_visibility_toggled.emit(
+                    k, state == Qt.CheckState.Checked.value
+                )
+            )
+            self._visibility_checks[kind] = chk
+            vis_layout.addWidget(chk)
+        layout.addWidget(vis_group)
 
         # Grid de botões
         grid = QGridLayout()
@@ -485,6 +514,19 @@ class SymbologyPanel(QWidget):
         self.intensity_row.setVisible(modo.get("tem_intensidade", False))
 
         self.symbol_changed.emit(key)
+
+    def set_visibility_checked(self, kind: str, checked: bool) -> None:
+        """Sincroniza um checkbox de visibilidade SEM re-emitir o sinal.
+
+        Usado pelo main_window: ativar um modo de desenho re-exibe o grupo, e
+        Limpar mapa/troca de tema re-armam os três (os desenhos foram apagados).
+        """
+        chk = self._visibility_checks.get(kind)
+        if chk is None:
+            return
+        chk.blockSignals(True)
+        chk.setChecked(checked)
+        chk.blockSignals(False)
 
     def _on_flip_changed(self, state: int) -> None:
         self.flip_changed.emit(state == Qt.CheckState.Checked.value)

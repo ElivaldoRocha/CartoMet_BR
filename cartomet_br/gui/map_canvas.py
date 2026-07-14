@@ -282,6 +282,13 @@ class MapCanvas(FigureCanvas):
         self._ruler_points = []
         self._ruler_artists = []
 
+        # Visibilidade por grupo dos desenhos do usuário (toggles da aba
+        # Simbologias). Estado de sessão — não persiste no projeto (.cmbr).
+        self._drawings_visible: dict[str, bool] = {
+            "symbology": True,  # simbologia OMM + caneta + formas + régua
+            "emojis": True,
+            "annotations": True,
+        }
         # Mobília de "carta OMM" (F7) — cabeçalho institucional + legenda dos
         # símbolos. Só existe transitoriamente, em volta do export; nunca é
         # desenhada na edição ao vivo. Guardada aqui só p/ poder remover depois.
@@ -446,6 +453,8 @@ class MapCanvas(FigureCanvas):
         self._emoji_records.clear()
         self._ruler_points.clear()
         self._ruler_artists.clear()
+        # Desenhos apagados pelo ax.clear() → toggles de visibilidade re-armados
+        self._drawings_visible = dict.fromkeys(self._drawings_visible, True)
         self._sat_artist = None
         self._sat_data = None
         self._sst_artist = None
@@ -2107,6 +2116,7 @@ class MapCanvas(FigureCanvas):
         )
         self.history.push(cmd)
         self.lines.append(artist)
+        self._apply_drawing_visibility("symbology", artist)
         self.draw()
 
     def _on_motion(self, event: object) -> None:
@@ -2168,6 +2178,7 @@ class MapCanvas(FigureCanvas):
             )
             self.history.push(cmd)
             self.lines.append(self.preview_line)
+            self._apply_drawing_visibility("symbology", self.preview_line)
             self.preview_line = None
         self.points_x.clear()
         self.points_y.clear()
@@ -2235,6 +2246,7 @@ class MapCanvas(FigureCanvas):
         )
         self.history.push(cmd)
         self.lines.append(artist)
+        self._apply_drawing_visibility("symbology", artist)
         self._pen_draft_x.clear()
         self._pen_draft_y.clear()
         self._pen_last_px = None
@@ -2330,6 +2342,7 @@ class MapCanvas(FigureCanvas):
         )
         self.history.push(cmd)
         self.lines.append(artist)
+        self._apply_drawing_visibility("symbology", artist)
         self.draw_idle()
 
     def _add_polygon_vertex(self, lon: float, lat: float) -> None:
@@ -2398,8 +2411,43 @@ class MapCanvas(FigureCanvas):
         )
         self.history.push(cmd)
         self.lines.append(artist)
+        self._apply_drawing_visibility("symbology", artist)
         self.shape_draft_changed.emit(0)
         self.draw_idle()
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  VISIBILIDADE DOS DESENHOS DO USUÁRIO (toggles da aba Simbologias)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _drawing_kind_artists(self, kind: str) -> list:
+        """Artistas vivos de um grupo de desenho (mapeamento único dos toggles)."""
+        if kind == "symbology":
+            return [*self.lines, *self._ruler_artists]
+        if kind == "emojis":
+            return list(self._emoji_annotations)
+        if kind == "annotations":
+            return list(self._annotations)
+        return []
+
+    def set_drawings_visible(self, kind: str, visible: bool) -> None:
+        """Mostra/oculta um grupo de desenhos do usuário — sem apagar nada.
+
+        ``kind`` ∈ {"symbology", "emojis", "annotations"}. Undo/redo não é
+        afetado (o histórico opera por identidade de objeto, não por
+        visibilidade); artistas criados com o grupo oculto nascem invisíveis
+        (``_apply_drawing_visibility``).
+        """
+        self._drawings_visible[kind] = bool(visible)
+        for art in self._drawing_kind_artists(kind):
+            with contextlib.suppress(AttributeError):
+                art.set_visible(visible)
+        self.draw_idle()
+
+    def _apply_drawing_visibility(self, kind: str, artist: object) -> None:
+        """Artista recém-criado (finalize/redo/import) herda o toggle do grupo."""
+        if artist is not None and not self._drawings_visible.get(kind, True):
+            with contextlib.suppress(AttributeError):
+                artist.set_visible(False)  # type: ignore[attr-defined]
 
     def _remove_last_drawing_of(self, types: tuple) -> None:
         """Remove o último desenho finalizado do(s) tipo(s) dado(s) (padrão do emoji)."""
@@ -2549,6 +2597,9 @@ class MapCanvas(FigureCanvas):
             )
             cmd.artist = txt
             self._annotations.append(txt)
+        # Redo/import com o grupo oculto: o artista reconstruído herda o toggle.
+        kind = "annotations" if isinstance(cmd, AnnotationCommand) else "symbology"
+        self._apply_drawing_visibility(kind, cmd.artist)
 
     def export_drawings_state(self) -> list[dict]:
         """Serializa TODOS os desenhos do usuário em records (.cmbr), em ordem.
@@ -2735,6 +2786,8 @@ class MapCanvas(FigureCanvas):
         self.clear_emojis()
         self._clear_ruler()
         self.history.clear()
+        # Desenhos apagados → toggles de visibilidade re-armados
+        self._drawings_visible = dict.fromkeys(self._drawings_visible, True)
 
         self.draw()
 
@@ -3157,6 +3210,7 @@ class MapCanvas(FigureCanvas):
             path_effects=[pe.withStroke(linewidth=2, foreground="black")],
         )
         self._annotations.append(txt)
+        self._apply_drawing_visibility("annotations", txt)
         self.history.push(
             AnnotationCommand(
                 x=x,
@@ -3338,6 +3392,7 @@ class MapCanvas(FigureCanvas):
                 zorder=25,
             )
             self._ruler_artists.append(marker)
+            self._apply_drawing_visibility("symbology", marker)
             self.draw()
 
         elif len(self._ruler_points) >= 2:
@@ -3355,6 +3410,7 @@ class MapCanvas(FigureCanvas):
                 zorder=25,
             )
             self._ruler_artists.append(line)
+            self._apply_drawing_visibility("symbology", line)
 
             (marker,) = self.ax.plot(
                 p2[0],
@@ -3366,6 +3422,7 @@ class MapCanvas(FigureCanvas):
                 zorder=25,
             )
             self._ruler_artists.append(marker)
+            self._apply_drawing_visibility("symbology", marker)
 
             mid_x = (p1[0] + p2[0]) / 2
             mid_y = (p1[1] + p2[1]) / 2
@@ -3393,6 +3450,7 @@ class MapCanvas(FigureCanvas):
                 },
             )
             self._ruler_artists.append(txt)
+            self._apply_drawing_visibility("symbology", txt)
             self.draw()
 
     def _clear_ruler(self) -> None:
