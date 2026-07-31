@@ -1,9 +1,11 @@
 """
-Diálogos de inicialização do CartoMet BR.
+Diálogos de inicialização e utilitários do CartoMet BR.
 
-Contém WelcomeDialog (boas-vindas) e FirstRunDialog (configuração inicial).
+Contém WelcomeDialog (boas-vindas), FirstRunDialog (configuração inicial) e o
+StationReportDialog (relatório da estação METAR/SYNOP clicada no mapa).
 """
 
+import math
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
@@ -13,11 +15,13 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
 )
@@ -511,3 +515,109 @@ class ThermalWindLevelDialog(QDialog):
     def selected_layer(self) -> tuple[int, int]:
         """Camada escolhida como ``(base_p, top_p)`` em hPa (base > topo)."""
         return int(self.base_combo.currentData()), int(self.top_combo.currentData())
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  RELATÓRIO DE ESTAÇÃO (popup do clique no METAR/SYNOP plotado)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _fmt_num(value, unit: str = "", decimals: int = 1) -> str:
+    """Número com unidade; NaN/None/inválido vira travessão."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if math.isnan(v):
+        return "—"
+    return f"{v:.{decimals}f}{unit}"
+
+
+def station_report_lines(payload: dict) -> list[tuple[str, str]]:
+    """Pares (rótulo, valor) do relatório decodificado — puro e testável.
+
+    O vento volta de u/v (canônico) para a convenção meteorológica
+    (direção DE ONDE sopra, em graus; velocidade em nós).
+    """
+    vento = "—"
+    try:
+        u = float(payload.get("eastward_wind", math.nan))
+        v = float(payload.get("northward_wind", math.nan))
+        if math.isfinite(u) and math.isfinite(v):
+            spd_kt = math.hypot(u, v) * 1.94384
+            if spd_kt < 0.5:
+                vento = "calmo"
+            else:
+                # u = -s·sin(d), v = -s·cos(d)  ⇒  d = atan2(-u, -v)
+                direc = math.degrees(math.atan2(-u, -v)) % 360.0
+                vento = f"{direc:03.0f}° / {spd_kt:.0f} kt"
+    except (TypeError, ValueError):
+        pass
+
+    okta = payload.get("cloud_coverage", math.nan)
+    try:
+        okta_txt = f"{int(float(okta))}/8" if not math.isnan(float(okta)) else "—"
+    except (TypeError, ValueError):
+        okta_txt = "—"
+
+    wx = payload.get("current_wx1_symbol", math.nan)
+    try:
+        wx_txt = f"código WMO {int(float(wx))}" if not math.isnan(float(wx)) else "—"
+    except (TypeError, ValueError):
+        wx_txt = "—"
+
+    obs_dt = payload.get("obs_time_utc")
+    hora = obs_dt.strftime("%H:%MZ %d/%m/%Y") if obs_dt is not None else "—"
+
+    lat = _fmt_num(payload.get("latitude"), "°", 2)
+    lon = _fmt_num(payload.get("longitude"), "°", 2)
+
+    return [
+        ("Posição", f"{lat}, {lon}"),
+        ("Horário da obs", hora),
+        ("Temperatura", _fmt_num(payload.get("air_temperature"), " °C")),
+        ("Ponto de orvalho", _fmt_num(payload.get("dew_point_temperature"), " °C")),
+        ("PNMM", _fmt_num(payload.get("air_pressure_at_sea_level"), " hPa")),
+        ("Vento", vento),
+        ("Nebulosidade", okta_txt),
+        ("Tempo presente", wx_txt),
+    ]
+
+
+class StationReportDialog(QDialog):
+    """Relatório decodificado da estação clicada no mapa (METAR/SYNOP)."""
+
+    def __init__(self, payload: dict, parent=None):
+        super().__init__(parent)
+        kind = str(payload.get("kind", "")).upper() or "OBS"
+        sid = str(payload.get("station_id", "")) or "estação"
+        self.setWindowTitle(f"{sid} — {kind}")
+        self.setMinimumWidth(400)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(f"<h3>{sid} <small style='color:#95A5A6;'>({kind})</small></h3>"))
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(4)
+        for row, (rotulo, valor) in enumerate(station_report_lines(payload)):
+            grid.addWidget(QLabel(f"<b>{rotulo}:</b>"), row, 0)
+            grid.addWidget(QLabel(valor), row, 1)
+        layout.addLayout(grid)
+
+        raw = str(payload.get("raw_report") or "").strip()
+        if raw:
+            layout.addWidget(QLabel("<b>Report cru:</b>"))
+            raw_box = QPlainTextEdit(raw)
+            raw_box.setReadOnly(True)
+            raw_box.setMaximumHeight(90)
+            raw_box.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
+            layout.addWidget(raw_box)
+
+        btn = QPushButton("Fechar")
+        btn.setMinimumWidth(100)
+        btn.clicked.connect(self.accept)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(btn)
+        layout.addLayout(btn_row)

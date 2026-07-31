@@ -51,7 +51,11 @@ STATION_COLUMNS: list[str] = [
     "northward_wind",  # m/s (componente v)
     "cloud_coverage",  # oktas (0–8)
     "current_wx1_symbol",  # código WMO de tempo presente (int)
+    "raw_report",  # texto cru do report (METAR/FM-12) — popup de estação
 ]
+
+# Colunas de texto (ficam fora da coerção numérica do normalize)
+_TEXT_COLUMNS = ("station_id", "raw_report")
 
 # Atribuição para a legenda da carta
 METAR_ATTRIBUTION = "METAR: NOAA Aviation Weather Center"
@@ -199,15 +203,16 @@ def normalize_station_records(records: list[dict]) -> pd.DataFrame:
 
     df = df[STATION_COLUMNS].copy()
 
-    # Tipos numéricos (station_id permanece como rótulo)
-    numeric = [c for c in STATION_COLUMNS if c != "station_id"]
+    # Tipos numéricos (station_id/raw_report permanecem como texto)
+    numeric = [c for c in STATION_COLUMNS if c not in _TEXT_COLUMNS]
     for col in numeric:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     # Descarta estações sem coordenadas
     df = df.dropna(subset=["latitude", "longitude"]).reset_index(drop=True)
 
-    df["station_id"] = df["station_id"].astype("string").fillna("")
+    for col in _TEXT_COLUMNS:
+        df[col] = df[col].astype("string").fillna("")
     return df
 
 
@@ -279,6 +284,7 @@ def _metar_record_from_json(obj: dict) -> dict:
         "northward_wind": v,
         "cloud_coverage": okta,
         "current_wx1_symbol": wx_symbol,
+        "raw_report": str(obj.get("rawOb") or ""),
     }
 
 
@@ -531,7 +537,10 @@ def _load_wmo_coords(data_dir: Path | None, timeout: int = 60) -> dict[str, tupl
 
 
 def _synop_record_from_decoded(
-    decoded: dict, station_id: str, coords: dict[str, tuple[float, float]]
+    decoded: dict,
+    station_id: str,
+    coords: dict[str, tuple[float, float]],
+    raw_report: str = "",
 ) -> dict | None:
     """Constrói um registro canônico a partir de um SYNOP decodificado (pymetdecoder)."""
     latlon = coords.get(station_id)
@@ -576,6 +585,7 @@ def _synop_record_from_decoded(
         "northward_wind": v,
         "cloud_coverage": okta,
         "current_wx1_symbol": wx,
+        "raw_report": raw_report,
     }
 
 
@@ -756,7 +766,7 @@ def _decode_synop_text(
                 decoded = _synop.SYNOP().decode(report)
             except Exception:
                 continue
-            rec = _synop_record_from_decoded(decoded, station_id, coords)
+            rec = _synop_record_from_decoded(decoded, station_id, coords, raw_report=report)
             if rec is not None:
                 records.append(rec)
     finally:

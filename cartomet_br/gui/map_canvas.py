@@ -316,6 +316,7 @@ class MapCanvas(FigureCanvas):
     )  # estação RAOB ancorada (dict) p/ Sonda Vertical
     model_sounding_requested = pyqtSignal(float, float)  # (lon, lat) p/ pseudo-sondagem do modelo
     meteogram_requested = pyqtSignal(float, float)  # (lon, lat) p/ meteograma (F6)
+    station_report_requested = pyqtSignal(dict)  # linha da obs clicada (popup)
     wind_rose_requested = pyqtSignal(float, float)  # (lon, lat) p/ rosa dos ventos
     era5_series_requested = pyqtSignal(float, float)  # (lon, lat) p/ série temporal ERA5
     thermal_wind_requested = pyqtSignal(float, float)  # (lon, lat) p/ hodógrafa de vento térmico
@@ -504,6 +505,9 @@ class MapCanvas(FigureCanvas):
         # Horário real de cada camada plotada (df.attrs dos fetchers) — alimenta
         # o carimbo "Obs: ..." do título no modo "mais recente".
         self._station_meta: dict[str, dict | None] = {"metar": None, "synop": None}
+        # Subset AFINADO efetivamente plotado — alvo do hit-test do popup de
+        # estação (clicar numa estação invisível não pode responder).
+        self._station_plotted: dict[str, object | None] = {"metar": None, "synop": None}
         self._obs_density_factor = OBS_DENSITY_FACTORS[DEFAULT_OBS_DENSITY]
 
         # Índice LOCZCIT-PA (raster categórico da ZCIT)
@@ -622,6 +626,7 @@ class MapCanvas(FigureCanvas):
         self._station_artists = {"metar": [], "synop": []}
         self._station_data = {"metar": None, "synop": None}
         self._station_meta = {"metar": None, "synop": None}
+        self._station_plotted = {"metar": None, "synop": None}
         self._loczcit_artist = None
         self._loczcit_colorbar = None
         self._loczcit_axis_artists = []
@@ -2322,6 +2327,41 @@ class MapCanvas(FigureCanvas):
 
         elif self.interaction_mode == "cross_section":
             self._on_xsec_click(event.xdata, event.ydata)
+
+        elif self.interaction_mode is None:
+            # Cursor neutro (nenhuma ferramenta ativa): clique perto de uma
+            # estação plotada abre o relatório decodificado (popup).
+            payload = self._station_at_pixel(event.x, event.y)
+            if payload is not None:
+                self.station_report_requested.emit(payload)
+
+    def _station_at_pixel(self, x_px: float, y_px: float, radius_px: float = 14.0) -> dict | None:
+        """Estação plotada mais próxima do pixel clicado, dentro do raio.
+
+        Hit-test em ESPAÇO DE PIXELS (método sancionado do Modo Edição —
+        independe do zoom) contra o subset afinado `_station_plotted`, apenas
+        das camadas visíveis. Retorna a linha canônica + kind + horário real.
+        """
+        best: dict | None = None
+        best_d2 = float(radius_px) ** 2
+        for kind, sub in self._station_plotted.items():
+            arts = self._station_artists.get(kind) or []
+            visiveis = [a for a in arts if getattr(a, "get_visible", lambda: True)()]
+            if sub is None or len(sub) == 0 or not visiveis:
+                continue
+            lons = np.asarray(sub["longitude"].values, dtype=float)
+            lats = np.asarray(sub["latitude"].values, dtype=float)
+            pix = self.ax.transData.transform(np.c_[lons, lats])
+            d2 = (pix[:, 0] - x_px) ** 2 + (pix[:, 1] - y_px) ** 2
+            i = int(np.argmin(d2))
+            if float(d2[i]) < best_d2:
+                best_d2 = float(d2[i])
+                meta = self._station_meta.get(kind) or {}
+                best = dict(sub.iloc[i].to_dict())
+                best["kind"] = kind
+                best["obs_mode"] = meta.get("mode")
+                best["obs_time_utc"] = meta.get("time")
+        return best
 
     def _on_xsec_click(self, lon: float, lat: float) -> None:
         """Captura A→B do corte vertical (F4): 1º clique = A, 2º clique = B → emite.
@@ -5528,6 +5568,7 @@ class MapCanvas(FigureCanvas):
             self._update_map_title()
             self.draw()
             return
+        self._station_plotted[kind] = sub  # alvo do hit-test do popup
 
         colors = self._OBS_COLORS.get(kind, self._OBS_COLORS["metar"])
         artists = self._station_artists[kind]
@@ -5637,6 +5678,7 @@ class MapCanvas(FigureCanvas):
             self._station_artists[k] = []
             self._station_data[k] = None
             self._station_meta[k] = None
+            self._station_plotted[k] = None
         self._update_map_title()
 
     def toggle_stations(self, kind: str, visible: bool) -> None:

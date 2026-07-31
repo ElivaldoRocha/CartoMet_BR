@@ -87,6 +87,7 @@ from cartomet_br.gui.cross_section_panel import CrossSectionPanel
 from cartomet_br.gui.dialogs import (
     BaroclinicLevelDialog,
     FirstRunDialog,
+    StationReportDialog,
     ThermalWindLevelDialog,
     WelcomeDialog,
 )
@@ -796,6 +797,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.observation_density_changed.connect(self.canvas.set_observation_density)
         self.settings_panel.obs_time_mode_changed.connect(self._on_obs_time_mode_changed)
         self.settings_panel.obs_refresh_requested.connect(self._on_obs_refresh_requested)
+        self.canvas.station_report_requested.connect(self._on_station_report)
         # Alinha a densidade inicial do canvas ao padrão do painel.
         self.canvas.set_observation_density(self.settings_panel.get_observation_density())
 
@@ -2444,6 +2446,12 @@ class MainWindow(QMainWindow):
         elif counts:
             self.status_label.setText("● Observações: " + " | ".join(counts))
             self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_station_report(self, payload: dict) -> None:
+        """Popup com o relatório decodificado da estação clicada no mapa."""
+        dlg = StationReportDialog(payload, parent=self)
+        dlg.setStyleSheet(DARK_STYLE)
+        dlg.exec()
 
     def _on_stations_error(self, error_msg: str) -> None:
         if self.sender() is not getattr(self, "station_download_thread", None):
