@@ -62,6 +62,7 @@ from cartomet_br.data.sst import SSTData
 from cartomet_br.data.stations import (
     DEFAULT_OBS_DENSITY,
     OBS_DENSITY_FACTORS,
+    OBS_MODE_LATEST,
     thinning_radius,
 )
 from cartomet_br.gui._constants import APP_VERSION
@@ -500,6 +501,9 @@ class MapCanvas(FigureCanvas):
         # Observações de superfície (SYNOP / METAR)
         self._station_artists = {"metar": [], "synop": []}
         self._station_data = {"metar": None, "synop": None}
+        # Horário real de cada camada plotada (df.attrs dos fetchers) — alimenta
+        # o carimbo "Obs: ..." do título no modo "mais recente".
+        self._station_meta: dict[str, dict | None] = {"metar": None, "synop": None}
         self._obs_density_factor = OBS_DENSITY_FACTORS[DEFAULT_OBS_DENSITY]
 
         # Índice LOCZCIT-PA (raster categórico da ZCIT)
@@ -617,6 +621,7 @@ class MapCanvas(FigureCanvas):
         self._clear_wind_rose_insets_artists()
         self._station_artists = {"metar": [], "synop": []}
         self._station_data = {"metar": None, "synop": None}
+        self._station_meta = {"metar": None, "synop": None}
         self._loczcit_artist = None
         self._loczcit_colorbar = None
         self._loczcit_axis_artists = []
@@ -1463,6 +1468,26 @@ class MapCanvas(FigureCanvas):
             labels.append("METAR")
         return labels
 
+    def _obs_time_suffix(self) -> str:
+        """Carimbo "Obs: ..." do título — só no modo "mais recente".
+
+        No modo análise o horário da obs é o próprio "Válido" da carta; no modo
+        "mais recente" a obs se descola da rodada e o horário real precisa ficar
+        explícito (honestidade: obs ≠ validade da carta de previsão).
+        """
+        parts = []
+        for kind, label, fmt in (
+            ("metar", "METAR", "%H:%MZ %d/%m"),
+            ("synop", "SYNOP", "%HZ %d/%m"),
+        ):
+            if not self._station_artists.get(kind):
+                continue
+            meta = self._station_meta.get(kind) or {}
+            when = meta.get("time")
+            if meta.get("mode") == OBS_MODE_LATEST and when is not None:
+                parts.append(f"{label} {when.strftime(fmt)}")
+        return "Obs: " + " · ".join(parts) if parts else ""
+
     def _set_map_title(self, text: str) -> None:
         """Define o título da carta com posição CRAVADA (``y=1.0``).
 
@@ -1546,13 +1571,20 @@ class MapCanvas(FigureCanvas):
                 if obs_labels:
                     line1 += " + " + "/".join(obs_labels)
                 line2 = f"Data: {self._sst_data.time_str}"
+                obs_suffix = self._obs_time_suffix()
+                if obs_suffix:
+                    line2 += f" | {obs_suffix}"
                 self._set_map_title(f"{line1}\n{line2}")
                 return
 
             # ── Apenas observações (sem modelo/TSM) ──
             obs_labels = self._active_obs_labels()
             if obs_labels:
-                self._set_map_title("Observações de superfície — " + " + ".join(obs_labels))
+                title = "Observações de superfície — " + " + ".join(obs_labels)
+                obs_suffix = self._obs_time_suffix()
+                if obs_suffix:
+                    title += f"\n{obs_suffix}"
+                self._set_map_title(title)
                 return
 
             # Nenhum dado carregado
@@ -1586,6 +1618,9 @@ class MapCanvas(FigureCanvas):
 
         chrono_parts = [p for p in (rodada, step_txt, valido) if p]
         line2 = " | ".join(chrono_parts)
+        obs_suffix = self._obs_time_suffix()
+        if obs_suffix:
+            line2 = f"{line2} | {obs_suffix}" if line2 else obs_suffix
 
         self._set_map_title(f"{line1}\n{line2}")
 
@@ -5455,6 +5490,18 @@ class MapCanvas(FigureCanvas):
 
         self.remove_stations(kind)
         self._station_data[kind] = df
+        # Metadados de horário do fetch (contrato df.attrs) — sobrevivem ao
+        # re-render por densidade, que reusa o MESMO DataFrame.
+        attrs = getattr(df, "attrs", None) or {}
+        self._station_meta[kind] = (
+            {
+                "mode": attrs.get("obs_mode"),
+                "time": attrs.get("obs_time_utc"),
+                "fallback": bool(attrs.get("obs_fallback")),
+            }
+            if df is not None and len(df) > 0 and attrs
+            else None
+        )
 
         if df is None or len(df) == 0:
             self._update_map_title()
@@ -5589,6 +5636,7 @@ class MapCanvas(FigureCanvas):
                         self.ax._children.remove(artist)
             self._station_artists[k] = []
             self._station_data[k] = None
+            self._station_meta[k] = None
         self._update_map_title()
 
     def toggle_stations(self, kind: str, visible: bool) -> None:

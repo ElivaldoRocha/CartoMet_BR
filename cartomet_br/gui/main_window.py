@@ -63,6 +63,7 @@ from cartomet_br.data.era5 import (
     ERA5_LONG_PERIOD_DAYS,
     era5_period_days,
 )
+from cartomet_br.data.stations import OBS_MODE_LATEST
 from cartomet_br.data.wind_rose import level_label
 from cartomet_br.gui._constants import (
     APP_AUTHOR,
@@ -787,6 +788,8 @@ class MainWindow(QMainWindow):
 
         self.settings_panel.observations_changed.connect(self._on_observations_toggled)
         self.settings_panel.observation_density_changed.connect(self.canvas.set_observation_density)
+        self.settings_panel.obs_time_mode_changed.connect(self._on_obs_time_mode_changed)
+        self.settings_panel.obs_refresh_requested.connect(self._on_obs_refresh_requested)
         # Alinha a densidade inicial do canvas ao padrão do painel.
         self.canvas.set_observation_density(self.settings_panel.get_observation_density())
 
@@ -2306,26 +2309,46 @@ class MainWindow(QMainWindow):
         if not enabled:
             self.canvas.remove_stations(kind)
             self.canvas.draw()
+            self.settings_panel.set_obs_actual_times({kind: None})
             return
         self._start_station_download(
             want_metar=(kind == "metar"),
             want_synop=(kind == "synop"),
         )
 
-    def _refresh_active_observations(self) -> None:
-        """Recarrega os overlays ativos para sincronizar com o novo valid_time."""
+    def _on_obs_time_mode_changed(self, mode: str) -> None:
+        """Modo de horário das obs: persiste e re-sincroniza os overlays ativos."""
+        QSettings("PPGGRD-UFPA", APP_NAME).setValue("map/obs_time_mode", mode)
+        self._refresh_active_observations()
+
+    def _on_obs_refresh_requested(self) -> None:
+        """🔄: re-baixa os overlays ativos ignorando o cache de 10 min."""
+        obs = self.settings_panel.get_observations()
+        if not (obs.get("metar") or obs.get("synop")):
+            self.status_label.setText("● Ative SYNOP ou METAR para atualizar")
+            self.status_label.setStyleSheet("color: #F39C12;")
+            return
+        self._refresh_active_observations(force_refresh=True)
+
+    def _refresh_active_observations(self, force_refresh: bool = False) -> None:
+        """Recarrega os overlays ativos para sincronizar com o horário vigente."""
         obs = self.settings_panel.get_observations()
         if obs.get("metar") or obs.get("synop"):
             self._start_station_download(
                 want_metar=obs.get("metar", False),
                 want_synop=obs.get("synop", False),
+                force_refresh=force_refresh,
             )
 
-    def _start_station_download(self, want_metar: bool, want_synop: bool) -> None:
-        """Inicia o download de observações em thread, sincronizado ao valid_time."""
+    def _start_station_download(
+        self, want_metar: bool, want_synop: bool, force_refresh: bool = False
+    ) -> None:
+        """Inicia o download de observações em thread, no horário do modo vigente."""
         if not (want_metar or want_synop):
             return
         if self.station_download_thread and self.station_download_thread.isRunning():
+            self.status_label.setText("● Aguarde: observações já em download")
+            self.status_label.setStyleSheet("color: #F39C12;")
             return
 
         # Mantém o extent atual no config
@@ -2348,11 +2371,17 @@ class MainWindow(QMainWindow):
         self._obs_dl_dialog.update_status("Conectando aos servidores de observação...")
         self._obs_dl_dialog.cancel_btn.setEnabled(False)  # fetch curto; sem cancelamento
 
+        # Modo "mais recente": target_time=None (os fetchers buscam o agora);
+        # modo "análise": pinado no valid_time da rodada carregada.
+        mode = self.settings_panel.get_obs_time_mode()
+        target_time = None if mode == OBS_MODE_LATEST else self._last_valid_time
+
         self.station_download_thread = StationDownloadThread(
             config=self.config,
             want_metar=want_metar,
             want_synop=want_synop,
-            target_time=self._last_valid_time,
+            target_time=target_time,
+            force_refresh=force_refresh,
             parent=self,
         )
         self.station_download_thread.progress.connect(self._on_stations_progress)
@@ -2373,10 +2402,15 @@ class MainWindow(QMainWindow):
             self._obs_dl_dialog = None
 
     def _on_stations_ok(self, result: dict) -> None:
+        # Resultado tardio de um download abandonado (troca de região/tema/projeto)
+        # não pode pintar o mapa novo — padrão do guard dos avisos INMET.
+        if self.sender() is not getattr(self, "station_download_thread", None):
+            return
         self.station_download_thread = None
         self._close_obs_dialog()
         counts = []
         empty_kinds = []
+        actual_times: dict = {}
         for kind in ("metar", "synop"):
             df = result.get(kind)
             if df is None:
@@ -2385,13 +2419,20 @@ class MainWindow(QMainWindow):
             counts.append(f"{kind.upper()}: {len(df)}")
             if len(df) == 0:
                 empty_kinds.append(kind.upper())
+            # Horário REAL plotado (contrato df.attrs) → hint do painel
+            attrs = getattr(df, "attrs", {})
+            actual_times[kind] = attrs.get("obs_time_utc")
+            if kind == "synop":
+                actual_times["synop_fallback"] = bool(attrs.get("obs_fallback"))
+        if actual_times:
+            self.settings_panel.set_obs_actual_times(actual_times)
 
         # Aviso discreto na barra de status (sem popup repetitivo)
         if empty_kinds:
             self.status_label.setText(
                 "● Sem estações "
                 + "/".join(empty_kinds)
-                + " para esta região/horário — tente outra região ou rodada"
+                + " para esta região/horário — tente outra região, rodada ou Atualizar (🔄)"
             )
             self.status_label.setStyleSheet("color: #F39C12;")
         elif counts:
@@ -2399,6 +2440,8 @@ class MainWindow(QMainWindow):
             self.status_label.setStyleSheet("color: #27AE60;")
 
     def _on_stations_error(self, error_msg: str) -> None:
+        if self.sender() is not getattr(self, "station_download_thread", None):
+            return
         self.station_download_thread = None
         if getattr(self, "_obs_dl_dialog", None):
             self._obs_dl_dialog.finish_error()
@@ -2457,6 +2500,10 @@ class MainWindow(QMainWindow):
         self._abandon_cells_detection()
         self.inmet_avisos_thread = None
         self._last_inmet_avisos = None
+        # Download de observações em voo é abandonado: o resultado tardio cai
+        # no guard de sender; o diálogo de progresso não pode ficar órfão.
+        self.station_download_thread = None
+        self._close_obs_dialog()
         if getattr(self, "satellite_panel", None) is not None:
             self.satellite_panel.reset_state()
         for kind in ("symbology", "emojis", "annotations"):
@@ -3840,6 +3887,8 @@ class MainWindow(QMainWindow):
                     "kind": "observations",
                     "metar": bool(obs.get("metar")),
                     "synop": bool(obs.get("synop")),
+                    # Ausente em projetos antigos = "analysis" (retrocompatível)
+                    "time_mode": self.settings_panel.get_obs_time_mode(),
                 }
             )
 
@@ -4201,7 +4250,10 @@ class MainWindow(QMainWindow):
             return "Bloqueio atmosférico (Z500)"
         if kind == "observations":
             kinds = [k.upper() for k in ("metar", "synop") if spec.get(k)]
-            return "Observações (" + "/".join(kinds) + ")" if kinds else "Observações"
+            label = "Observações (" + "/".join(kinds) + ")" if kinds else "Observações"
+            if spec.get("time_mode") == OBS_MODE_LATEST:
+                label += " — mais recente"
+            return label
         var = spec.get("variable", "campo")
         nome = VARIABLE_REGISTRY.get(var, {}).get("nome", var)
         lvl = spec.get("level") or 0

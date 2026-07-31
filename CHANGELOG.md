@@ -28,8 +28,44 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   0.7.2–0.7.5 não têm o `ecmwf.datastores` que o autoteste e o empacotamento
   passaram a exigir — o piso antigo permitia um falso negativo no autoteste com
   ERA5 funcionando.
+- **Cache de observações congelado para sempre.** O primeiro fetch de METAR era
+  gravado com a hora da análise no nome e revivido incondicionalmente (sem
+  validade, sem `force_download`) — religar o overlay nunca atualizava nada.
+  Agora o cache do modo "mais recente" expira por idade (10 min).
+- **Cache SYNOP fossilizava resposta vazia.** Resposta só-cabeçalho do OGIMET
+  (boletim recém-fechado, erro/quota) era cacheada para sempre como "sem
+  dados"; o cache agora só grava respostas com pelo menos um relatório FM-12,
+  e um cache gravado enquanto o boletim ainda enchia é rebaixado.
+- **Hint mentiroso "METAR → HHZ (mais recente)".** O painel prometia o METAR da
+  hora da análise chamando-o de "mais recente"; com os dois modos, cada rótulo
+  agora diz exatamente o que será plotado (o arredondamento sinótico do hint
+  passou a usar o mesmo helper `synop_slot` do motor — nunca divergem).
+- **Resultado tardio de download de observações pintava o mapa novo.** Troca de
+  região/tema/projeto com fetch de estações em voo deixava o resultado velho
+  aterrissar no mapa rebuildado (e o diálogo de progresso órfão). Handlers
+  ganharam o guard de sender (padrão dos avisos INMET) e a invalidação de
+  overlays passou a abandonar o thread e fechar o diálogo.
 
 ### Adicionado
+
+- **🕐 Observações no horário "Mais recente (agora)" — METAR/SYNOP desacoplados
+  da rodada.** Pedido de usuário: ver um METAR o mais atual possível, sem a
+  amarração ao step 0 do IFS. Novo seletor **Horário** no painel *Observações
+  de superfície* com dois modos:
+  - **Análise da rodada (+0h)** — comportamento clássico, agora *honesto*: o
+    METAR é pinado na **janela da análise** via `date`/`hours` da API do AWC
+    (antes o AWC devolvia silenciosamente o mais recente e o app o rotulava
+    como análise), com dedupe por estação mantendo o report mais novo e busca
+    em 4 quadrantes quando o extent satura o cap de 400 registros da API.
+  - **Mais recente (agora)** — libera SYNOP/METAR em **qualquer step** (e até
+    sem modelo carregado); METAR do fluxo em tempo real do AWC; SYNOP nas
+    horas sinóticas de **3/3 h** (00/03/06...Z) com **recuo automático de
+    slot** quando o boletim mais novo ainda não fechou no OGIMET; horário real
+    **carimbado no título da carta** (`Obs: METAR 14:32Z 31/07 · SYNOP 15Z`) e
+    no hint do painel (com aviso de recuo de slot). Botão **🔄 Atualizar**
+    força novo download; cache "latest" com validade de **10 min** (e servido
+    como degradação graciosa se a rede cair). Preferência salva entre sessões
+    (QSettings) e registrada no projeto `.cmbr` (rótulo "— mais recente").
 
 - **🌊 Camada "Hidrografia (rios e lagos)"** — pedido de usuário: corpos hídricos
   principais como contexto na carta. Checkbox em *Camadas sinóticas* com dois

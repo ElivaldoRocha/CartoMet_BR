@@ -505,13 +505,20 @@ class StationDownloadThread(QThread):
     finished_error = pyqtSignal(str)
 
     def __init__(
-        self, config: Config, want_metar: bool, want_synop: bool, target_time=None, parent=None
+        self,
+        config: Config,
+        want_metar: bool,
+        want_synop: bool,
+        target_time=None,
+        force_refresh: bool = False,
+        parent=None,
     ):
         super().__init__(parent)
         self.config = config
         self.want_metar = want_metar
         self.want_synop = want_synop
         self.target_time = target_time
+        self.force_refresh = force_refresh
 
     def run(self):
         try:
@@ -527,6 +534,7 @@ class StationDownloadThread(QThread):
                     extent,
                     when=self.target_time,
                     data_dir=data_dir,
+                    force_download=self.force_refresh,
                 )
 
             if self.want_synop:
@@ -535,6 +543,7 @@ class StationDownloadThread(QThread):
                     extent,
                     when=self.target_time,
                     data_dir=data_dir,
+                    force_download=self.force_refresh,
                     progress_callback=lambda msg: self.progress.emit(msg),
                 )
 

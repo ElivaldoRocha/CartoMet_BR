@@ -244,9 +244,10 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 ### Observações de superfície — SYNOP e METAR
 
 - Sobreposição de **observações reais** à análise do modelo, para identificar com precisão frentes, ciclones e cavados (pedido do meteorologista Gustavo C. J. Escobar)
-- **METAR (horário)** via NOAA Aviation Weather Center e **SYNOP (6/6h)** via OGIMET
+- **METAR (horário)** via NOAA Aviation Weather Center e **SYNOP** via OGIMET
 - *Station model* completo (T, Td, PNMM, barbelas de vento, cobertura de nuvens, tempo presente) com `metpy.plots.StationPlot`
-- **Sincronização temporal**: as observações usam o `valid_time` do modelo carregado
+- **Dois modos de horário** no seletor do painel: **Análise da rodada (+0h)** — observações da janela da análise, casadas com o `Válido` da carta e congeladas em cache (carta reprodutível); e **Mais recente (agora)** — a observação mais atual disponível, **independente da rodada** (funciona até sem modelo carregado e em qualquer step), com o **horário real carimbado no título da carta** (`Obs: METAR 14:32Z · SYNOP 15Z`). A preferência fica salva entre sessões
+- No modo **Mais recente**: METAR direto do fluxo em tempo real do AWC; SYNOP busca as horas sinóticas de **3 em 3 h** (00/03/06...Z) com **recuo automático de slot** quando o boletim mais novo ainda não fechou no OGIMET; cache com validade de **10 min** e botão **🔄 Atualizar** que força novo download
 - **Densidade ajustável** (Baixa / Média / Alta / Máxima — padrão **Alta**) via seletor no painel, com afinamento (`reduce_point_density`) que também responde ao zoom; densidade Máxima ≈ produto GEMPAK. Trocar a densidade re-renderiza na hora, sem novo download
 - Liga/desliga por checkbox no painel **Observações de superfície** (re-renderiza só o overlay; rede em thread; falhas não travam a interface)
 
@@ -427,7 +428,7 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 | **Projeto de análise (.cmbr)** | Salvar/abrir o traçado manual + estado do mapa; restauração offline (*human-in-the-loop*); **autoria e trilha de revisões** (schema v4 — "análise de A, revisada por B") |
 | **Modo Edição** | Clique seleciona um desenho já traçado para **apagar só ele, mover, ajustar vértices (com ímã entre frentes) ou girar formas pela alça** — tudo desfazível por operações; visibilidade por grupo (simbologias/emojis/anotações) sem apagar nada |
 | **Boletim Codificado (CODSAS)** | Exporta/importa as feições traçadas como boletim de texto estilo WPC adaptado à América do Sul (`lat,lon` decimais); importa boletins WPC genuínos (MetPy) com auto-enquadre |
-| **Observações SYNOP/METAR** | Sobreposição de observações reais de superfície (METAR via NOAA AWC; SYNOP via OGIMET) sincronizadas com o `valid_time` do modelo |
+| **Observações SYNOP/METAR** | Sobreposição de observações reais de superfície (METAR via NOAA AWC; SYNOP via OGIMET) — sincronizadas com o `valid_time` do modelo **ou no horário mais recente (tempo real)**, com o horário da obs carimbado no título |
 | **Caneta e Formas** | Traço livre (mouse/mesa digitalizadora) e formas customizáveis (retângulo, elipse, seta, linha, polígono) com cor, preenchimento, espessura, estilo e opacidade — integrados ao undo/redo |
 | **Zoom no mapa** | Zoom por roda do mouse, pan, recorte por retângulo (replota e reafina estações), histórico de extents (Home/Ctrl+0) |
 | **Satélite GOES-East** | Imagem IR Banda 13 com paleta clássica, seleção por data/hora/minuto |
@@ -694,7 +695,7 @@ Na primeira execução, o programa exibirá uma **janela de boas-vindas** e soli
 - **METAR**: relatórios horários de aeródromos via NOAA Aviation Weather Center
 - **SYNOP**: relatórios sinóticos de 6/6h (FM-12) via OGIMET, decodificados com `pymetdecoder`
 - **Variáveis**: T, Td, PNMM, vento (barbelas), cobertura de nuvens e tempo presente (`metpy.plots.StationPlot`)
-- **Sincronização**: usa o `valid_time` do modelo carregado; afinamento por densidade que responde ao zoom
+- **Sincronização**: modo Análise usa o `valid_time` do modelo; modo "Mais recente" busca a observação mais atual (SYNOP de 3/3 h com recuo de slot); afinamento por densidade que responde ao zoom
 - **Fonte**: [NOAA AWC](https://aviationweather.gov/) (METAR) · [OGIMET](https://www.ogimet.com/) (SYNOP)
 - **Licença**: Domínio Público (NOAA) / dados abertos (OGIMET)
 

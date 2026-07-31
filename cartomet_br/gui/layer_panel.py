@@ -41,7 +41,13 @@ from cartomet_br.data.ecmwf import (
     estimate_available_cycles,
 )
 from cartomet_br.data.hydrography import DEFAULT_HYDRO_DETAIL, HYDRO_DETAIL_LEVELS
-from cartomet_br.data.stations import DEFAULT_OBS_DENSITY, OBS_DENSITY_FACTORS
+from cartomet_br.data.stations import (
+    DEFAULT_OBS_DENSITY,
+    OBS_DENSITY_FACTORS,
+    OBS_MODE_ANALYSIS,
+    OBS_MODE_LATEST,
+    synop_slot,
+)
 from cartomet_br.gui._constants import APP_NAME, VALID_STEPS
 from cartomet_br.gui.wind_style import (
     DEFAULT_WIND_COLOR,
@@ -364,6 +370,8 @@ class SettingsPanel(QWidget):
     north_arrow_changed = pyqtSignal(bool)  # rosa dos ventos (indicador de norte)
     hydrography_changed = pyqtSignal(bool)  # camada de hidrografia (rios/lagos)
     hydrography_detail_changed = pyqtSignal(str)  # nível: "Principais" | "Detalhado"
+    obs_time_mode_changed = pyqtSignal(str)  # horário das obs: "analysis" | "latest"
+    obs_refresh_requested = pyqtSignal()  # 🔄 re-baixa as obs ignorando o cache
 
     REGIONS = {
         "América do Sul": EXTENT_AMSUL,
@@ -754,6 +762,44 @@ class SettingsPanel(QWidget):
         )
         obs_layout.addWidget(self.metar_check)
 
+        # ── Horário das observações: análise da rodada × mais recente (agora) ──
+        time_row = QHBoxLayout()
+        time_row.setSpacing(6)
+        time_row.addSpacing(18)  # indenta sob SYNOP/METAR
+        time_row.addWidget(QLabel("Horário:"))
+        self.obs_time_combo = QComboBox()
+        self.obs_time_combo.addItem("Análise da rodada (+0h)", OBS_MODE_ANALYSIS)
+        self.obs_time_combo.addItem("Mais recente (agora)", OBS_MODE_LATEST)
+        self.obs_time_combo.setToolTip(
+            "Análise da rodada: observações da janela da análise (+0h) — casam\n"
+            "com o Válido da carta e ficam congeladas (carta reprodutível).\n"
+            "Mais recente: busca a observação mais atual disponível — independe\n"
+            "da rodada e libera SYNOP/METAR em qualquer step; o horário real é\n"
+            "carimbado no título da carta. A preferência fica salva."
+        )
+        time_row.addWidget(self.obs_time_combo, 1)
+        self.obs_refresh_btn = QPushButton("🔄")
+        self.obs_refresh_btn.setFixedWidth(30)
+        self.obs_refresh_btn.setToolTip(
+            "Atualizar observações agora (ignora o cache de 10 min).\n"
+            'Disponível no horário "Mais recente".'
+        )
+        time_row.addWidget(self.obs_refresh_btn)
+        obs_layout.addLayout(time_row)
+
+        # Preferência do modo persistida (QSettings), restaurada ANTES dos
+        # connects (padrão da hidrografia): setCurrentIndex aqui não emite; o
+        # MainWindow grava a chave no handler do sinal.
+        obs_settings = QSettings("PPGGRD-UFPA", APP_NAME)
+        saved_mode = obs_settings.value("map/obs_time_mode", OBS_MODE_ANALYSIS, str)
+        if saved_mode not in (OBS_MODE_ANALYSIS, OBS_MODE_LATEST):
+            saved_mode = OBS_MODE_ANALYSIS
+        mode_idx = self.obs_time_combo.findData(saved_mode)
+        if mode_idx >= 0:
+            self.obs_time_combo.setCurrentIndex(mode_idx)
+        self.obs_time_combo.currentIndexChanged.connect(self._on_obs_time_mode_changed)
+        self.obs_refresh_btn.clicked.connect(self.obs_refresh_requested.emit)
+
         # ── Densidade do overlay (afina SYNOP+METAR; re-renderiza sem rebaixar) ──
         density_row = QHBoxLayout()
         density_row.setSpacing(6)
@@ -781,11 +827,12 @@ class SettingsPanel(QWidget):
 
         layout.addWidget(obs_group)
 
-        # ── Observações só fazem sentido na ANÁLISE (+0h): bloqueia em previsões ──
-        # As estações refletem o presente/passado; em steps futuros não existem.
+        # ── Gate por modo de horário: no modo "análise" as observações só fazem
+        # sentido no +0h; no modo "mais recente" elas independem do step.
         self._obs_ref_dt = None
+        self._obs_actual_times: dict = {}  # horários REAIS plotados (df.attrs)
         self.step_combo.currentIndexChanged.connect(self._update_observations_ui)
-        self._update_observations_ui()  # estado inicial coerente com o step atual
+        self._update_observations_ui()  # estado inicial coerente com step e modo
 
     def _on_region_changed(self, name):
         if name in self.REGIONS:
@@ -875,6 +922,28 @@ class SettingsPanel(QWidget):
         """Nível selecionado da camada de hidrografia (ver HYDRO_DETAIL_LEVELS)."""
         return str(self.hydro_detail_combo.currentText())
 
+    def get_obs_time_mode(self) -> str:
+        """Modo de horário das observações (OBS_MODE_ANALYSIS | OBS_MODE_LATEST)."""
+        mode = self.obs_time_combo.currentData()
+        return mode if mode in (OBS_MODE_ANALYSIS, OBS_MODE_LATEST) else OBS_MODE_ANALYSIS
+
+    def _on_obs_time_mode_changed(self, _index: int) -> None:
+        # Horários reais do modo anterior não valem mais — evita hint defasado
+        # até o próximo fetch reabastecer via set_obs_actual_times.
+        self._obs_actual_times = {}
+        self._update_observations_ui()
+        self.obs_time_mode_changed.emit(self.get_obs_time_mode())
+
+    def set_obs_actual_times(self, times: dict) -> None:
+        """Recebe os horários REAIS plotados (df.attrs do fetch) e refaz o hint.
+
+        `times` mescla parcialmente: {"metar": datetime|None, "synop":
+        datetime|None, "synop_fallback": bool}. `None` limpa a entrada (camada
+        desligada ou fetch vazio).
+        """
+        self._obs_actual_times.update(times)
+        self._update_observations_ui()
+
     def set_obs_reference_time(self, dt):
         """Guarda o valid_time do modelo (datetime UTC ou None) e atualiza o painel.
 
@@ -893,25 +962,58 @@ class SettingsPanel(QWidget):
                 "da análise — carregue um modelo para sincronizar.</small>"
             )
             return
-        synop_hour = (dt.hour // 6) * 6
+        synop_hour = synop_slot(dt, 6).hour
         date_str = dt.strftime("%d/%m")
         self.obs_time_label.setText(
             f"<small style='color: #95A5A6;'>"
             f"SYNOP → <b>{synop_hour:02d}Z {date_str}</b> · "
-            f"METAR → <b>{dt.hour:02d}Z {date_str}</b> (mais recente)"
+            f"METAR → <b>{dt.hour:02d}Z {date_str}</b> (janela da análise)"
             f"</small>"
         )
 
-    def _update_observations_ui(self):
-        """Habilita SYNOP/METAR só na análise (+0h); em previsões, desmarca e bloqueia.
+    def _render_latest_hint(self):
+        """Hint do modo "mais recente": horários REAIS plotados, quando houver."""
+        actual = self._obs_actual_times
+        parts = []
+        metar_dt = actual.get("metar")
+        if metar_dt is not None:
+            parts.append(f"METAR <b>{metar_dt.strftime('%H:%MZ %d/%m')}</b>")
+        synop_dt = actual.get("synop")
+        if synop_dt is not None:
+            txt = f"SYNOP <b>{synop_dt.strftime('%HZ %d/%m')}</b>"
+            if actual.get("synop_fallback"):
+                txt += " (recuo de slot)"
+            parts.append(txt)
+        if parts:
+            self.obs_time_label.setText(
+                "<small style='color: #95A5A6;'>Plotado: " + " · ".join(parts) + "</small>"
+            )
+        else:
+            self.obs_time_label.setText(
+                "<small style='color: #95A5A6;'>Mostra as observações mais recentes "
+                "disponíveis — independem da rodada carregada.</small>"
+            )
 
-        Ao desmarcar automaticamente, o sinal `stateChanged` das checkboxes dispara
-        a remoção dos artists de estação no MapCanvas (limpeza ao avançar o tempo).
+    def _update_observations_ui(self):
+        """Gate dos overlays de observação por modo de horário.
+
+        Análise: SYNOP/METAR só no step +0h (as estações refletem o presente).
+        Mais recente: liberados em qualquer step — a obs se descola da rodada e
+        o horário real é carimbado no título/hint (honestidade garantida).
+        Ao desmarcar automaticamente, o sinal `stateChanged` das checkboxes
+        dispara a remoção dos artists de estação no MapCanvas.
         """
+        mode = self.get_obs_time_mode()
         step = self.get_step() or 0
-        if step == 0:
+        if mode == OBS_MODE_LATEST:
             self.synop_check.setEnabled(True)
             self.metar_check.setEnabled(True)
+            self.obs_refresh_btn.setEnabled(True)
+            self._render_latest_hint()
+        elif step == 0:
+            self.synop_check.setEnabled(True)
+            self.metar_check.setEnabled(True)
+            self.obs_refresh_btn.setEnabled(False)
             self._render_obs_hint()
         else:
             # Desmarca (emite o sinal → remove overlay) e desabilita
@@ -919,9 +1021,11 @@ class SettingsPanel(QWidget):
             self.metar_check.setChecked(False)
             self.synop_check.setEnabled(False)
             self.metar_check.setEnabled(False)
+            self.obs_refresh_btn.setEnabled(False)
             self.obs_time_label.setText(
-                "<small style='color: #E67E22;'>⚠️ Observações reais não estão "
-                "disponíveis para previsões. Selecione o Step +0h (Análise).</small>"
+                '<small style="color: #E67E22;">⚠️ No horário "Análise", as '
+                "observações só existem no Step +0h. Selecione +0h ou troque o "
+                'horário para "Mais recente".</small>'
             )
 
     def set_downloading(self, downloading: bool):
