@@ -115,6 +115,9 @@ def download_ecmwf(
     levtype: str | None = None,
     date: str | None = None,
     model: str | None = None,
+    stream: str | None = None,
+    type_: str = "fc",
+    number: list[int] | None = None,
 ) -> Path:
     """
     Baixa dados do ECMWF Open Data (IFS ou AIFS).
@@ -125,6 +128,13 @@ def download_ecmwf(
     ``output_path`` ("aifs_..." → AIFS) — o prefixo do cache é o contrato do
     modelo no disco (ver ``grib_prefix``), então os loaders só trocam o
     prefixo e este ponto único fala com o modelo certo.
+
+    ``stream``/``type_``/``number`` (Ensemble ENS): ``stream="enfo"`` +
+    ``type_="pf"`` selecionam os 50 membros perturbados via ``retrieve()``
+    com byte-ranges — o arquivo combinado do enfo pós-50r1 tem ~6 GB/step e
+    NUNCA deve ser baixado inteiro. ``number`` filtra membros específicos
+    (None = todos). Quando ``stream=None`` (padrão), a lib infere o stream
+    correto do oper (ver nota do Cycle 50r1 abaixo).
 
     Parâmetros
     ----------
@@ -225,10 +235,14 @@ def download_ecmwf(
     # (vo/d/w), que baixavam o pacote oper inteiro (~132 MB) e falhavam no cfgrib.
     request_params = {
         "step": step,
-        "type": "fc",
+        "type": type_,
         "param": variables,
         "target": str(output_path),
     }
+    if stream is not None:
+        request_params["stream"] = stream
+    if number is not None:
+        request_params["number"] = number
 
     # Se o usuário escolheu uma rodada específica, passa o parâmetro time
     if cycle is not None:
@@ -1496,6 +1510,32 @@ VARIABLE_REGISTRY: dict[str, dict[str, Any]] = {
         "cmap": "RdBu_r",
         "symmetric": True,
         "category": "derived",
+    },
+    # Ensemble ENS (51 membros): campos sintéticos montados por data/ensemble.py.
+    # Só metadados de RENDER; a descrição honesta do título vem em
+    # extra["title_desc"] e o contorno da média (produtos ± σ) em
+    # extra["mean_contour"] (sobreposto pelo _plot_scalar_contourf).
+    "ens_prob": {
+        "nome": "ENS — Probabilidade",
+        "param": [],
+        "unit_raw": "%",
+        "unit_display": "%",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "YlGnBu",
+        "symmetric": False,
+        "category": "ensemble",
+    },
+    "ens_spread": {
+        "nome": "ENS — média ± dispersão",
+        "param": [],
+        "unit_raw": "",
+        "unit_display": "",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "Oranges",
+        "symmetric": False,
+        "category": "ensemble",
     },
 }
 

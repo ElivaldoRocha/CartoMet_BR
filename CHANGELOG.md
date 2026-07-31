@@ -48,6 +48,25 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **🎲 Ensemble ENS — 51 membros do ECMWF na carta (Onda 3 da v3.2, carro-chefe).**
+  Novo grupo "Ensemble ENS (51 membros)" nas Análises Prontas com três
+  produtos probabilísticos calculados dos 50 membros perturbados (`enfo`) +
+  o controle (que pós-50r1 é o próprio `oper`, reusado do cache das cartas
+  normais — de graça): **P(chuva 24 h > limiar)** (1/5/10/20/30/50 mm;
+  desacumulação tp(step) − tp(step−24) POR MEMBRO, depois fração dos 51),
+  **PNMM média ± σ** e **Z500 média ± σ** (média em isolinhas pretas
+  rotuladas + dispersão sombreada — a leitura clássica de carta de
+  ensemble). Engenharia: o arquivo combinado do enfo tem ~6 GB/step — o
+  motor usa `retrieve()` com byte-ranges (~25–40 MB por campo), recorta ao
+  extent ANTES de empilhar (numpy puro) e os produtos `em`/`es` extintos do
+  open data são recalculados localmente. Render honesto: título "ECMWF ENS
+  — P(R24h > 10 mm) (%) — 51 membros (50 pert. + controle)", probabilidade
+  em escala FIXA 10–100% com piso de 10% transparente (ruído de ensemble
+  não vira mancha). Sob AIFS o grupo fica cinza (aifs-ens fica p/ v3.3);
+  camadas ENS entram no `.cmbr` e restauram do cache sem rede. Validado ao
+  vivo: 50 membros reais da rodada 12Z (σ de PNMM 0,2–2,7 hPa em +48 h),
+  cache-hit em 1,6 s.
+
 - **🤖 AIFS — o modelo de IA do ECMWF como opção ao IFS (Onda 2 da v3.2).**
   Seletor "Modelo" no painel: IFS (físico, padrão) ou AIFS (aifs-single 0.25°,
   o modelo de inteligência artificial operacional do ECMWF) pelo mesmo fluxo

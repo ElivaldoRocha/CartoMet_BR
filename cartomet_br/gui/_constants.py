@@ -27,6 +27,11 @@ VALID_STEPS: list[int] = list(range(0, 145, 3)) + list(range(150, 241, 6))
 # igualdade (test_aifs.py).
 AIFS_VALID_STEPS: list[int] = list(range(0, 361, 6))
 
+# Limiares (mm/24h) da probabilidade de precipitação do Ensemble ENS.
+# Duplicado deliberadamente de data/ensemble.py (PROB_THRESHOLDS_MM) pelo
+# mesmo motivo acima — teste de deriva garante a igualdade (test_ensemble.py).
+ENS_PROB_THRESHOLDS_MM: tuple[float, ...] = (1.0, 5.0, 10.0, 20.0, 30.0, 50.0)
+
 
 def get_assets_path() -> Path:
     """Retorna caminho dos assets, funciona em dev e no executável."""

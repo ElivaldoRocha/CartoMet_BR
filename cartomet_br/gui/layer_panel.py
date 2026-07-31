@@ -48,7 +48,12 @@ from cartomet_br.data.stations import (
     OBS_MODE_LATEST,
     synop_slot,
 )
-from cartomet_br.gui._constants import AIFS_VALID_STEPS, APP_NAME, VALID_STEPS
+from cartomet_br.gui._constants import (
+    AIFS_VALID_STEPS,
+    APP_NAME,
+    ENS_PROB_THRESHOLDS_MM,
+    VALID_STEPS,
+)
 from cartomet_br.gui.wind_style import (
     DEFAULT_WIND_COLOR,
     DEFAULT_WIND_DENSITY,
@@ -1204,6 +1209,7 @@ class FieldLayerPanel(QWidget):
     instability_requested = pyqtSignal(object)  # campos de instabilidade (lista de índices)
     baroclinic_requested = pyqtSignal()  # preset Diagnóstico Baroclínico (θe/TFP)
     run_compare_requested = pyqtSignal()  # comparação de rodadas (Δ novo − antigo)
+    ens_requested = pyqtSignal(str, float)  # Ensemble ENS: (produto, limiar mm)
     inmet_avisos_requested = pyqtSignal()  # avisos meteorológicos ativos do INMET
     # Filtro dos avisos INMET: incluir os "futuros" (emitidos, validade por
     # começar)? Re-renderiza a última busca na hora — sem nova consulta.
@@ -1302,6 +1308,24 @@ class FieldLayerPanel(QWidget):
                     if variable_available(str(combo.itemData(i)), model):
                         combo.setCurrentIndex(i)
                         break
+        # Ensemble ENS é do IFS — sob AIFS o grupo inteiro fica cinza.
+        is_ifs = model != "aifs"
+        if hasattr(self, "ens_group"):
+            self.ens_group.setEnabled(is_ifs)
+            self.ens_group.setToolTip(
+                ""
+                if is_ifs
+                else "O Ensemble ENS é do IFS (físico) — o aifs-ens ainda não é suportado"
+            )
+
+    def _on_ens_product_changed(self) -> None:
+        """Limiar de chuva só faz sentido no produto de probabilidade."""
+        self.ens_thr_combo.setEnabled(self.ens_product_combo.currentData() == "prob")
+
+    def _on_ens_add(self) -> None:
+        product = str(self.ens_product_combo.currentData())
+        thr = float(self.ens_thr_combo.currentData() or 10.0)
+        self.ens_requested.emit(product, thr)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -1398,6 +1422,53 @@ class FieldLayerPanel(QWidget):
         )
         run_compare_btn.clicked.connect(self.run_compare_requested.emit)
         layout.addWidget(run_compare_btn)
+
+        # ─── Ensemble ENS (51 membros = 50 perturbados + controle) ───
+        self.ens_group = QGroupBox("Ensemble ENS (51 membros)")
+        ens_layout = QVBoxLayout(self.ens_group)
+        ens_layout.setSpacing(4)
+
+        ens_row = QHBoxLayout()
+        self.ens_product_combo = QComboBox()
+        for key, label in (
+            ("prob", "P(chuva 24h > limiar)"),
+            ("msl", "PNMM — média ± σ"),
+            ("gh500", "Z500 — média ± σ"),
+        ):
+            self.ens_product_combo.addItem(label, key)
+        self.ens_product_combo.setToolTip(
+            "Produtos calculados dos 51 membros do ENS:\n"
+            "• P(chuva 24h > limiar): % dos membros com R24h acima do limiar\n"
+            "• média ± σ: média em linhas + dispersão sombreada (incerteza)"
+        )
+        ens_row.addWidget(self.ens_product_combo, stretch=1)
+        self.ens_thr_combo = QComboBox()
+        for thr in ENS_PROB_THRESHOLDS_MM:
+            self.ens_thr_combo.addItem(f"{thr:g} mm", float(thr))
+        self.ens_thr_combo.setCurrentIndex(2)  # 10 mm
+        self.ens_thr_combo.setToolTip("Limiar de chuva acumulada em 24 h")
+        ens_row.addWidget(self.ens_thr_combo)
+        ens_layout.addLayout(ens_row)
+
+        ens_btn = QPushButton("🎲 Adicionar camada ENS")
+        ens_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #7D3C98; padding: 7px;
+                font-size: 11px; font-weight: bold; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #9B59B6; }
+        """)
+        ens_btn.setToolTip(
+            "Baixa os 50 membros perturbados (enfo) do campo escolhido e reusa o\n"
+            "controle do cache das cartas normais (oper) — 51 membros no total.\n"
+            "≈ 25–75 MB por camada nova; o ENS publica ~8 h após a rodada.\n"
+            "Probabilidade de chuva requer step ≥ +24h (janela de 24 h)."
+        )
+        ens_btn.clicked.connect(self._on_ens_add)
+        ens_layout.addWidget(ens_btn)
+        self.ens_product_combo.currentIndexChanged.connect(self._on_ens_product_changed)
+        self._on_ens_product_changed()
+        layout.addWidget(self.ens_group)
 
         # ─── Diagnóstico Baroclínico (apoio ao traçado MANUAL de frentes) ───
         baroclinic_btn = QPushButton("🌡 Diagnóstico Baroclínico")

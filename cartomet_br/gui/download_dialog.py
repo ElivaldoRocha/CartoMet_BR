@@ -357,6 +357,66 @@ class RunCompareThread(QThread):
             retry_logger.removeHandler(retry_handler)
 
 
+class EnsembleThread(QThread):
+    """Thread dos produtos do Ensemble ENS (51 membros) via DataService.
+
+    Downloads cache-first serializados dentro do mesmo run() (2 a 4 GRIBs:
+    enfo pf + controle oper, ×2 steps na probabilidade) — uma barra de
+    progresso só, com o mesmo tratamento de HTTP 429 dos demais loaders.
+    """
+
+    progress = pyqtSignal(str)
+    download_percent = pyqtSignal(int)
+    finished_ok = pyqtSignal(str, object)  # (layer_id, PLFieldData sintético)
+    finished_error = pyqtSignal(str)
+
+    def __init__(
+        self,
+        product,
+        threshold_mm,
+        step,
+        cycle,
+        config,
+        cycle_date=None,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.service = DataService(config)
+        self.product = product
+        self.threshold_mm = threshold_mm
+        self.step = step
+        self.cycle = cycle
+        self.cycle_date = cycle_date
+
+    def run(self):
+        original_stderr = sys.stderr
+        capture = StderrProgressCapture(
+            lambda pct: self.download_percent.emit(pct), original_stderr
+        )
+        sys.stderr = capture
+        retry_handler, retry_logger = _attach_retry_handler(lambda msg: self.progress.emit(msg))
+
+        try:
+            self.progress.emit("Ensemble ENS: preparando os 51 membros...")
+            layer_id, data = self.service.load_ensemble(
+                product=self.product,
+                threshold_mm=self.threshold_mm,
+                step=self.step,
+                cycle=self.cycle,
+                cycle_date=self.cycle_date,
+                progress_callback=lambda msg: self.progress.emit(msg),
+            )
+            self.progress.emit("Produto ENS pronto!")
+            self.finished_ok.emit(layer_id, data)
+        except (ValidationError, DownloadError) as e:
+            self.finished_error.emit(str(e))
+        except Exception as e:
+            self.finished_error.emit(str(e))
+        finally:
+            sys.stderr = original_stderr
+            retry_logger.removeHandler(retry_handler)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  THREAD DE DOWNLOAD ERA5 (reanálise Copernicus/CDS)
 # ═══════════════════════════════════════════════════════════════════════════════

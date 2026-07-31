@@ -1546,13 +1546,15 @@ class MapCanvas(FigureCanvas):
             if top_extra.get("title_desc"):
                 field_desc = str(top_extra["title_desc"])
 
-            # Reanálise ≠ previsão ≠ IA: o prefixo do título nunca pode dizer
-            # "IFS" sobre um campo ERA5 ou AIFS (honestidade científica).
+            # Reanálise ≠ previsão ≠ IA ≠ ensemble: o prefixo do título nunca
+            # pode dizer "IFS" sobre um campo ERA5, AIFS ou ENS (honestidade).
             source = getattr(top_data, "source", "ifs")
             if source == "era5":
                 prefix = "ERA5 (reanálise)"
             elif source == "aifs":
                 prefix = "ECMWF AIFS (IA)"
+            elif source == "ens":
+                prefix = "ECMWF ENS"
             else:
                 prefix = "ECMWF IFS"
 
@@ -3786,6 +3788,21 @@ class MapCanvas(FigureCanvas):
                 }
             )
         for layer_id, data in self._pl_data.items():
+            # Ensemble ENS: sintético, reconstruível via load_ensemble
+            # (os GRIBs enfo/oper estão no cache indexado por rodada).
+            if getattr(data, "variable", "") in ("ens_prob", "ens_spread"):
+                meta = getattr(data, "extra", None) or {}
+                product = str(meta.get("ens_product", ""))
+                layers.append(
+                    {
+                        "kind": "ens",
+                        "layer_id": str(layer_id),
+                        "product": "prob" if product == "prob" else product,
+                        "threshold_mm": float(meta.get("threshold_mm", 10.0)),
+                        "step": int(getattr(data, "step", 0)),
+                    }
+                )
+                continue
             # Δ entre rodadas: sintético, reconstruível via load_run_comparison
             # (os DOIS GRIBs estão no cache indexado por rodada).
             if getattr(data, "variable", "") == "run_diff":
@@ -5864,6 +5881,7 @@ class MapCanvas(FigureCanvas):
         cmap_name = var_info.get("cmap", "viridis")
         symmetric = var_info.get("symmetric", False)
         is_precip = data.variable in ("precip", "era5_precip")
+        is_ens_prob = data.variable == "ens_prob"
 
         # Piso seco: abaixo do limiar (por unidade) a chuva vira NaN → o contourf
         # deixa transparente, sem véu de quase-zero sobre o oceano. Máscara aplicada
@@ -5872,6 +5890,11 @@ class MapCanvas(FigureCanvas):
         if is_precip:
             floor = precip_dry_floor(data.unit)
             values = np.where(np.asarray(values, dtype=float) < floor, np.nan, values)
+        # Probabilidade ENS: abaixo de 10% é ruído de ensemble, não sinal —
+        # transparente (mesma lógica do piso seco), escala FIXA 10–100%
+        # (probabilidades precisam ser comparáveis entre cartas).
+        if is_ens_prob:
+            values = np.where(np.asarray(values, dtype=float) < 10.0, np.nan, values)
 
         if cmap_name == "olr_classic":
             import matplotlib.colors as mcolors
@@ -5892,6 +5915,8 @@ class MapCanvas(FigureCanvas):
 
         if fixed_levels is not None:
             levels = fixed_levels
+        elif is_ens_prob:
+            levels = list(range(10, 101, 10))
         elif data.variable in ("olr", "era5_olr"):
             levels = np.linspace(100, 310, 22)
         elif is_precip:
@@ -5919,6 +5944,7 @@ class MapCanvas(FigureCanvas):
                 "theta_e_grad",
                 "tcwv",
                 "sst_grad",
+                "ens_spread",
                 "era5_tcwv",
                 "era5_precip",
                 "era5pl_r",
@@ -5947,8 +5973,9 @@ class MapCanvas(FigureCanvas):
             values,
             levels=levels,
             cmap=cmap,
-            # precip: "max" não pinta abaixo do 1º nível (piso seco) → seco transparente.
-            extend="max" if is_precip else "both",
+            # precip/prob ENS: "max" não pinta abaixo do 1º nível → área sem
+            # sinal fica transparente (piso seco / piso de 10%).
+            extend="max" if (is_precip or is_ens_prob) else "both",
             transform=ccrs.PlateCarree(),
             zorder=self._pl_zorder_counter,
             alpha=0.85,
@@ -5973,6 +6000,7 @@ class MapCanvas(FigureCanvas):
             "gh",
             "olr",
             "tcwv",
+            "ens_prob",
             "era5pl_r",
             "era5_tcwv",
             "era5_olr",
@@ -5990,6 +6018,28 @@ class MapCanvas(FigureCanvas):
         for txt in clabels:
             txt.set_path_effects([pe.withStroke(linewidth=2, foreground="white")])
             artists.append(txt)
+
+        # Ensemble média ± σ: a MÉDIA dos 51 membros vem em extra["mean_contour"]
+        # e é desenhada como isolinhas pretas rotuladas (como isobaras) sobre o
+        # sombreado da dispersão — a leitura clássica de carta de ensemble.
+        data_extra = getattr(data, "extra", None) or {}
+        mean_field = data_extra.get("mean_contour")
+        if mean_field is not None:
+            cs_mean = self.ax.contour(
+                data.lons,
+                data.lats,
+                mean_field,
+                levels=14,
+                colors="black",
+                linewidths=1.1,
+                transform=ccrs.PlateCarree(),
+                zorder=self._pl_zorder_counter,
+            )
+            artists.append(cs_mean)
+            mean_labels = self.ax.clabel(cs_mean, inline=True, fontsize=7, fmt="%1.0f")
+            for txt in mean_labels:
+                txt.set_path_effects([pe.withStroke(linewidth=2, foreground="white")])
+                artists.append(txt)
 
         try:
             cax = self.ax.inset_axes([1.02, 0.15, 0.02, 0.7])

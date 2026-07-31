@@ -448,6 +448,60 @@ class DataService:
         )
         return layer_id, diff
 
+    # ─── Ensemble ENS (51 membros) ───────────────────────────────────────────
+
+    def load_ensemble(
+        self,
+        product: str,
+        threshold_mm: float = 10.0,
+        step: int = 24,
+        cycle: int | None = None,
+        cycle_date: str | None = None,
+        progress_callback=None,
+        force_download: bool = False,
+    ) -> tuple[str, PLFieldData]:
+        """Produto do Ensemble ENS: 50 pf (enfo, byte-ranges) + controle (oper).
+
+        ``product``: "prob" (P(R24h > ``threshold_mm``)) ou um campo de
+        ``ENS_SPREAD_FIELDS`` ("msl" | "gh500", média ± σ). O controle reusa o
+        cache das cartas normais; validação de step/rodada ANTES da rede.
+        """
+        from cartomet_br.data import ensemble
+
+        model = getattr(self._config, "model", "ifs")
+        if model == "aifs":
+            raise ValidationError(
+                "O Ensemble ENS é um produto do IFS (físico) — o aifs-ens ainda "
+                "não é suportado.\n\nTroque o Modelo para IFS (físico)."
+            )
+        self.validate_step(step, "ifs")
+        base = self._resolve_run(cycle, cycle_date, "ifs")
+        self.validate_cycle(base.hour, step, "ifs")
+
+        common: dict = {
+            "extent": self._config.extent,
+            "step": step,
+            "cycle": base.hour,
+            "cycle_date": base.strftime("%Y%m%d"),
+            "data_dir": self._config.grib_dir,
+            "source": self._config.ecmwf_source,
+            "force_download": force_download,
+            "progress_callback": progress_callback,
+        }
+        if product == "prob":
+            data = ensemble.load_ens_prob_precip(threshold_mm, **common)
+            layer_id = f"ens_prob_{threshold_mm:g}mm"
+        elif product in ensemble.ENS_SPREAD_FIELDS:
+            data = ensemble.load_ens_spread(product, **common)
+            layer_id = f"ens_spread_{product}"
+        else:
+            raise ValidationError(
+                f"Produto ENS desconhecido: {product!r} "
+                f"(use 'prob' ou {', '.join(ensemble.ENS_SPREAD_FIELDS)})."
+            )
+        logger.info("ENS: produto %s pronto (%s)", product, layer_id)
+        return layer_id, data
+
     # ─── ERA5 (reanálise Copernicus/CDS) ─────────────────────────────────────
 
     @staticmethod

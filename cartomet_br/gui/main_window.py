@@ -96,6 +96,7 @@ from cartomet_br.gui.download_dialog import (
     BlockingThread,
     DownloadProgressDialog,
     DownloadThread,
+    EnsembleThread,
     ERA5DownloadThread,
     ERA5SeriesThread,
     LoczcitThread,
@@ -776,6 +777,7 @@ class MainWindow(QMainWindow):
         self.field_panel.loczcit_requested.connect(self._on_loczcit_requested)
         self.field_panel.blocking_requested.connect(self._on_blocking_requested)
         self.field_panel.run_compare_requested.connect(self._on_run_compare_requested)
+        self.field_panel.ens_requested.connect(self._on_ens_requested)
         self.field_panel.inmet_avisos_requested.connect(self._on_inmet_avisos_requested)
         self.field_panel.inmet_future_toggled.connect(self._on_inmet_future_toggled)
         self.field_panel.instability_requested.connect(self._launch_instability)
@@ -2943,6 +2945,50 @@ class MainWindow(QMainWindow):
 
         self._pl_dl_dialog.show()
 
+    # ─── Ensemble ENS (51 membros) ───────────────────────────────────────────
+
+    def _on_ens_requested(self, product: str, threshold_mm: float) -> None:
+        """🎲 Camada ENS: 50 pf (enfo, byte-ranges) + controle (cache do oper)."""
+        if self.pl_download_thread and self.pl_download_thread.isRunning():
+            QMessageBox.information(
+                self, "Aguarde", "Um download já está em andamento. Aguarde concluir."
+            )
+            return
+
+        step = self.settings_panel.get_step()
+        cycle = self.settings_panel.get_cycle()
+        cycle_date = self.settings_panel.get_cycle_date()
+
+        self.status_label.setText("● Baixando Ensemble ENS (51 membros)...")
+        self.status_label.setStyleSheet("color: #9B59B6;")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+
+        self._pl_dl_dialog = DownloadProgressDialog("Ensemble ENS (51 membros)", parent=self)
+        self._pl_dl_dialog.setStyleSheet(DARK_STYLE)
+        self._pl_dl_dialog.cancel_requested.connect(self._cancel_pl_download)
+
+        # Reusa o slot único de download PL: mesmo guard de reentrância, mesma
+        # barra e o mesmo par de handlers ok/erro (o produto chega como PL comum).
+        self.pl_download_thread = EnsembleThread(
+            product=product,
+            threshold_mm=threshold_mm,
+            step=step,
+            cycle=cycle,
+            config=self.config,
+            cycle_date=cycle_date,
+            parent=self,
+        )
+        self.pl_download_thread.progress.connect(self._on_pl_progress)
+        self.pl_download_thread.download_percent.connect(self._pl_dl_dialog.update_percent)
+        self.pl_download_thread.finished_ok.connect(
+            lambda lid, data: self._on_pl_download_ok(lid, data, "barbs")
+        )
+        self.pl_download_thread.finished_error.connect(self._on_pl_download_error)
+        self.pl_download_thread.start()
+
+        self._pl_dl_dialog.show()
+
     # ─── ERA5 (reanálise Copernicus/CDS) ─────────────────────────────────────
 
     def _on_add_era5_layer(
@@ -3656,8 +3702,9 @@ class MainWindow(QMainWindow):
             meta = getattr(result, "meta", {}) if result is not None else {}
             loczcit_lisa = meta.get("filter_method") == "coherence"
 
-        # Rótulos p/ o resumo do diálogo: animadas × estáticas (satélite/TSM/obs)
-        static_kinds = ("satellite", "sst", "observations")
+        # Rótulos p/ o resumo do diálogo: animadas × estáticas (satélite/TSM/obs;
+        # campos sintéticos de rodada única — ENS e Δ rodadas — congelam no step atual)
+        static_kinds = ("satellite", "sst", "observations", "run_diff", "ens")
         static_labels = [
             self._layer_label(s)
             for s in self.canvas.export_layers_state()
@@ -4414,6 +4461,12 @@ class MainWindow(QMainWindow):
             nivel = int(spec.get("level") or 0)
             sufixo = f" {nivel} hPa" if nivel else ""
             return f"Δ {nome}{sufixo} (rodada −{int(spec.get('delta_hours', 6))}h)"
+        if kind == "ens":
+            product = spec.get("product", "prob")
+            if product == "prob":
+                return f"ENS P(R24h>{float(spec.get('threshold_mm', 10.0)):g}mm)"
+            nome = {"msl": "PNMM", "gh500": "Z500"}.get(str(product), str(product))
+            return f"ENS {nome} ±σ"
         var = spec.get("variable", "campo")
         nome = VARIABLE_REGISTRY.get(var, {}).get("nome", var)
         lvl = spec.get("level") or 0
@@ -4568,6 +4621,19 @@ class MainWindow(QMainWindow):
                                 cycle,
                                 cdate,
                                 delta_hours=int(spec.get("delta_hours", 6)),
+                            )
+                            self.canvas.add_pl_layer(layer_id, data, "barbs")
+                            self._add_field_panel_entry(layer_id, data, "barbs")
+                            restored += 1
+                        elif kind == "ens":
+                            # GRIBs enfo/oper no cache indexado por rodada —
+                            # o produto é recalculado sem rede (cache-only).
+                            layer_id, data = svc.load_ensemble(
+                                product=spec.get("product", "prob"),
+                                threshold_mm=float(spec.get("threshold_mm", 10.0)),
+                                step=int(spec.get("step", 0)),
+                                cycle=cycle,
+                                cycle_date=cdate,
                             )
                             self.canvas.add_pl_layer(layer_id, data, "barbs")
                             self._add_field_panel_entry(layer_id, data, "barbs")

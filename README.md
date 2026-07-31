@@ -234,6 +234,14 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 - Cálculo e download em **thread separada** (cancelável); o GRIB de `gh` 500 hPa **compartilha o cache** com a camada normal de geopotencial
 - Menu **Ajuda → "Sobre a Análise de Bloqueio (Z500)"** com resumo e a metodologia completa. Climatologia: **ERA5** (Hersbach et al., 2020) via **Copernicus Climate Change Service (C3S)**
 
+### 🎲 Ensemble ENS — a previsão em 51 cenários
+
+- Novo grupo **Ensemble ENS (51 membros)** nas Análises Prontas: os 50 membros perturbados do ENS + o controle, direto do ECMWF Open Data — a pergunta deixa de ser "vai chover?" e vira "**em quantos % dos cenários chove mais de X mm?**"
+- Três produtos: **P(chuva 24 h > limiar)** (limiar de 1 a 50 mm, janela honesta de 24 h desacumulada membro a membro), **PNMM média ± σ** e **Z500 média ± σ** (média em isolinhas + dispersão sombreada — onde o σ cresce, a atmosfera está imprevisível e a confiança na determinística cai)
+- Engenharia invisível: o arquivo do ENS pós-50r1 tem **~6 GB por step** — o CartoMet baixa só os **~25–40 MB** do campo pedido via byte-ranges, e o controle **reusa o cache** das cartas normais (pós-50r1 o controle É o oper)
+- Título honesto ("ECMWF ENS — ... — 51 membros"), probabilidade em escala fixa 10–100% com áreas < 10% transparentes; camadas ENS entram no projeto `.cmbr` e restauram do cache sem rede
+- O ENS publica ~8 h após a rodada (≈ 30 min depois das cartas normais); probabilidade de chuva requer step ≥ +24 h
+
 ### 🤖 AIFS — o modelo de Inteligência Artificial do ECMWF
 
 - Novo seletor **Modelo** no painel (grupo *Modelo e Rodada ECMWF*): **IFS (físico)** — o padrão de sempre — ou **AIFS (IA)**, o modelo de inteligência artificial operacional do ECMWF (`aifs-single`, 0.25°), pelo **mesmo fluxo aberto e gratuito**
