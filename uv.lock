@@ -222,7 +222,7 @@ spatial = [
 requires-dist = [
     { name = "cartomet-br", extras = ["gui", "build", "dev", "spatial", "animation", "reanalysis"], marker = "extra == 'all'" },
     { name = "cartopy", specifier = ">=0.24.0" },
-    { name = "cdsapi", marker = "extra == 'reanalysis'", specifier = ">=0.7.2" },
+    { name = "cdsapi", marker = "extra == 'reanalysis'", specifier = ">=0.7.6" },
     { name = "cfgrib", specifier = ">=0.9.14" },
     { name = "eccodes", specifier = ">=2.38.0" },
     { name = "eccodeslib", marker = "sys_platform != 'win32'", specifier = ">=2.47.1.20" },

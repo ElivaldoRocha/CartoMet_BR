@@ -94,7 +94,17 @@ def make_cds_client(key: str | None = None, *, quiet: bool = True) -> Any:
             "Pacote 'cdsapi' ausente. Instale o extra de reanálise:\n"
             "    uv sync --all-extras   (ou: pip install cartomet-br[reanalysis])"
         ) from exc
-    return cdsapi.Client(url=CDS_URL, key=resolved, quiet=quiet)
+    try:
+        return cdsapi.Client(url=CDS_URL, key=resolved, quiet=quiet)
+    except ImportError as exc:
+        # A cadeia lazy do Client() (ecmwf.datastores.legacy_client, multiurl)
+        # só carrega AQUI — num empacotamento incompleto, sem este except o
+        # usuário veria um "No module named ..." cru e inacionável.
+        raise ImportError(
+            f"Dependência da cadeia ERA5/CDS ausente ({exc}).\n"
+            "Reinstale o CartoMet BR ou instale o extra de reanálise:\n"
+            "    uv sync --all-extras   (ou: pip install cartomet-br[reanalysis])"
+        ) from exc
 
 
 def _qsettings() -> Any | None:

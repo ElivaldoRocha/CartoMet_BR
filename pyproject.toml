@@ -91,7 +91,9 @@ animation = [
 # Reanálise ERA5 via API do CDS/Copernicus (validação científica; requer
 # chave pessoal — menu Configurações → "Chave ERA5 (CDS)...").
 reanalysis = [
-    "cdsapi>=0.7.2",
+    # >=0.7.6: piso em que o Client() delega ao ecmwf.datastores (LegacyClient),
+    # a cadeia que o autoteste (_probe_cdsapi) e o empacotamento exigem.
+    "cdsapi>=0.7.6",
 ]
 all = [
     "cartomet-br[gui,build,dev,spatial,animation,reanalysis]",

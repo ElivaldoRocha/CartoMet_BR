@@ -80,16 +80,27 @@ def _probe_xarray_engines() -> None:
             raise RuntimeError(f"engine '{engine}' nao registrado; disponiveis: {sorted(engines)}")
 
 
-def _probe_cdsapi() -> None:
-    """Importa o cdsapi E a cadeia que ``cdsapi.Client()`` puxa só em runtime.
+# Fonte única da cadeia ERA5/CDS que o exe precisa embarcar — o .spec do
+# PyInstaller (_empacotamento/cartomet_br.spec) lê ESTA tupla para o collect_all.
+# ``attrs`` não é importado em runtime pelo ecmwf-datastores-client 0.5.1, mas é
+# dependência declarada dele; fica por segurança contra versões futuras.
+ERA5_BUNDLE_PKGS: tuple[str, ...] = ("cdsapi", "ecmwf.datastores", "multiurl", "attrs")
 
-    ``import cdsapi`` sozinho não toca ``ecmwf.datastores`` (o LegacyClient do
-    cdsapi>=0.7.6) nem ``multiurl`` — num .exe eles podem faltar com o cdsapi
-    presente, e o painel ERA5 morreria apenas ao conectar.
+
+def _probe_cdsapi() -> None:
+    """Importa o cdsapi E a cadeia lazy que ``cdsapi.Client()`` puxa em runtime.
+
+    ``import ecmwf.datastores`` NÃO carrega o submódulo ``legacy_client`` (o
+    ``__init__`` do pacote não o importa) — e é exatamente ele que o
+    ``Client.__new__`` do cdsapi>=0.7.6 resolve com chave moderna (UUID, sem
+    ``:``). Importar o ``legacy_client`` cobre a cadeia inteira: ele importa
+    ``cdsapi.api``, ``multiurl`` e ``ecmwf.datastores`` no escopo de módulo.
+    NÃO construir um ``Client()`` real aqui: o ``__attrs_post_init__`` do
+    datastores faz chamada de REDE com retry longo — travaria o autoteste
+    numa máquina offline.
     """
-    import cdsapi  # noqa: F401
-    import ecmwf.datastores  # noqa: F401
-    import multiurl  # noqa: F401
+    import cdsapi  # noqa: F401 — diagnóstico claro quando falta o extra inteiro
+    import ecmwf.datastores.legacy_client  # noqa: F401 — o módulo que Client() carrega
 
 
 def _probe_imageio_ffmpeg() -> None:
@@ -166,11 +177,13 @@ _REQUIRED: list[tuple[str, str, Callable[[], None]]] = [
 ]
 
 # OPTIONAL = degradam graciosamente (extras `spatial`/`animation`/`reanalysis`);
-# ausência não reprova o .exe — mas o build de DISTRIBUIÇÃO deve tê-los todos OK.
+# no dev a ausência vira SKIP (exit 0) — mas num exe CONGELADO (build de
+# distribuição, feito com --all-extras) qualquer OPTIONAL ausente é defeito de
+# empacotamento e REPROVA o autoteste (FALHA no relatório, exit 1).
 _OPTIONAL: list[tuple[str, str, Callable[[], None]]] = [
     ("esda.moran", "Coerência Espacial (LISA)", _imp("esda.moran")),
     ("libpysal.weights", "Coerência Espacial (LISA)", _imp("libpysal.weights")),
-    ("cdsapi (+ecmwf.datastores)", "Reanálise ERA5 (CDS)", _probe_cdsapi),
+    ("cdsapi (+cadeia do Client)", "Reanálise ERA5 (CDS)", _probe_cdsapi),
     ("imageio_ffmpeg (+binário)", "Export MP4 da animação", _probe_imageio_ffmpeg),
 ]
 
@@ -216,8 +229,8 @@ def format_report(results: list[CheckResult]) -> str:
     ]
     for r in results:
         tag = "OK   " if r.ok else "FALHA"
-        if not r.required and not r.ok:
-            tag = "SKIP "  # opcional ausente é esperado, não é falha
+        if not r.required and not r.ok and not frozen:
+            tag = "SKIP "  # opcional ausente no dev é esperado; no exe é FALHA real
         lines.append(f"[{tag}] {r.name:38s} {r.feature}")
         if not r.ok and r.detail:
             lines.append(f"         -> {r.detail}")
@@ -248,7 +261,9 @@ def _show_dialog(results: list[CheckResult], report_path: Path) -> None:
         return
 
     app = QApplication.instance() or QApplication(sys.argv)
-    failed = [r for r in results if r.required and not r.ok]
+    frozen = bool(getattr(sys, "frozen", False))
+    # No exe congelado, OPTIONAL ausente também é falha de empacotamento.
+    failed = [r for r in results if not r.ok and (r.required or frozen)]
     req_total = sum(r.required for r in results)
     req_ok = sum(r.required and r.ok for r in results)
 
@@ -256,7 +271,7 @@ def _show_dialog(results: list[CheckResult], report_path: Path) -> None:
     box.setWindowTitle("CartoMet BR — Autoteste")
     if failed:
         box.setIcon(QMessageBox.Icon.Critical)
-        box.setText(f"FALHOU: {len(failed)} módulo(s) essencial(is) ausente(s).")
+        box.setText(f"FALHOU: {len(failed)} módulo(s) ausente(s) do empacotamento.")
         box.setInformativeText(
             "Estas features quebrariam no programa:\n"
             + "\n".join(f"• {r.name} — {r.feature}" for r in failed)
@@ -273,12 +288,15 @@ def _show_dialog(results: list[CheckResult], report_path: Path) -> None:
 def run_selftest(show_dialog: bool = True) -> int:
     """Roda o autoteste, grava o relatório e (opcional) mostra o diálogo.
 
-    Retorna 0 se todos os REQUIRED passaram; 1 caso contrário (código de saída).
+    Retorna 0 se todos os REQUIRED passaram — e, num exe congelado (build de
+    distribuição), também todos os OPTIONAL; 1 caso contrário (código de saída).
     """
     results = run_checks()
     report = format_report(results)
     path = _write_report(report)
     if show_dialog:
         _show_dialog(results, path)
+    frozen = bool(getattr(sys, "frozen", False))
     failed_required = any(r.required and not r.ok for r in results)
-    return 1 if failed_required else 0
+    failed_frozen_optional = frozen and any(not r.required and not r.ok for r in results)
+    return 1 if (failed_required or failed_frozen_optional) else 0

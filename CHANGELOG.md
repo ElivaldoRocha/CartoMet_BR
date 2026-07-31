@@ -5,6 +5,38 @@ Todas as mudanças notáveis do **CartoMet BR** são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Corrigido
+
+- **Autoteste (`--selftest`): o probe da cadeia ERA5 agora importa o módulo certo.**
+  `import ecmwf.datastores` não carrega o submódulo `legacy_client` — exatamente o
+  que `cdsapi.Client()` importa em runtime com chave moderna (UUID). O probe passou
+  a importar `ecmwf.datastores.legacy_client`, que cobre a cadeia inteira
+  (`cdsapi.api`, `multiurl`, `ecmwf.datastores`) de uma vez; o `import multiurl`
+  redundante foi removido (já coberto pelo REQUIRED `ecmwf.opendata`).
+- **Autoteste: num exe congelado, OPTIONAL ausente agora REPROVA (FALHA + exit 1).**
+  Antes, uma falha de empacotamento nos extras (LISA, ERA5/CDS, MP4) era rebaixada
+  a `SKIP`, o diálogo dizia "saudável para distribuição" e o exit era 0 — o gate
+  de release ("OPTIONAL 4/4") existia só por disciplina manual. No ambiente de
+  desenvolvimento o comportamento continua o mesmo (SKIP, exit 0).
+- **ERA5: erro instrutivo também quando a cadeia lazy falta dentro do `Client()`.**
+  O `try/except` de `make_cds_client` cobria só o `import cdsapi`; um módulo da
+  cadeia ausente no empacotamento escapava como `ModuleNotFoundError` cru até a
+  GUI. Agora a construção do cliente também é protegida com a mensagem do extra.
+- **Extra `reanalysis`: piso do cdsapi elevado para `>=0.7.6`.** As versões
+  0.7.2–0.7.5 não têm o `ecmwf.datastores` que o autoteste e o empacotamento
+  passaram a exigir — o piso antigo permitia um falso negativo no autoteste com
+  ERA5 funcionando.
+
+### Adicionado
+
+- **Testes do autoteste:** com o extra `reanalysis` instalado, a linha ERA5 é
+  exigida OK (pega typo/rename nos módulos do probe, antes um SKIP silencioso);
+  novo teste do gate congelado (OPTIONAL ausente ⇒ exit 1). A cadeia ERA5 virou
+  fonte única (`ERA5_BUNDLE_PKGS` em `_selftest.py`), lida pelo `.spec` do
+  PyInstaller — fim das três listas mantidas à mão.
+
 ## [3.1.0] — 2026-07-14
 
 ### Adicionado
