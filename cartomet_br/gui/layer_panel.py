@@ -1146,6 +1146,7 @@ class FieldLayerPanel(QWidget):
     blocking_requested = pyqtSignal()  # bloqueio atmosférico (anom. Z500)
     instability_requested = pyqtSignal(object)  # campos de instabilidade (lista de índices)
     baroclinic_requested = pyqtSignal()  # preset Diagnóstico Baroclínico (θe/TFP)
+    run_compare_requested = pyqtSignal()  # comparação de rodadas (Δ novo − antigo)
     inmet_avisos_requested = pyqtSignal()  # avisos meteorológicos ativos do INMET
     # Filtro dos avisos INMET: incluir os "futuros" (emitidos, validade por
     # começar)? Re-renderiza a última busca na hora — sem nova consulta.
@@ -1293,6 +1294,24 @@ class FieldLayerPanel(QWidget):
         )
         blocking_btn.clicked.connect(self.blocking_requested.emit)
         layout.addWidget(blocking_btn)
+
+        # ─── Comparação de rodadas (consistência run-to-run) ───
+        run_compare_btn = QPushButton("🔀 Comparar Rodadas")
+        run_compare_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #5D6D7E; padding: 7px;
+                font-size: 11px; font-weight: bold; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #85929E; }
+        """)
+        run_compare_btn.setToolTip(
+            "Δ entre a rodada atual e uma anterior, no MESMO horário de validade:\n"
+            "rodada nova − rodada antiga (step + defasagem na antiga).\n"
+            "Vermelho = intensificou; azul = enfraqueceu. Diferenças grandes\n"
+            "sinalizam baixa consistência entre rodadas (menos confiança)."
+        )
+        run_compare_btn.clicked.connect(self.run_compare_requested.emit)
+        layout.addWidget(run_compare_btn)
 
         # ─── Diagnóstico Baroclínico (apoio ao traçado MANUAL de frentes) ───
         baroclinic_btn = QPushButton("🌡 Diagnóstico Baroclínico")

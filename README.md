@@ -234,6 +234,13 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 - Cálculo e download em **thread separada** (cancelável); o GRIB de `gh` 500 hPa **compartilha o cache** com a camada normal de geopotencial
 - Menu **Ajuda → "Sobre a Análise de Bloqueio (Z500)"** com resumo e a metodologia completa. Climatologia: **ERA5** (Hersbach et al., 2020) via **Copernicus Climate Change Service (C3S)**
 
+### 🔀 Comparação de Rodadas (consistência run-to-run)
+
+- Nova **Análise Pronta**: campo **Δ = rodada atual − rodada anterior** no **mesmo horário de validade** (a rodada antiga entra com `step + defasagem`) — o hábito operacional de checar a consistência entre rodadas antes de confiar na previsão
+- Variáveis elegíveis: **geopotencial, temperatura, umidade relativa/específica, isotacas e água precipitável**; defasagens de **6, 12 ou 24 h**. Vetores e acumulados desde o step 0 (precip/OLR) ficam de fora por honestidade física (janelas de comprimentos diferentes)
+- Render **divergente** (`RdBu_r`, níveis simétricos): **vermelho = a rodada nova intensificou** o campo; azul = enfraqueceu. Diferenças grandes = baixa confiança entre rodadas
+- Título e camada **honestos**: `Δ Altura Geopotencial 500 hPa (mgp) — rodada 00Z 31/07 − 18Z 30/07`; os dois GRIBs compartilham o cache indexado por rodada (re-gerar é instantâneo) e a camada **restaura do cache** ao abrir um projeto `.cmbr`
+
 ### ✏ Caneta e ⬜ Formas customizáveis
 
 - **Caneta (traço livre)** — pressione e arraste para rabiscar a carta com o **mouse ou mesa digitalizadora** (o tablet funciona como mouse de precisão). Cor (8 presets meteorológicos + cor personalizada via diálogo), espessura (1–10 pt) e opacidade ajustáveis no painel **Simbologias**. Decimação de pontos mantém o traço fluido mesmo em tablets de alta taxa

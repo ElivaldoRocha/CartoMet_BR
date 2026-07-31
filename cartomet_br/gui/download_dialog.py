@@ -295,6 +295,68 @@ class PLDownloadThread(QThread):
             retry_logger.removeHandler(retry_handler)
 
 
+class RunCompareThread(QThread):
+    """Thread da comparação de rodadas (Δ novo − antigo) via DataService.
+
+    Dois downloads cache-first serializados DENTRO do mesmo run() (padrão do
+    loader de instabilidade) — uma barra de progresso só, sem corrida.
+    """
+
+    progress = pyqtSignal(str)
+    download_percent = pyqtSignal(int)
+    finished_ok = pyqtSignal(str, object)  # (layer_id, PLFieldData sintético)
+    finished_error = pyqtSignal(str)
+
+    def __init__(
+        self,
+        variable_key,
+        level,
+        step,
+        cycle,
+        config,
+        cycle_date=None,
+        delta_hours=6,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.service = DataService(config)
+        self.variable_key = variable_key
+        self.level = level
+        self.step = step
+        self.cycle = cycle
+        self.cycle_date = cycle_date
+        self.delta_hours = delta_hours
+
+    def run(self):
+        original_stderr = sys.stderr
+        capture = StderrProgressCapture(
+            lambda pct: self.download_percent.emit(pct), original_stderr
+        )
+        sys.stderr = capture
+        retry_handler, retry_logger = _attach_retry_handler(lambda msg: self.progress.emit(msg))
+
+        try:
+            nome = VARIABLE_REGISTRY.get(self.variable_key, {}).get("nome", self.variable_key)
+            self.progress.emit(f"Comparando rodadas: baixando {nome} nas duas rodadas...")
+            layer_id, data = self.service.load_run_comparison(
+                variable_key=self.variable_key,
+                level=self.level,
+                step=self.step,
+                cycle=self.cycle,
+                cycle_date=self.cycle_date,
+                delta_hours=self.delta_hours,
+            )
+            self.progress.emit("Comparação de rodadas pronta!")
+            self.finished_ok.emit(layer_id, data)
+        except (ValidationError, DownloadError) as e:
+            self.finished_error.emit(str(e))
+        except Exception as e:
+            self.finished_error.emit(str(e))
+        finally:
+            sys.stderr = original_stderr
+            retry_logger.removeHandler(retry_handler)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  THREAD DE DOWNLOAD ERA5 (reanálise Copernicus/CDS)
 # ═══════════════════════════════════════════════════════════════════════════════

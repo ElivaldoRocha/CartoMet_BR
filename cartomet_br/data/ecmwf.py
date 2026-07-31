@@ -1427,6 +1427,22 @@ VARIABLE_REGISTRY: dict[str, dict[str, Any]] = {
         "symmetric": True,
         "category": "scalar",
     },
+    # ── Comparação de rodadas — campo SINTÉTICO (novo − antigo, mesmo
+    #    valid_time), montado por DataService.load_run_comparison; não passa
+    #    por load_pl_variable. Só metadados de RENDER: níveis simétricos +
+    #    colormap divergente (Δ>0 vermelho = a rodada nova intensificou).
+    #    A descrição honesta do título vem em extra["title_desc"].
+    "run_diff": {
+        "nome": "Δ entre rodadas",
+        "param": [],
+        "unit_raw": "",
+        "unit_display": "",
+        "conversion": None,
+        "plot_type": "contourf",
+        "cmap": "RdBu_r",
+        "symmetric": True,
+        "category": "derived",
+    },
 }
 
 

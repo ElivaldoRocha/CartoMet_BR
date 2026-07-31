@@ -621,3 +621,89 @@ class StationReportDialog(QDialog):
         btn_row.addStretch()
         btn_row.addWidget(btn)
         layout.addLayout(btn_row)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  COMPARAÇÃO DE RODADAS (Δ novo − antigo, mesmo valid_time)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class RunCompareDialog(QDialog):
+    """Escolha da comparação de rodadas: variável, nível e defasagem.
+
+    A rodada A é a selecionada no painel (ou a mais recente, no modo auto);
+    a rodada B fica ``delta`` horas antes, no MESMO valid_time (step + delta).
+    """
+
+    _SFC_VARS = ("tcwv",)  # elegíveis sem nível de pressão
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        from cartomet_br.data.ecmwf import PL_LEVELS, VARIABLE_REGISTRY
+        from cartomet_br.services.data_service import RUN_DIFF_VARIABLES
+
+        self.setWindowTitle("Comparar rodadas")
+        self.setMinimumWidth(380)
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(
+            QLabel(
+                "<b>Δ = rodada atual − rodada anterior</b>, no mesmo horário de "
+                "validade da carta.<br/><small style='color:#95A5A6;'>Vermelho: a "
+                "rodada nova intensificou o campo; azul: enfraqueceu. Diferenças "
+                "grandes = baixa confiança entre rodadas.</small>"
+            )
+        )
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+
+        grid.addWidget(QLabel("Variável:"), 0, 0)
+        self.var_combo = QComboBox()
+        for key in RUN_DIFF_VARIABLES:
+            nome = VARIABLE_REGISTRY.get(key, {}).get("nome", key)
+            self.var_combo.addItem(nome, key)
+        grid.addWidget(self.var_combo, 0, 1)
+
+        grid.addWidget(QLabel("Nível:"), 1, 0)
+        self.level_combo = QComboBox()
+        for lv in PL_LEVELS:
+            self.level_combo.addItem(f"{lv} hPa", lv)
+        self.level_combo.setCurrentIndex(self.level_combo.findData(500))
+        grid.addWidget(self.level_combo, 1, 1)
+
+        grid.addWidget(QLabel("Comparar com:"), 2, 0)
+        self.delta_combo = QComboBox()
+        for horas in (6, 12, 24):
+            self.delta_combo.addItem(f"Rodada de {horas} h atrás", horas)
+        self.delta_combo.setToolTip(
+            "A rodada anterior é buscada no MESMO valid_time (step + defasagem).\n"
+            "Rodadas 06Z/18Z têm alcance de +144h — defasagens grandes podem\n"
+            "exigir steps fora da grade; o app avisa se a combinação não existir."
+        )
+        grid.addWidget(self.delta_combo, 2, 1)
+        layout.addLayout(grid)
+
+        self.var_combo.currentIndexChanged.connect(self._on_var_changed)
+        self._on_var_changed()
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton("Cancelar")
+        cancel_btn.clicked.connect(self.reject)
+        ok_btn = QPushButton("🔀 Comparar")
+        ok_btn.setDefault(True)
+        ok_btn.clicked.connect(self.accept)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+    def _on_var_changed(self, *_args) -> None:
+        var = self.var_combo.currentData()
+        self.level_combo.setEnabled(var not in self._SFC_VARS)
+
+    def selected(self) -> tuple[str, int | None, int]:
+        """(variable_key, level|None p/ superfície, delta_hours)."""
+        var = str(self.var_combo.currentData())
+        level = None if var in self._SFC_VARS else int(self.level_combo.currentData())
+        return var, level, int(self.delta_combo.currentData())

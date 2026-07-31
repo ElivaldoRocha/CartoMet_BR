@@ -87,6 +87,7 @@ from cartomet_br.gui.cross_section_panel import CrossSectionPanel
 from cartomet_br.gui.dialogs import (
     BaroclinicLevelDialog,
     FirstRunDialog,
+    RunCompareDialog,
     StationReportDialog,
     ThermalWindLevelDialog,
     WelcomeDialog,
@@ -99,6 +100,7 @@ from cartomet_br.gui.download_dialog import (
     ERA5SeriesThread,
     LoczcitThread,
     PLDownloadThread,
+    RunCompareThread,
     SatDownloadThread,
     SSTDownloadThread,
     StationDownloadThread,
@@ -772,6 +774,7 @@ class MainWindow(QMainWindow):
         self.field_panel.preset_requested.connect(self._on_preset_requested)
         self.field_panel.loczcit_requested.connect(self._on_loczcit_requested)
         self.field_panel.blocking_requested.connect(self._on_blocking_requested)
+        self.field_panel.run_compare_requested.connect(self._on_run_compare_requested)
         self.field_panel.inmet_avisos_requested.connect(self._on_inmet_avisos_requested)
         self.field_panel.inmet_future_toggled.connect(self._on_inmet_future_toggled)
         self.field_panel.instability_requested.connect(self._launch_instability)
@@ -2833,6 +2836,11 @@ class MainWindow(QMainWindow):
         if data.variable == "wind":
             detail = wind_type
 
+        # Campos sintéticos (Δ rodadas; futuramente ENS) trazem rótulos prontos
+        data_extra = getattr(data, "extra", None) or {}
+        label = data_extra.get("entry_label", label)
+        detail = data_extra.get("entry_detail", detail)
+
         self.field_panel.add_layer_entry(layer_id, label, detail, is_wind=(data.variable == "wind"))
 
         self.status_label.setText(f"● {label} carregado  |  {data.valid_time} UTC")
@@ -2852,6 +2860,55 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Limite de Requisições (429)", error_msg)
         else:
             QMessageBox.warning(self, "Erro ao Baixar Campo", error_msg)
+
+    def _on_run_compare_requested(self) -> None:
+        """🔀 Comparar rodadas: Δ (rodada atual − anterior) no mesmo valid_time."""
+        if self.pl_download_thread and self.pl_download_thread.isRunning():
+            QMessageBox.information(
+                self, "Aguarde", "Um download já está em andamento. Aguarde concluir."
+            )
+            return
+
+        dlg = RunCompareDialog(parent=self)
+        dlg.setStyleSheet(DARK_STYLE)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        var_key, level, delta_hours = dlg.selected()
+
+        step = self.settings_panel.get_step()
+        cycle = self.settings_panel.get_cycle()
+        cycle_date = self.settings_panel.get_cycle_date()
+
+        self.status_label.setText("● Comparando rodadas...")
+        self.status_label.setStyleSheet("color: #9B59B6;")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+
+        self._pl_dl_dialog = DownloadProgressDialog("Comparando rodadas", parent=self)
+        self._pl_dl_dialog.setStyleSheet(DARK_STYLE)
+        self._pl_dl_dialog.cancel_requested.connect(self._cancel_pl_download)
+
+        # Reusa o slot único de download PL: mesmo guard de reentrância, mesma
+        # barra e o mesmo par de handlers ok/erro (o campo chega como PL comum).
+        self.pl_download_thread = RunCompareThread(
+            variable_key=var_key,
+            level=level,
+            step=step,
+            cycle=cycle,
+            config=self.config,
+            cycle_date=cycle_date,
+            delta_hours=delta_hours,
+            parent=self,
+        )
+        self.pl_download_thread.progress.connect(self._on_pl_progress)
+        self.pl_download_thread.download_percent.connect(self._pl_dl_dialog.update_percent)
+        self.pl_download_thread.finished_ok.connect(
+            lambda lid, data: self._on_pl_download_ok(lid, data, "barbs")
+        )
+        self.pl_download_thread.finished_error.connect(self._on_pl_download_error)
+        self.pl_download_thread.start()
+
+        self._pl_dl_dialog.show()
 
     # ─── ERA5 (reanálise Copernicus/CDS) ─────────────────────────────────────
 
@@ -4268,6 +4325,12 @@ class MainWindow(QMainWindow):
             if spec.get("time_mode") == OBS_MODE_LATEST:
                 label += " — mais recente"
             return label
+        if kind == "run_diff":
+            base = spec.get("base_var", "")
+            nome = VARIABLE_REGISTRY.get(base, {}).get("nome", base)
+            nivel = int(spec.get("level") or 0)
+            sufixo = f" {nivel} hPa" if nivel else ""
+            return f"Δ {nome}{sufixo} (rodada −{int(spec.get('delta_hours', 6))}h)"
         var = spec.get("variable", "campo")
         nome = VARIABLE_REGISTRY.get(var, {}).get("nome", var)
         lvl = spec.get("level") or 0
@@ -4279,6 +4342,9 @@ class MainWindow(QMainWindow):
         nome = var_info.get("nome", data.variable)
         label = f"{nome} {data.level} hPa" if data.level > 0 else nome
         detail = wind_type if data.variable == "wind" else data.unit
+        data_extra = getattr(data, "extra", None) or {}
+        label = data_extra.get("entry_label", label)
+        detail = data_extra.get("entry_detail", detail)
         self.field_panel.remove_layer_entry(layer_id)
         self.field_panel.add_layer_entry(layer_id, label, detail, is_wind=(data.variable == "wind"))
 
@@ -4396,6 +4462,20 @@ class MainWindow(QMainWindow):
                                 spec.get("agg", "hora"),
                                 int(spec.get("level", 0)),
                                 float(spec.get("thresh", 0.0)),
+                            )
+                            self.canvas.add_pl_layer(layer_id, data, "barbs")
+                            self._add_field_panel_entry(layer_id, data, "barbs")
+                            restored += 1
+                        elif kind == "run_diff":
+                            # Ambos os GRIBs vivem no cache indexado por rodada —
+                            # a diferença é recalculada sem rede (cache-only).
+                            layer_id, data = svc.load_run_comparison(
+                                spec.get("base_var", ""),
+                                spec.get("level") or None,
+                                int(spec.get("step", 0)),
+                                cycle,
+                                cdate,
+                                delta_hours=int(spec.get("delta_hours", 6)),
                             )
                             self.canvas.add_pl_layer(layer_id, data, "barbs")
                             self._add_field_panel_entry(layer_id, data, "barbs")

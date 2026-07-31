@@ -48,6 +48,35 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **🔀 Comparação de Rodadas — consistência run-to-run (Onda 1 da v3.2).**
+  Nova Análise Pronta: campo Δ = rodada atual − rodada anterior no MESMO
+  horário de validade (a rodada antiga entra com `step + defasagem`; 6/12/24 h).
+  Variáveis: gh, t, r, q, isotacas e água precipitável — vetores e acumulados
+  desde o step 0 ficam de fora por honestidade física. Render divergente com
+  níveis simétricos (vermelho = a rodada nova intensificou); título e camada
+  carimbam as duas rodadas comparadas ("rodada 00Z 31/07 − 18Z 30/07"). Motor
+  `DataService.load_run_comparison` (dois downloads cache-first serializados;
+  o cache GRIB já era indexado por rodada) gera um `PLFieldData` sintético
+  `run_diff` que reusa todo o pipeline de camadas PL — inclusive restauração
+  sem rede ao abrir projeto `.cmbr` (novo kind `run_diff` no manifesto) — e
+  estreia os ganchos `extra["title_desc"/"entry_label"]` que o ENS (Onda 3)
+  reutilizará. Valida a grade da rodada antiga antes de baixar (ex.: +141h+6
+  não existe; 06Z/18Z param em +144h).
+
+- **🔄 Verificador de atualização (GitHub Releases) — Onda 0 da v3.2.**
+  Ajuda → "Verificar atualização" e botão no Sobre: consulta a release mais
+  recente em thread e compara com a versão instalada; nova versão oferece
+  abrir a página de download. Nunca toca a rede no startup (doutrina do app).
+  Teste de consistência trava `APP_VERSION` == `pyproject` == pacote.
+
+- **🖱 Popup de estação — clique no METAR/SYNOP plotado (Onda 0 da v3.2).**
+  Com o cursor neutro, clicar perto de uma estação plotada abre o relatório
+  decodificado (T, Td, PNMM, vento em direção/nós, nebulosidade, tempo
+  presente WMO), o horário real da obs e o texto CRU do report (nova coluna
+  canônica `raw_report`: `rawOb` do AWC / linha FM-12 do OGIMET). Hit-test em
+  espaço de pixels contra o subset afinado — estação descartada pelo thinning
+  ou camada oculta não responde.
+
 - **🕐 Observações no horário "Mais recente (agora)" — METAR/SYNOP desacoplados
   da rodada.** Pedido de usuário: ver um METAR o mais atual possível, sem a
   amarração ao step 0 do IFS. Novo seletor **Horário** no painel *Observações

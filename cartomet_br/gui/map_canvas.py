@@ -1539,6 +1539,13 @@ class MapCanvas(FigureCanvas):
             if unit:
                 field_desc += f" ({unit})"
 
+            # Campos sintéticos (Δ entre rodadas; futuramente ENS) chegam com a
+            # descrição honesta completa pronta — rodadas comparadas, limiares —
+            # em extra["title_desc"], sem inchar o VARIABLE_REGISTRY.
+            top_extra = getattr(top_data, "extra", None) or {}
+            if top_extra.get("title_desc"):
+                field_desc = str(top_extra["title_desc"])
+
             # Reanálise ≠ previsão: o prefixo do título nunca deve dizer "IFS"
             # sobre um campo ERA5 (honestidade científica).
             source = getattr(top_data, "source", "ifs")
@@ -3769,6 +3776,21 @@ class MapCanvas(FigureCanvas):
                 }
             )
         for layer_id, data in self._pl_data.items():
+            # Δ entre rodadas: sintético, reconstruível via load_run_comparison
+            # (os DOIS GRIBs estão no cache indexado por rodada).
+            if getattr(data, "variable", "") == "run_diff":
+                meta = getattr(data, "extra", None) or {}
+                layers.append(
+                    {
+                        "kind": "run_diff",
+                        "layer_id": str(layer_id),
+                        "base_var": str(meta.get("base_var", "")),
+                        "level": int(getattr(data, "level", 0)),
+                        "step": int(getattr(data, "step", 0)),
+                        "delta_hours": int(meta.get("delta_hours", 6)),
+                    }
+                )
+                continue
             # ERA5 (reanálise): indexada por data/hora/agg, não por rodada+step.
             if getattr(data, "source", "ifs") == "era5":
                 meta = getattr(data, "extra", None) or {}

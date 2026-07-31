@@ -47,6 +47,12 @@ logger = logging.getLogger(__name__)
 # Steps válidos do ECMWF Open Data
 VALID_STEPS: list[int] = list(range(0, 145, 3)) + list(range(150, 241, 6))
 
+# Variáveis elegíveis para a comparação de rodadas (Δ novo − antigo). Escalares
+# com significado direto na diferença; vetores (vento) e acumulados desde o
+# step 0 (precip/OLR — janelas de comprimentos diferentes entre rodadas no
+# mesmo valid_time) ficam de fora por honestidade física.
+RUN_DIFF_VARIABLES: tuple[str, ...] = ("gh", "t", "r", "q", "wind_speed", "tcwv")
+
 
 class DataServiceError(Exception):
     """Erro genérico da camada de serviço."""
@@ -286,6 +292,118 @@ class DataService:
             raise
         except Exception as exc:
             raise DownloadError(self._format_download_error(exc, step)) from exc
+
+    # ─── Comparação de rodadas (Δ novo − antigo, mesmo valid_time) ──────────
+
+    @staticmethod
+    def _resolve_run(cycle: int | None, cycle_date: str | None) -> datetime:
+        """Instante-base (aware UTC) da rodada pedida; None = mais recente."""
+        if cycle is None or not cycle_date:
+            latest = estimate_available_cycles()["latest"]
+            if latest is None:  # defensivo — a janela deslizante sempre acha
+                raise ValidationError("Não foi possível estimar a rodada mais recente.")
+            base_latest = latest["base_datetime"]
+            assert isinstance(base_latest, datetime)
+            return base_latest
+        base = datetime.strptime(cycle_date, "%Y%m%d").replace(tzinfo=UTC)
+        return base.replace(hour=int(cycle))
+
+    @staticmethod
+    def _cycle_label(base: datetime) -> str:
+        """Rótulo humano da rodada: "00Z 31/07"."""
+        return f"{base:%H}Z {base:%d/%m}"
+
+    def load_run_comparison(
+        self,
+        variable_key: str,
+        level: int | None,
+        step: int,
+        cycle: int | None = None,
+        cycle_date: str | None = None,
+        delta_hours: int = 6,
+    ) -> tuple[str, PLFieldData]:
+        """Campo diferença entre a rodada vigente e uma anterior, no MESMO valid_time.
+
+        Baixa (cache-first) o campo na rodada A (a selecionada/mais recente,
+        step ``step``) e na rodada B (``delta_hours`` antes, step
+        ``step + delta_hours``) e devolve A − B como ``PLFieldData`` sintético
+        (``variable="run_diff"``): Δ > 0 = a rodada nova intensificou o campo.
+        Hábito operacional de consistência entre rodadas.
+        """
+        if variable_key not in RUN_DIFF_VARIABLES:
+            raise ValidationError(
+                f"A comparação de rodadas não está disponível para '{variable_key}'.\n"
+                f"Variáveis elegíveis: {', '.join(RUN_DIFF_VARIABLES)}."
+            )
+        if delta_hours <= 0 or delta_hours % 6 != 0:
+            raise ValidationError("A defasagem entre rodadas deve ser múltiplo de 6 h.")
+        self.validate_step(step)
+        self.validate_variable(variable_key)
+        self.validate_level(variable_key, level)
+
+        base_a = self._resolve_run(cycle, cycle_date)
+        base_b = base_a - timedelta(hours=delta_hours)
+        step_b = step + delta_hours
+
+        if step_b not in VALID_STEPS:
+            raise ValidationError(
+                f"Comparar com a rodada de {delta_hours} h atrás exigiria o step "
+                f"+{step_b}h na rodada antiga, que não existe na grade do ECMWF "
+                f"(3/3 h até 144 h; 6/6 h até 240 h).\n\n"
+                f"Use um step compatível ou outra defasagem."
+            )
+        self.validate_cycle(base_b.hour, step_b)
+
+        cycle_date_a = base_a.strftime("%Y%m%d")
+        _lid_a, data_a = self.load_field(variable_key, level, step, base_a.hour, cycle_date_a)
+        _lid_b, data_b = self.load_field(
+            variable_key, level, step_b, base_b.hour, base_b.strftime("%Y%m%d")
+        )
+
+        if data_a.values.shape != data_b.values.shape:
+            raise DataServiceError(
+                "As grades das duas rodadas não coincidem — limpe o cache de "
+                "dados (Arquivo → Limpar dados baixados) e tente novamente."
+            )
+
+        var_info = VARIABLE_REGISTRY[variable_key]
+        nome = var_info.get("nome", variable_key)
+        lbl_a, lbl_b = self._cycle_label(base_a), self._cycle_label(base_b)
+        nivel_txt = f" {level} hPa" if level else ""
+
+        diff = PLFieldData(
+            values=data_a.values - data_b.values,
+            lons=data_a.lons,
+            lats=data_a.lats,
+            variable="run_diff",
+            level=data_a.level,
+            unit=data_a.unit,
+            valid_time=data_a.valid_time,
+            base_time=data_a.base_time,
+            step=data_a.step,
+            source="ifs",
+            extra={
+                "run_diff": True,
+                "base_var": variable_key,
+                "delta_hours": int(delta_hours),
+                "cycle_a": lbl_a,
+                "cycle_b": lbl_b,
+                "title_desc": (f"Δ {nome}{nivel_txt} ({data_a.unit}) — rodada {lbl_a} − {lbl_b}"),
+                "entry_label": f"Δ {nome}{nivel_txt}",
+                "entry_detail": f"{lbl_a} − {lbl_b}",
+            },
+        )
+        layer_id = f"run_diff_{variable_key}_{level or 0}"
+        logger.info(
+            "Comparação de rodadas: %s%s | %s(step %d) − %s(step %d)",
+            variable_key,
+            nivel_txt,
+            lbl_a,
+            step,
+            lbl_b,
+            step_b,
+        )
+        return layer_id, diff
 
     # ─── ERA5 (reanálise Copernicus/CDS) ─────────────────────────────────────
 
