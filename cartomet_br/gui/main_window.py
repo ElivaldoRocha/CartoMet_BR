@@ -80,6 +80,7 @@ from cartomet_br.gui.analysis_engine import (
     InstabilityWorker,
     MeteogramWorker,
     ThermalWindWorker,
+    UpdateCheckWorker,
     WindRoseWorker,
 )
 from cartomet_br.gui.cross_section_panel import CrossSectionPanel
@@ -139,6 +140,7 @@ class MainWindow(QMainWindow):
         self.sat_download_thread = None
         self.sst_download_thread = None
         self.station_download_thread = None
+        self.update_check_thread = None  # verificação de atualização (Ajuda)
         self.sounding_worker = None
         self._active_sounding_station = None  # estação RAOB ancorada na Sonda Vertical
         self._active_model_point = None  # (lon, lat) da pseudo-sondagem do modelo
@@ -451,6 +453,10 @@ class MainWindow(QMainWindow):
         estudos_menu.addAction(espessura_study_action)
 
         help_menu.addSeparator()
+
+        update_action = QAction("🔄 Verificar atualização", self)
+        update_action.triggered.connect(self._check_updates)
+        help_menu.addAction(update_action)
 
         about_action = QAction("Sobre", self)
         about_action.triggered.connect(self._show_about)
@@ -5420,6 +5426,61 @@ class MainWindow(QMainWindow):
 
         dlg.exec()
 
+    # ═══════════════════════════════════════════════════════════════════════
+    #  VERIFICAÇÃO DE ATUALIZAÇÃO (GitHub Releases — rede opt-in)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _check_updates(self) -> None:
+        """Consulta a release mais recente no GitHub, em thread (nunca no startup)."""
+        if self.update_check_thread and self.update_check_thread.isRunning():
+            return
+        self.status_label.setText("● Verificando atualização...")
+        self.status_label.setStyleSheet("color: #E67E22;")
+        self.update_check_thread = UpdateCheckWorker(parent=self)
+        self.update_check_thread.finished_ok.connect(self._on_update_check_ready)
+        self.update_check_thread.finished_error.connect(self._on_update_check_error)
+        self.update_check_thread.start()
+
+    def _on_update_check_ready(self, info) -> None:
+        if self.sender() is not getattr(self, "update_check_thread", None):
+            return
+        self.update_check_thread = None
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+
+        from cartomet_br.data.update_check import is_newer
+
+        if is_newer(info.version, APP_VERSION):
+            self.status_label.setText(f"● Nova versão disponível: {info.tag}")
+            self.status_label.setStyleSheet("color: #27AE60;")
+            resposta = QMessageBox.question(
+                self,
+                "Atualização disponível",
+                f"<b>Nova versão disponível: {info.tag}</b><br/>"
+                f"Você está na versão {APP_VERSION}.<br/><br/>"
+                "Abrir a página de download no navegador?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if resposta == QMessageBox.StandardButton.Yes:
+                QDesktopServices.openUrl(QUrl(info.url))
+        else:
+            self.status_label.setText(f"● CartoMet BR atualizado (v{APP_VERSION})")
+            self.status_label.setStyleSheet("color: #27AE60;")
+            QMessageBox.information(
+                self,
+                "Verificar atualização",
+                f"Você já está na versão mais recente ({APP_VERSION}).",
+            )
+
+    def _on_update_check_error(self, msg: str) -> None:
+        if self.sender() is not getattr(self, "update_check_thread", None):
+            return
+        self.update_check_thread = None
+        self.status_label.setText("● Verificação de atualização falhou")
+        self.status_label.setStyleSheet("color: #E74C3C;")
+        QMessageBox.warning(self, "Verificar atualização", msg)
+
     def _show_about(self):
         about_dialog = QDialog(self)
         about_dialog.setWindowTitle(f"Sobre {APP_NAME}")
@@ -5477,12 +5538,19 @@ class MainWindow(QMainWindow):
         info.setWordWrap(True)
         layout.addWidget(info)
 
+        update_btn = QPushButton("🔄 Verificar atualização")
+        update_btn.setMinimumWidth(170)
+        # Fecha o Sobre antes de consultar — evita empilhar modais.
+        update_btn.clicked.connect(about_dialog.accept)
+        update_btn.clicked.connect(self._check_updates)
+
         btn = QPushButton("OK")
         btn.setMinimumWidth(100)
         btn.clicked.connect(about_dialog.accept)
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
+        btn_layout.addWidget(update_btn)
         btn_layout.addWidget(btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)

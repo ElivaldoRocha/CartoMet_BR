@@ -332,6 +332,35 @@ class InmetAvisosWorker(QThread):
         self.finished_ok.emit(avisos)
 
 
+class UpdateCheckWorker(QThread):
+    """Consulta a release mais recente do CartoMet BR no GitHub, fora da GUI.
+
+    Rede 100% iniciada pelo usuário (menu Ajuda / Sobre) — o app nunca toca a
+    internet no startup. Camada de dados pura em ``data/update_check.py``.
+    """
+
+    progress = pyqtSignal(str)
+    finished_ok = pyqtSignal(object)  # ReleaseInfo
+    finished_error = pyqtSignal(str)
+
+    def run(self) -> None:
+        try:
+            from cartomet_br.data.update_check import UpdateCheckError, fetch_latest_release
+
+            self.progress.emit("Consultando GitHub Releases…")
+            info = fetch_latest_release()
+        except UpdateCheckError as e:  # falha tratada com mensagem amigável
+            self.finished_error.emit(str(e))
+            return
+        except Exception as e:  # qualquer surpresa — nunca deixa a GUI quebrar
+            logger.warning("Falha inesperada na verificação de atualização: %s", e)
+            self.finished_error.emit(
+                f"Não foi possível verificar atualizações.\n\nDetalhe técnico: {e}"
+            )
+            return
+        self.finished_ok.emit(info)
+
+
 class ConvectiveCellsWorker(QThread):
     """Detecta células convectivas na (sub)grade IR recortada, fora da GUI.
 
