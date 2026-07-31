@@ -522,6 +522,9 @@ class MapCanvas(FigureCanvas):
         # Avisos INMET (overlay de contexto — polígonos de alerta ao vivo)
         self._inmet_avisos_artists: list = []
 
+        # Raios GLM (scatter ao vivo, colorido por idade)
+        self._glm_artists: list = []
+
         # Células convectivas (contornos derivados da imagem GOES-16 IR)
         self._convective_cells_artists: list = []
 
@@ -633,6 +636,7 @@ class MapCanvas(FigureCanvas):
         self._blocking_artists = []
         self._blocking_colorbar = None
         self._inmet_avisos_artists = []
+        self._glm_artists = []
         self._convective_cells_artists = []
         self._thermal_wind_artists = []
         # ax.clear() abaixo mata o anel do ímã e o destaque da edição — só
@@ -5555,6 +5559,83 @@ class MapCanvas(FigureCanvas):
             with contextlib.suppress(ValueError, AttributeError, NotImplementedError):
                 art.remove()
         self._inmet_avisos_artists = []
+        if reflow:
+            self._reflow_layout()
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  RAIOS GLM (GOES-East, ao vivo)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    # Faixa de idade (min) → cor: o mais RECENTE é o mais quente (perigo agora).
+    _GLM_AGE_STYLE = (
+        (5.0, "#E74C3C", "0–5 min"),
+        (10.0, "#F39C12", "5–10 min"),
+        (15.0, "#F1C40F", "10–15 min"),
+    )
+
+    def render_glm_lightning(self, data) -> None:
+        """Desenha os flashes GLM como scatter colorido por idade (3 faixas).
+
+        Camada de ORIENTAÇÃO ao vivo: acima do satélite/avisos (zorder 11),
+        abaixo do traçado OMM do usuário. A legenda carimba a JANELA REAL das
+        observações e o satélite de origem — os raios têm hora própria, que
+        não é a do step do modelo (mesma honestidade das observações METAR).
+        """
+        self.remove_glm_lightning()
+        artists: list = []
+        ages = np.asarray(data.ages_min, dtype=float)
+        handles = []
+        prev = 0.0
+        for age_max, color, label in self._GLM_AGE_STYLE:
+            mask = (ages >= prev) & (ages < age_max) if age_max < 15.0 else (ages >= prev)
+            prev = age_max
+            sc = self.ax.scatter(
+                np.asarray(data.lons)[mask],
+                np.asarray(data.lats)[mask],
+                s=26,
+                marker="x",
+                color=color,
+                linewidths=1.2,
+                zorder=11.0,
+                transform=ccrs.PlateCarree(),
+                label=label,
+            )
+            artists.append(sc)
+            handles.append(sc)
+        title = (
+            f"Raios GLM {data.window_start:%H:%M}–{data.window_end:%H:%M} UTC ({data.satellite})"
+        )
+        legend = self.ax.legend(
+            handles=handles,
+            title=title,
+            loc="lower left",
+            fontsize=7,
+            title_fontsize=7,
+            framealpha=0.85,
+            borderpad=0.5,
+            handletextpad=0.4,
+        )
+        legend.set_zorder(12.0)
+        artists.append(legend)
+        # Overlay de dados: fora da medição da mesa e do bbox 'tight' do export.
+        for art in artists:
+            with contextlib.suppress(AttributeError):
+                art.set_in_layout(False)
+        self._glm_artists = artists
+        self.draw()
+
+    def toggle_glm_lightning(self, visible: bool) -> None:
+        """Mostra ou oculta o overlay de raios GLM."""
+        for art in self._glm_artists:
+            art.set_visible(visible)
+        self.draw()
+
+    def remove_glm_lightning(self, reflow: bool = False) -> None:
+        """Remove o scatter e a legenda dos raios GLM do mapa."""
+        for art in self._glm_artists:
+            with contextlib.suppress(ValueError, AttributeError, NotImplementedError):
+                art.remove()
+        self._glm_artists = []
         if reflow:
             self._reflow_layout()
 

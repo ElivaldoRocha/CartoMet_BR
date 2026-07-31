@@ -1211,6 +1211,7 @@ class FieldLayerPanel(QWidget):
     run_compare_requested = pyqtSignal()  # comparação de rodadas (Δ novo − antigo)
     ens_requested = pyqtSignal(str, float)  # Ensemble ENS: (produto, limiar mm)
     inmet_avisos_requested = pyqtSignal()  # avisos meteorológicos ativos do INMET
+    glm_lightning_requested = pyqtSignal()  # raios GLM (GOES-East) dos últimos 15 min
     # Filtro dos avisos INMET: incluir os "futuros" (emitidos, validade por
     # começar)? Re-renderiza a última busca na hora — sem nova consulta.
     inmet_future_toggled = pyqtSignal(bool)
@@ -1525,6 +1526,25 @@ class FieldLayerPanel(QWidget):
         # toggled(bool) já entrega o booleano — sem lambda decodificando CheckState.
         self.inmet_future_check.toggled.connect(self.inmet_future_toggled)
         layout.addWidget(self.inmet_future_check)
+
+        # ─── Raios GLM (GOES-East ao vivo — sensor óptico geoestacionário) ───
+        glm_btn = QPushButton("⚡ Raios GLM (últimos 15 min)")
+        glm_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #B7950B; padding: 7px;
+                font-size: 11px; font-weight: bold; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #D4AC0D; }
+        """)
+        glm_btn.setToolTip(
+            "Flashes do Geostationary Lightning Mapper (GLM) do GOES-East nos\n"
+            "últimos 15 min, direto do S3 público da NOAA (~45 arquivos de 20 s).\n"
+            "Cores por idade: vermelho 0–5 min, laranja 5–10, amarelo 10–15.\n"
+            "Par natural do satélite + células convectivas: raio = convecção\n"
+            "eletricamente ativa AGORA. Clique de novo para atualizar a janela."
+        )
+        glm_btn.clicked.connect(self.glm_lightning_requested.emit)
+        layout.addWidget(glm_btn)
 
         # ─── Instabilidade (CAPE/CIN/LI/K) — campos derivados do modelo (F9) ───
         instab_group = QGroupBox("Instabilidade (modelo IFS — aprox.)")

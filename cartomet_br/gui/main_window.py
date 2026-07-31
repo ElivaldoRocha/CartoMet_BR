@@ -76,6 +76,7 @@ from cartomet_br.gui._constants import (
 from cartomet_br.gui.analysis_engine import (
     ConvectiveCellsWorker,
     CrossSectionWorker,
+    GlmLightningWorker,
     InmetAvisosWorker,
     InstabilityWorker,
     MeteogramWorker,
@@ -780,6 +781,7 @@ class MainWindow(QMainWindow):
         self.field_panel.ens_requested.connect(self._on_ens_requested)
         self.field_panel.inmet_avisos_requested.connect(self._on_inmet_avisos_requested)
         self.field_panel.inmet_future_toggled.connect(self._on_inmet_future_toggled)
+        self.field_panel.glm_lightning_requested.connect(self._on_glm_requested)
         self.field_panel.instability_requested.connect(self._launch_instability)
         self.field_panel.baroclinic_requested.connect(self._on_baroclinic_requested)
 
@@ -2522,6 +2524,8 @@ class MainWindow(QMainWindow):
         self._abandon_cells_detection()
         self.inmet_avisos_thread = None
         self._last_inmet_avisos = None
+        # Busca de raios GLM em voo é abandonada (resultado tardio cai no sender guard).
+        self.glm_lightning_thread = None
         # Download de observações em voo é abandonado: o resultado tardio cai
         # no guard de sender; o diálogo de progresso não pode ficar órfão.
         self.station_download_thread = None
@@ -3094,6 +3098,9 @@ class MainWindow(QMainWindow):
         if layer_id == "inmet_avisos":
             self.canvas.toggle_inmet_avisos(visible)
             return
+        if layer_id == "glm_lightning":
+            self.canvas.toggle_glm_lightning(visible)
+            return
         if layer_id == "thermal_wind":
             self.canvas.toggle_thermal_wind(visible)
             return
@@ -3615,6 +3622,75 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("color: #E74C3C;")
         QMessageBox.warning(self, "Avisos INMET", error_msg)
 
+    # ─── Raios GLM (GOES-East ao vivo) ───────────────────────────────────────
+
+    def _on_glm_requested(self):
+        """⚡ Busca os raios GLM dos últimos 15 min e desenha o overlay.
+
+        Clicar de novo re-busca com a janela atual (atualização manual — a
+        doutrina do app: toda rede é iniciada pelo usuário, sem timers).
+        """
+        if getattr(self, "glm_lightning_thread", None) and self.glm_lightning_thread.isRunning():
+            return
+        # Recorte = vista ATUAL do mapa + margem de 2° (tolera pequenos pans
+        # sem re-buscar; o disco cheio do GOES teria dezenas de milhares de pontos).
+        import cartopy.crs as ccrs
+
+        x0, x1, y0, y1 = self.canvas.ax.get_extent(crs=ccrs.PlateCarree())
+        extent = [x0 - 2.0, y0 - 2.0, x1 + 2.0, y1 + 2.0]
+        self.status_label.setText("● Buscando raios GLM (GOES-East)…")
+        self.status_label.setStyleSheet("color: #B7950B;")
+        self.glm_lightning_thread = GlmLightningWorker(
+            data_dir=self.config.satellite_dir,
+            extent=extent,
+            parent=self,
+        )
+        self.glm_lightning_thread.progress.connect(self._on_glm_progress)
+        self.glm_lightning_thread.finished_ok.connect(self._on_glm_ready)
+        self.glm_lightning_thread.finished_error.connect(self._on_glm_error)
+        self.glm_lightning_thread.start()
+
+    def _on_glm_progress(self, msg: str):
+        self.status_label.setText(f"● {msg}")
+        self.status_label.setStyleSheet("color: #B7950B;")
+
+    def _on_glm_ready(self, data):
+        if self.sender() is not getattr(self, "glm_lightning_thread", None):
+            return  # busca abandonada ('Limpar mapa' no meio) — descarta o resultado
+        self.glm_lightning_thread = None
+        window = f"{data.window_start:%H:%M}–{data.window_end:%H:%M} UTC"
+        if data.n_flashes == 0:
+            self.canvas.remove_glm_lightning(reflow=True)
+            self.field_panel.remove_layer_entry("glm_lightning")
+            self.canvas.draw()
+            self.status_label.setText("● Nenhum raio GLM no recorte nesta janela")
+            self.status_label.setStyleSheet("color: #27AE60;")
+            QMessageBox.information(
+                self,
+                "Raios GLM",
+                f"O {data.satellite} não registrou raios no recorte atual do mapa "
+                f"entre {window}.\n\nCéu eletricamente calmo é um resultado válido "
+                "— clique de novo mais tarde para uma janela nova.",
+            )
+            return
+        was_visible = self.field_panel.layer_entry_checked("glm_lightning")
+        self.canvas.render_glm_lightning(data)
+        if was_visible is False:  # usuário escondeu a camada — o re-render respeita
+            self.canvas.toggle_glm_lightning(False)
+        detail = f"{data.n_flashes} raio(s) · {window} · {data.satellite}"
+        if not self.field_panel.set_layer_detail("glm_lightning", detail):
+            self.field_panel.add_layer_entry("glm_lightning", "Raios GLM", detail)
+        self.status_label.setText(f"● {data.n_flashes} raio(s) GLM no mapa ({window})")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _on_glm_error(self, error_msg: str):
+        if self.sender() is not getattr(self, "glm_lightning_thread", None):
+            return  # busca abandonada ('Limpar mapa' no meio) — descarta o erro
+        self.glm_lightning_thread = None
+        self.status_label.setText("● Erro ao buscar raios GLM")
+        self.status_label.setStyleSheet("color: #E74C3C;")
+        QMessageBox.warning(self, "Raios GLM", error_msg)
+
     # ═══════════════════════════════════════════════════════════════════════
     #  ANIMAÇÃO DE STEPS (GIF/MP4)
     # ═══════════════════════════════════════════════════════════════════════
@@ -3714,6 +3790,7 @@ class MainWindow(QMainWindow):
         # idênticos em todos os quadros — o previsor precisa saber que congelam.
         for attr, label in (
             ("_inmet_avisos_artists", "Avisos INMET (válidos agora)"),
+            ("_glm_artists", "Raios GLM (janela atual)"),
             ("_convective_cells_artists", "Células Convectivas (imagem atual)"),
             ("_thermal_wind_artists", "Vento Térmico (hodógrafa do step atual)"),
         ):

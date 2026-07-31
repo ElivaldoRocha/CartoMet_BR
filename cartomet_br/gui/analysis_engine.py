@@ -332,6 +332,56 @@ class InmetAvisosWorker(QThread):
         self.finished_ok.emit(avisos)
 
 
+class GlmLightningWorker(QThread):
+    """Busca os raios GLM (GOES-East) dos últimos 15 min, fora da thread da GUI.
+
+    Camada de dados pura em ``data/glm_lightning.py`` (S3 anônimo da NOAA,
+    ~45 arquivos pequenos serializados com cache). Cancelamento cooperativo;
+    falha de rede vira ``finished_error`` e a GUI nunca trava.
+    """
+
+    progress = pyqtSignal(str)
+    finished_ok = pyqtSignal(object)  # GLMLightningData
+    finished_error = pyqtSignal(str)
+
+    def __init__(self, data_dir, extent, parent=None):
+        super().__init__(parent)
+        self.data_dir = data_dir
+        self.extent = list(extent) if extent else None
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        try:
+            from cartomet_br.data.glm_lightning import (
+                GlmCancelled,
+                GlmError,
+                fetch_glm_flashes,
+            )
+
+            data = fetch_glm_flashes(
+                self.data_dir,
+                extent=self.extent,
+                progress_callback=lambda msg: self.progress.emit(msg),
+                cancel_check=lambda: self._cancelled,
+            )
+        except GlmCancelled:
+            return  # abandono silencioso — o sender guard já descartaria
+        except GlmError as e:
+            self.finished_error.emit(str(e))
+            return
+        except Exception as e:  # qualquer surpresa — nunca deixa a GUI quebrar
+            logger.warning("Falha inesperada ao buscar raios GLM: %s", e)
+            self.finished_error.emit(
+                f"Não foi possível obter os raios do GLM.\n\nDetalhe técnico: {e}"
+            )
+            return
+        self.progress.emit(f"{data.n_flashes} raio(s) na janela do GLM.")
+        self.finished_ok.emit(data)
+
+
 class UpdateCheckWorker(QThread):
     """Consulta a release mais recente do CartoMet BR no GitHub, fora da GUI.
 

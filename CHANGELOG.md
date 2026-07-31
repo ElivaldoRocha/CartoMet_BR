@@ -48,6 +48,24 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **⚡ Raios GLM ao vivo — o sensor de raios do GOES-East no mapa (Onda 4 da v3.2).**
+  Botão "⚡ Raios GLM (últimos 15 min)" nas Análises Prontas: baixa os
+  arquivos `GLM-L2-LCFA` (um a cada ~20 s) do S3 público da NOAA — os
+  mesmos buckets da imagem de satélite (GOES-19, fallback GOES-16) — e
+  plota os *flashes* como scatter colorido por idade (vermelho 0–5 min,
+  laranja 5–10, amarelo 10–15), recortado à vista atual do mapa (+2° de
+  margem). Legenda carimba a JANELA REAL e o satélite ("Raios GLM
+  22:36–22:51 UTC (GOES-19)") — raio tem hora própria, não a do step do
+  modelo. Zero raios na janela é resultado válido (céu eletricamente
+  calmo), informado sem drama. Engenharia: `requests.Session` keep-alive +
+  leitura netCDF4 direta (só `flash_lat`/`flash_lon`) derrubaram a janela
+  de ~140 s para **~5 s** (0,9 s com cache quente); download serializado
+  com cache por nome, cancelamento cooperativo, um arquivo corrompido não
+  derruba a janela. Par natural do satélite + células convectivas: raio =
+  convecção eletricamente ativa AGORA. Atualização manual (clique de novo)
+  — rede só por iniciativa do usuário, doutrina do app. Validado ao vivo:
+  18.950 flashes reais do GOES-19 sobre a América do Sul.
+
 - **🎲 Ensemble ENS — 51 membros do ECMWF na carta (Onda 3 da v3.2, carro-chefe).**
   Novo grupo "Ensemble ENS (51 membros)" nas Análises Prontas com três
   produtos probabilísticos calculados dos 50 membros perturbados (`enfo`) +
