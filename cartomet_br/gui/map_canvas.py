@@ -57,6 +57,7 @@ from cartomet_br.data.ecmwf import (
     SatelliteData,
     get_ir_colormap,
 )
+from cartomet_br.data.hydrography import DEFAULT_HYDRO_DETAIL, HYDRO_DETAIL_LEVELS
 from cartomet_br.data.sst import SSTData
 from cartomet_br.data.stations import (
     DEFAULT_OBS_DENSITY,
@@ -127,6 +128,13 @@ CONTEXT_LINEWIDTHS: dict[str, tuple[float, float]] = {
 # Espessura EXTRA do halo em relação à linha realçada (desenho duplo:
 # linha larga de contraste por baixo + linha forte do tema por cima).
 CONTEXT_HALO_EXTRA: float = 1.8
+
+# Camada "Hidrografia": o preenchimento dos lagos é geografia de base (fica SOB
+# o satélite, zorder 2, e sob os campos preenchidos, ≤14 — não oculta dado);
+# rios e contornos de lago ficam sobre os campos e sob estados (15) e
+# fronteiras/costa (16), como os demais contornos de contexto.
+HYDRO_ZORDER_LAKES: float = 1.2
+HYDRO_ZORDER_LINES: float = 14.5
 
 # Rosas dos ventos fixadas no mapa (insets polares georreferenciados): teto de
 # quantidade (mais que isso pesa o render) e tamanho padrão do inset como fração
@@ -464,6 +472,13 @@ class MapCanvas(FigureCanvas):
         self._north_arrow_artists: list = []
         self._north_arrow_enabled: bool = False
 
+        # Camada "Hidrografia" (rios e lagos principais — Natural Earth 50m ou
+        # HydroRIVERS/LakeATLAS embarcados, conforme o nível). Como as cidades,
+        # flag e nível sobrevivem à reconstrução do mapa base.
+        self._hydro_artists: list = []
+        self._hydro_enabled: bool = False
+        self._hydro_detail: str = DEFAULT_HYDRO_DETAIL
+
         # Rosas dos ventos FIXADAS (insets polares ancorados em lon/lat). Como as
         # cidades, o dado puro (lon/lat/size/rose) sobrevive à reconstrução do mapa
         # base; os eixos vivos são recriados a partir dele.
@@ -592,10 +607,11 @@ class MapCanvas(FigureCanvas):
         self._sst_artist = None
         self._sst_data = None
         self._sst_colorbar = None
-        # ax.clear() abaixo remove os artistas de cidades e da rosa dos ventos
-        # — só esvazia as listas
+        # ax.clear() abaixo remove os artistas de cidades, hidrografia e da
+        # rosa dos ventos — só esvazia as listas
         self._cities_artists.clear()
         self._north_arrow_artists.clear()
+        self._hydro_artists.clear()
         # Insets são eixos SEPARADOS (não morrem no ax.clear() abaixo) — removê-los
         # explicitamente; o dado puro fica e os recria no fim do método.
         self._clear_wind_rose_insets_artists()
@@ -674,6 +690,8 @@ class MapCanvas(FigureCanvas):
         # campos preenchidos em altitude (PL contourf vai até zorder 14) para
         # que o usuário continue se localizando mesmo com a temperatura/umidade
         # etc. preenchendo a carta. Permanecem abaixo de estações/desenhos (20+).
+        # A camada opcional "Hidrografia" segue a mesma doutrina: lagos (fill)
+        # em HYDRO_ZORDER_LAKES (1.2), rios/contornos em HYDRO_ZORDER_LINES (14.5).
         # Cada contorno ganha um gêmeo de halo (invisível por padrão, zorder
         # imediatamente abaixo) para o modo "Destacar contornos" — desenho
         # duplo em vez de path effects (proibidos em patches sobre GeoAxes).
@@ -760,7 +778,10 @@ class MapCanvas(FigureCanvas):
             path_effects=[pe.withStroke(linewidth=2, foreground="white")],
         )
 
-        # Camada de cidades e rosa dos ventos sobrevivem à reconstrução (tema/região)
+        # Camadas de contexto (hidrografia, cidades, rosa dos ventos) sobrevivem
+        # à reconstrução (tema/região)
+        if self._hydro_enabled:
+            self._draw_hydrography()
         if self._cities_enabled:
             self._replot_cities_for_view()
         if self._north_arrow_enabled:
@@ -818,6 +839,103 @@ class MapCanvas(FigureCanvas):
         else:
             self._clear_north_arrow()
         self.draw_idle()
+
+    def set_hydrography_visible(self, enabled: bool) -> None:
+        """Liga/desliga a camada de hidrografia (rios e lagos da América do Sul)."""
+        self._hydro_enabled = enabled
+        if enabled:
+            self._draw_hydrography()
+        else:
+            self._clear_hydrography()
+        self.draw_idle()
+
+    def set_hydrography_detail(self, level: str) -> None:
+        """Troca o nível da hidrografia ("Principais" | "Detalhado"); replota se ligada."""
+        if level not in HYDRO_DETAIL_LEVELS or level == self._hydro_detail:
+            return
+        self._hydro_detail = level
+        if self._hydro_enabled:
+            self._draw_hydrography()
+            self.draw_idle()
+
+    def _clear_hydrography(self) -> None:
+        for artist in self._hydro_artists:
+            with contextlib.suppress(Exception):
+                artist.remove()
+        self._hydro_artists.clear()
+
+    def _draw_hydrography(self) -> None:
+        """(Re)desenha a hidrografia no nível atual, com as cores do tema corrente.
+
+        Artistas persistentes: criados uma vez e recortados pelo extent no
+        próprio draw — zoom/pan/apply_extent não exigem re-plot (doutrina das
+        camadas de contexto; a hidrografia NÃO participa do realce "Destacar
+        contornos": recolori-la de preto perderia a semântica de água).
+        """
+        self._clear_hydrography()
+        theme = MAP_THEMES.get(self.current_theme, MAP_THEMES["Clássico"])
+        if self._hydro_detail == "Detalhado":
+            self._draw_hydrography_detailed(theme)
+        else:
+            self._draw_hydrography_ne(theme)
+        for artist in self._hydro_artists:
+            artist.set_in_layout(False)
+
+    def _draw_hydrography_ne(self, theme: dict) -> None:
+        """Nível "Principais": Natural Earth 50m (já embarcado no exe)."""
+        lakes_fill = self.ax.add_feature(
+            cfeature.NaturalEarthFeature(
+                "physical", "lakes", "50m", facecolor=theme["hydro_lakes"], edgecolor="none"
+            ),
+            zorder=HYDRO_ZORDER_LAKES,
+        )
+        lakes_edge = self.ax.add_feature(
+            cfeature.NaturalEarthFeature("physical", "lakes", "50m", facecolor="none"),
+            edgecolor=theme["rivers"],
+            linewidth=0.5,
+            zorder=HYDRO_ZORDER_LINES,
+        )
+        rivers = self.ax.add_feature(
+            cfeature.NaturalEarthFeature(
+                "physical", "rivers_lake_centerlines", "50m", facecolor="none"
+            ),
+            edgecolor=theme["rivers"],
+            linewidth=0.6,
+            zorder=HYDRO_ZORDER_LINES,
+        )
+        self._hydro_artists.extend([lakes_fill, lakes_edge, rivers])
+
+    def _draw_hydrography_detailed(self, theme: dict) -> None:
+        """Nível "Detalhado": HydroRIVERS + LakeATLAS embarcados (asset .npz)."""
+        from matplotlib.collections import LineCollection, PolyCollection
+
+        from cartomet_br.data.hydrography import load_hydrography, river_linewidths
+
+        hydro = load_hydrography()
+        # Canvas em PlateCarree: lon/lat É a coordenada de dado — add_collection
+        # direto, sem transform explícito; autolim=False preserva o extent.
+        lakes = PolyCollection(
+            hydro.lake_rings,
+            facecolor=theme["hydro_lakes"],
+            edgecolor="none",
+            zorder=HYDRO_ZORDER_LAKES,
+        )
+        outlines = LineCollection(
+            hydro.lake_rings,
+            colors=theme["rivers"],
+            linewidths=0.5,
+            zorder=HYDRO_ZORDER_LINES,
+        )
+        rivers = LineCollection(
+            hydro.river_lines,
+            colors=theme["rivers"],
+            linewidths=river_linewidths(hydro.river_orders),
+            capstyle="round",
+            zorder=HYDRO_ZORDER_LINES,
+        )
+        for coll in (lakes, outlines, rivers):
+            self.ax.add_collection(coll, autolim=False)
+            self._hydro_artists.append(coll)
 
     def _clear_north_arrow(self) -> None:
         for artist in self._north_arrow_artists:

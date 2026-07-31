@@ -31,6 +31,19 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **🌊 Camada "Hidrografia (rios e lagos)"** — pedido de usuário: corpos hídricos
+  principais como contexto na carta. Checkbox em *Camadas sinóticas* com dois
+  níveis: **Principais** (Natural Earth 50m, já embarcada no exe) e **Detalhado**
+  (rios **HydroRIVERS** Strahler ≥ 5 com espessura por ordem — afluentes finos,
+  tronco do Amazonas destacado — e lagos **LakeATLAS** ≥ 10 km²; América do Sul
+  inteira num asset de 0,9 MB gerado por `tools/gera_hidrografia_sa.py`, sem
+  dependências novas). Cores próprias nos 7 temas (monocromático no "Tons de
+  cinza", azul-claro legível no "Escuro"), lagos sob os campos preenchidos e
+  rios sobre eles (sob fronteiras/estados), camada sobrevive a zoom/pan/troca de
+  tema/"Limpar mapa" e sai em todos os exports (PNG/PDF/carta OMM/animação).
+  Preferência (ligada/desligada + nível) lembrada entre sessões. Atribuição:
+  HydroRIVERS © WWF, lic. HydroSHEDS v1 (Lehner & Grill 2013); LakeATLAS
+  CC-BY 4.0 (Lehner et al. 2022); Natural Earth (domínio público).
 - **Testes do autoteste:** com o extra `reanalysis` instalado, a linha ERA5 é
   exigida OK (pega typo/rename nos módulos do probe, antes um SKIP silencioso);
   novo teste do gate congelado (OPTIONAL ausente ⇒ exit 1). A cadeia ERA5 virou

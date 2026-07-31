@@ -8,7 +8,7 @@ e SSTPanel (TSM MUR SST 1km).
 
 from datetime import UTC, datetime, timedelta
 
-from PyQt6.QtCore import QDate, Qt, pyqtSignal
+from PyQt6.QtCore import QDate, QSettings, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -40,8 +40,9 @@ from cartomet_br.data.ecmwf import (
     VARIABLE_REGISTRY,
     estimate_available_cycles,
 )
+from cartomet_br.data.hydrography import DEFAULT_HYDRO_DETAIL, HYDRO_DETAIL_LEVELS
 from cartomet_br.data.stations import DEFAULT_OBS_DENSITY, OBS_DENSITY_FACTORS
-from cartomet_br.gui._constants import VALID_STEPS
+from cartomet_br.gui._constants import APP_NAME, VALID_STEPS
 from cartomet_br.gui.wind_style import (
     DEFAULT_WIND_COLOR,
     DEFAULT_WIND_DENSITY,
@@ -361,6 +362,8 @@ class SettingsPanel(QWidget):
     cities_changed = pyqtSignal(bool)  # camada de cidades rotuladas (IBGE)
     city_density_changed = pyqtSignal(float)  # fator de densidade das cidades
     north_arrow_changed = pyqtSignal(bool)  # rosa dos ventos (indicador de norte)
+    hydrography_changed = pyqtSignal(bool)  # camada de hidrografia (rios/lagos)
+    hydrography_detail_changed = pyqtSignal(str)  # nível: "Principais" | "Detalhado"
 
     REGIONS = {
         "América do Sul": EXTENT_AMSUL,
@@ -638,6 +641,48 @@ class SettingsPanel(QWidget):
         )
         options_layout.addWidget(self.emphasis_check)
 
+        self.hydrography_check = QCheckBox("🌊 Hidrografia (rios e lagos)")
+        self.hydrography_check.setToolTip(
+            "Desenha rios e lagos da América do Sul como referência geográfica.\n"
+            "Principais: Natural Earth 50m, coerente com o mapa base (rodando do\n"
+            "código-fonte pode baixar 1x da internet; no instalador já vem tudo).\n"
+            "Detalhado: HydroRIVERS/LakeATLAS embarcados — a espessura cresce com\n"
+            "a ordem do rio. Em escala continental, prefira Principais.\n"
+            "A preferência fica salva entre sessões."
+        )
+        options_layout.addWidget(self.hydrography_check)
+
+        # Sub-opção da hidrografia: nível de detalhe (padrão da densidade de cidades)
+        hydro_row = QHBoxLayout()
+        hydro_row.addSpacing(18)  # indenta sob "Hidrografia"
+        hydro_row.addWidget(QLabel("Nível:"))
+        self.hydro_detail_combo = QComboBox()
+        for name in HYDRO_DETAIL_LEVELS:
+            self.hydro_detail_combo.addItem(name)
+        self.hydro_detail_combo.setToolTip(
+            "Principais: hidrografia Natural Earth 50m (leve).\n"
+            "Detalhado: rios com ordem de Strahler ≥ 5 e lagos ≥ 10 km²\n"
+            "(HydroRIVERS/LakeATLAS) — o estilo do mapa de referência amazônico."
+        )
+        hydro_row.addWidget(self.hydro_detail_combo, 1)
+        options_layout.addLayout(hydro_row)
+
+        # Preferência persistida (QSettings), restaurada ANTES dos connects —
+        # setChecked/setCurrentText não emitem aqui (padrão do theme_combo); o
+        # MainWindow empurra o estado restaurado ao canvas depois da fiação.
+        settings = QSettings("PPGGRD-UFPA", APP_NAME)
+        self.hydrography_check.setChecked(settings.value("map/hydrography", False, bool))
+        saved_level = settings.value("map/hydrography_detail", DEFAULT_HYDRO_DETAIL, str)
+        if saved_level not in HYDRO_DETAIL_LEVELS:
+            saved_level = DEFAULT_HYDRO_DETAIL
+        self.hydro_detail_combo.setCurrentText(saved_level)
+        self.hydrography_check.stateChanged.connect(
+            lambda state: self.hydrography_changed.emit(state == Qt.CheckState.Checked.value)
+        )
+        self.hydro_detail_combo.currentTextChanged.connect(
+            lambda level: self.hydrography_detail_changed.emit(level)
+        )
+
         self.cities_check = QCheckBox("🏙 Cidades")
         self.cities_check.setToolTip(
             "Plota sedes municipais (IBGE) com o nome — capitais e cidades maiores\n"
@@ -825,6 +870,10 @@ class SettingsPanel(QWidget):
         """Fator de densidade da camada de cidades (ver CITY_DENSITY_FACTORS)."""
         factor = self.city_density_combo.currentData()
         return float(factor) if factor is not None else CITY_DENSITY_FACTORS[DEFAULT_CITY_DENSITY]
+
+    def get_hydrography_detail(self) -> str:
+        """Nível selecionado da camada de hidrografia (ver HYDRO_DETAIL_LEVELS)."""
+        return str(self.hydro_detail_combo.currentText())
 
     def set_obs_reference_time(self, dt):
         """Guarda o valid_time do modelo (datetime UTC ou None) e atualiza o painel.

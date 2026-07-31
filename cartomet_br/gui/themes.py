@@ -239,6 +239,9 @@ QScrollArea {
 # `emphasis_halo` (contorno de contraste desenhado POR BAIXO delas — técnica
 # de desenho duplo, ver MapCanvas.set_context_emphasis). O halo garante
 # leitura sobre satélite e campos preenchidos em qualquer tonalidade.
+# A camada opcional "Hidrografia" consome `rivers` (traço de rios e contorno
+# de lagos) e `hydro_lakes` (preenchimento de lagos da camada — distinto de
+# `lakes`, que é o fill do mapa base e nem é consumido no Relevo Natural).
 MAP_THEMES = {
     "Clássico": {
         "land": "#F5F5DC",
@@ -247,6 +250,8 @@ MAP_THEMES = {
         "coastline": "#2C3E50",
         "borders": "#7F8C8D",
         "states": "#BDC3C7",
+        "rivers": "#2E86C1",
+        "hydro_lakes": "#AED6F1",
         "emphasis_line": "#1A1A1A",
         "emphasis_halo": "#FFFFFF",
     },
@@ -257,6 +262,8 @@ MAP_THEMES = {
         "coastline": "#333333",
         "borders": "#666666",
         "states": "#AAAAAA",
+        "rivers": "#2874A6",
+        "hydro_lakes": "#D6EAF8",
         "emphasis_line": "#1A1A1A",
         "emphasis_halo": "#FFFFFF",
     },
@@ -267,6 +274,8 @@ MAP_THEMES = {
         "coastline": "#5D4037",
         "borders": "#8D6E63",
         "states": "#BCAAA4",
+        "rivers": "#5DADE2",
+        "hydro_lakes": "#C9E2F5",
         "emphasis_line": "#3E2723",
         "emphasis_halo": "#FFFFFF",
     },
@@ -277,6 +286,9 @@ MAP_THEMES = {
         "coastline": "#424242",
         "borders": "#757575",
         "states": "#BDBDBD",
+        # Monocromático de propósito: o tema é para impressão P&B — azul quebraria.
+        "rivers": "#8A8A8A",
+        "hydro_lakes": "#DADADA",
         "emphasis_line": "#212121",
         "emphasis_halo": "#FFFFFF",
     },
@@ -287,6 +299,8 @@ MAP_THEMES = {
         "coastline": "#3E2723",
         "borders": "#5D4037",
         "states": "#A1887F",
+        "rivers": "#2E86C1",
+        "hydro_lakes": "#B8D4E8",
         "emphasis_line": "#2B1B14",
         "emphasis_halo": "#FFFFFF",
     },
@@ -297,6 +311,9 @@ MAP_THEMES = {
         "coastline": "#ECF0F1",
         "borders": "#7F8C8D",
         "states": "#5D6D7E",
+        # Rio azul-claro legível sobre o land #2C3E50; lago um degrau acima do ocean.
+        "rivers": "#5DADE2",
+        "hydro_lakes": "#1F3A52",
         "emphasis_line": "#F5F6FA",
         "emphasis_halo": "#000000",
     },
@@ -312,6 +329,9 @@ MAP_THEMES = {
         "coastline": "#1A1A1A",
         "borders": "#455A64",
         "states": "#78909C",
+        # Mais saturado que nos temas sólidos para vencer o raster de relevo.
+        "rivers": "#1F618D",
+        "hydro_lakes": "#8FC6E8",
         "emphasis_line": "#0D0D0D",
         "emphasis_halo": "#FFFFFF",
         "stock_img": True,

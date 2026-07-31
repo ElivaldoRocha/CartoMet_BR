@@ -743,6 +743,14 @@ class MainWindow(QMainWindow):
         self.settings_panel.cities_changed.connect(self.canvas.set_cities_visible)
         self.settings_panel.city_density_changed.connect(self.canvas.set_city_density)
         self.settings_panel.north_arrow_changed.connect(self.canvas.set_north_arrow_visible)
+        self.settings_panel.hydrography_changed.connect(self._on_hydrography_toggled)
+        self.settings_panel.hydrography_detail_changed.connect(self._on_hydrography_detail_changed)
+        # A restauração via setChecked na construção do painel não emitiu sinal —
+        # empurra o estado salvo (QSettings) ao canvas: nível ANTES da
+        # visibilidade, para o primeiro desenho já sair no nível certo.
+        self.canvas.set_hydrography_detail(self.settings_panel.get_hydrography_detail())
+        if self.settings_panel.hydrography_check.isChecked():
+            self.canvas.set_hydrography_visible(True)
         self.settings_panel.region_changed.connect(self._on_region_changed)
         # Recorte por UF: apply_extent preserva os dados carregados e replota
         self.settings_panel.uf_extent_requested.connect(self.canvas.apply_extent)
@@ -2464,6 +2472,16 @@ class MainWindow(QMainWindow):
 
     def _on_layer_toggled(self, layer_name: str, visible: bool):
         self.canvas.toggle_layer(layer_name, visible)
+
+    def _on_hydrography_toggled(self, enabled: bool) -> None:
+        """Camada de hidrografia: persiste a preferência e aplica no canvas."""
+        QSettings("PPGGRD-UFPA", APP_NAME).setValue("map/hydrography", enabled)
+        self.canvas.set_hydrography_visible(enabled)
+
+    def _on_hydrography_detail_changed(self, level: str) -> None:
+        """Nível da hidrografia: persiste a preferência e aplica no canvas."""
+        QSettings("PPGGRD-UFPA", APP_NAME).setValue("map/hydrography_detail", level)
+        self.canvas.set_hydrography_detail(level)
 
     # ═══════════════════════════════════════════════════════════════════════
     #  DOWNLOAD DE DADOS SINÓTICOS
@@ -5398,7 +5416,9 @@ class MainWindow(QMainWindow):
             <hr style='border-color: #5D6D7E;'>
             <p style='color: #7F8C8D; font-size: 10px;'>
             Dados: ECMWF Open Data (CC BY 4.0)<br/>
-            Satélite: NOAA GOES-East (Domínio Público)</p>
+            Satélite: NOAA GOES-East (Domínio Público)<br/>
+            Hidrografia: HydroRIVERS © WWF (lic. HydroSHEDS v1) — Lehner &amp; Grill 2013<br/>
+            LakeATLAS (CC-BY 4.0) — Lehner et al. 2022 · Natural Earth (Dom. Público)</p>
         </div>
         """
         info = QLabel(info_html)
