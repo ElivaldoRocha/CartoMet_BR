@@ -234,6 +234,14 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 - Cálculo e download em **thread separada** (cancelável); o GRIB de `gh` 500 hPa **compartilha o cache** com a camada normal de geopotencial
 - Menu **Ajuda → "Sobre a Análise de Bloqueio (Z500)"** com resumo e a metodologia completa. Climatologia: **ERA5** (Hersbach et al., 2020) via **Copernicus Climate Change Service (C3S)**
 
+### 🤖 AIFS — o modelo de Inteligência Artificial do ECMWF
+
+- Novo seletor **Modelo** no painel (grupo *Modelo e Rodada ECMWF*): **IFS (físico)** — o padrão de sempre — ou **AIFS (IA)**, o modelo de inteligência artificial operacional do ECMWF (`aifs-single`, 0.25°), pelo **mesmo fluxo aberto e gratuito**
+- Grade própria do AIFS respeitada automaticamente: **steps de 6/6 h até +360 h (15 dias)** em todas as 4 rodadas, publicação ~6 h após a rodada (antes do IFS!) — o seletor de steps e o "Verificar Rodadas" se adaptam ao trocar o modelo
+- **Honestidade científica em camadas**: o título da carta carimba **"ECMWF AIFS (IA)"** (nunca diz IFS sobre dado de IA); os caches GRIB são separados por prefixo (`aifs_` × `ecmwf_`), então dá para carregar **t850 dos dois modelos no mesmo valid_time e comparar** — física × IA lado a lado
+- Variáveis que o AIFS não publica (UR, vorticidade, divergência, OLR, água precipitável, extremos de T 2 m, TSM do modelo) ficam **desabilitadas em cinza** com tooltip explicativo; presets são filtrados com aviso; análises calculadas do IFS (ZCIT, bloqueio, instabilidade) avisam e pedem o modelo físico
+- O modelo fica registrado no projeto `.cmbr` — reabrir um projeto AIFS restaura do cache certo
+
 ### 🔀 Comparação de Rodadas (consistência run-to-run)
 
 - Nova **Análise Pronta**: campo **Δ = rodada atual − rodada anterior** no **mesmo horário de validade** (a rodada antiga entra com `step + defasagem`) — o hábito operacional de checar a consistência entre rodadas antes de confiar na previsão

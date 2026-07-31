@@ -48,7 +48,7 @@ from cartomet_br.data.stations import (
     OBS_MODE_LATEST,
     synop_slot,
 )
-from cartomet_br.gui._constants import APP_NAME, VALID_STEPS
+from cartomet_br.gui._constants import AIFS_VALID_STEPS, APP_NAME, VALID_STEPS
 from cartomet_br.gui.wind_style import (
     DEFAULT_WIND_COLOR,
     DEFAULT_WIND_DENSITY,
@@ -357,6 +357,7 @@ class SettingsPanel(QWidget):
 
     region_changed = pyqtSignal(list)
     theme_changed = pyqtSignal(str)
+    model_changed = pyqtSignal(str)  # "ifs" | "aifs" — modelo global do ECMWF
     update_requested = pyqtSignal()
     layers_changed = pyqtSignal(str, bool)  # (nome_camada, visível)
     observations_changed = pyqtSignal(str, bool)  # (kind: "metar"|"synop", ativo)
@@ -500,10 +501,29 @@ class SettingsPanel(QWidget):
 
         layout.addWidget(region_group)
 
-        # ═══ 2. RODADA ECMWF ═══
-        rodada_group = QGroupBox("Rodada ECMWF")
+        # ═══ 2. MODELO E RODADA ECMWF ═══
+        rodada_group = QGroupBox("Modelo e Rodada ECMWF")
         rodada_layout = QVBoxLayout(rodada_group)
         rodada_layout.setSpacing(4)
+
+        model_row = QHBoxLayout()
+        model_row.setSpacing(6)
+        model_row.addWidget(QLabel("Modelo:"))
+        self.model_combo = QComboBox()
+        self.model_combo.addItem("IFS (físico)", "ifs")
+        self.model_combo.addItem("AIFS (IA)", "aifs")
+        self.model_combo.setToolTip(
+            "IFS: o modelo físico operacional do ECMWF (padrão).\n"
+            "AIFS: o modelo de INTELIGÊNCIA ARTIFICIAL do ECMWF (aifs-single),\n"
+            "steps de 6/6 h até +360 h; algumas variáveis não existem (UR,\n"
+            "vorticidade, divergência, OLR, água precipitável...).\n"
+            "O seletor vale para a carta principal (base sinótica e campos);\n"
+            "sondagens, meteograma, corte e análises calculadas (ZCIT,\n"
+            "bloqueio, instabilidade) seguem no IFS por enquanto."
+        )
+        self.model_combo.currentIndexChanged.connect(self._on_model_changed)
+        model_row.addWidget(self.model_combo, 1)
+        rodada_layout.addLayout(model_row)
 
         self.cycle_combo = QComboBox()
         self.cycle_combo.addItem("Mais recente (auto)", None)
@@ -1032,6 +1052,43 @@ class SettingsPanel(QWidget):
         self.update_btn.setEnabled(not downloading)
         self.update_btn.setText("⏳ Baixando..." if downloading else "⬇ Baixar Dados ECMWF")
 
+    def get_model(self) -> str:
+        """Modelo global do ECMWF selecionado ("ifs" | "aifs")."""
+        model = self.model_combo.currentData()
+        return model if model in ("ifs", "aifs") else "ifs"
+
+    def set_model(self, model: str) -> None:
+        """Restaura o seletor de modelo SEM emitir (abertura de projeto)."""
+        idx = self.model_combo.findData(model if model in ("ifs", "aifs") else "ifs")
+        if idx >= 0 and idx != self.model_combo.currentIndex():
+            self.model_combo.blockSignals(True)
+            self.model_combo.setCurrentIndex(idx)
+            self.model_combo.blockSignals(False)
+            self._repopulate_steps(self.get_model())
+
+    def _on_model_changed(self, _index: int) -> None:
+        model = self.get_model()
+        self._repopulate_steps(model)
+        self.model_changed.emit(model)
+
+    def _repopulate_steps(self, model: str) -> None:
+        """Regrada o combo de steps para o modelo, preservando o step mais próximo.
+
+        IFS: 3/3 h até 144 + 6/6 até 240; AIFS: 6/6 h até 360. Sinais
+        bloqueados durante a reconstrução (evita cascata de handlers por item);
+        o gate de observações é re-avaliado explicitamente no final.
+        """
+        steps = AIFS_VALID_STEPS if model == "aifs" else VALID_STEPS
+        current = self.get_step() or 0
+        closest = min(steps, key=lambda s: abs(s - current))
+        self.step_combo.blockSignals(True)
+        self.step_combo.clear()
+        for step in steps:
+            self.step_combo.addItem(f"+{step}h", step)
+        self.step_combo.setCurrentIndex(self.step_combo.findData(closest))
+        self.step_combo.blockSignals(False)
+        self._update_observations_ui()
+
     def get_cycle(self):
         """Retorna a rodada selecionada (int ou None para auto)."""
         data = self.cycle_combo.currentData()
@@ -1047,9 +1104,9 @@ class SettingsPanel(QWidget):
         return None
 
     def _check_cycles(self):
-        """Verifica quais rodadas ECMWF estão disponíveis e popula o seletor."""
+        """Verifica quais rodadas do modelo vigente estão disponíveis e popula o seletor."""
         try:
-            info = estimate_available_cycles()
+            info = estimate_available_cycles(self.get_model())
 
             if info["latest"]:
                 latest = info["latest"]
@@ -1216,6 +1273,35 @@ class FieldLayerPanel(QWidget):
         super().__init__(parent)
         self._layer_widgets = {}
         self._setup_ui()
+
+    def set_model_gating(self, model: str) -> None:
+        """Desabilita nos combos as variáveis sem equivalente no modelo.
+
+        O item fica cinza com tooltip explicativo — o usuário vê O QUE falta
+        no AIFS em vez de descobrir num erro de download.
+        """
+        from cartomet_br.data.ecmwf import variable_available
+
+        for combo in (self.var_combo, self.sfc_var_combo):
+            item_model = combo.model()
+            for i in range(combo.count()):
+                key = str(combo.itemData(i))
+                ok = variable_available(key, model)
+                item = item_model.item(i)
+                if item is not None:
+                    item.setEnabled(ok)
+                combo.setItemData(
+                    i,
+                    "" if ok else "Indisponível no AIFS — use o modelo IFS",
+                    Qt.ItemDataRole.ToolTipRole,
+                )
+            # Seleção atual caiu numa variável desabilitada → volta p/ a 1ª válida
+            current_key = str(combo.currentData())
+            if not variable_available(current_key, model):
+                for i in range(combo.count()):
+                    if variable_available(str(combo.itemData(i)), model):
+                        combo.setCurrentIndex(i)
+                        break
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)

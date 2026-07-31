@@ -48,6 +48,22 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **🤖 AIFS — o modelo de IA do ECMWF como opção ao IFS (Onda 2 da v3.2).**
+  Seletor "Modelo" no painel: IFS (físico, padrão) ou AIFS (aifs-single 0.25°,
+  o modelo de inteligência artificial operacional do ECMWF) pelo mesmo fluxo
+  aberto. Arquitetura: o PREFIXO do cache GRIB é o contrato do modelo no disco
+  (`ecmwf_` = IFS preserva caches existentes; `aifs_` = AIFS) e o
+  `download_ecmwf` infere o `Client(model=...)` dele — os loaders só trocam o
+  prefixo. Grade do AIFS respeitada (steps 6/6 h até +360 h nas 4 rodadas;
+  delay ~6 h no "Verificar Rodadas"); variáveis sem equivalente (r, vo, d,
+  OLR, tcwv, extremos T 2 m, TSM) ficam cinza com tooltip, presets são
+  filtrados com aviso e as análises calculadas do IFS (ZCIT, bloqueio,
+  instabilidade) pedem o modelo físico. Título honesto "ECMWF AIFS (IA)" em
+  campos E base sinótica (novo `SynopticData.source`); modelo registrado no
+  `data_context` do `.cmbr` (restaura do cache certo); import GRIB local
+  aceita o prefixo `aifs_`. Validado ao vivo: t850 AIFS × IFS no mesmo
+  valid_time (Δ médio +0,11 °C), caches coexistindo por prefixo.
+
 - **🔀 Comparação de Rodadas — consistência run-to-run (Onda 1 da v3.2).**
   Nova Análise Pronta: campo Δ = rodada atual − rodada anterior no MESMO
   horário de validade (a rodada antiga entra com `step + defasagem`; 6/12/24 h).

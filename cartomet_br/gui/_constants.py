@@ -21,6 +21,12 @@ APP_DESCRIPTION: str = "Cartografia Meteorológica para o Brasil"
 # - Múltiplos de 6 após 144h até 240h
 VALID_STEPS: list[int] = list(range(0, 145, 3)) + list(range(150, 241, 6))
 
+# Steps do AIFS (modelo de IA): 6/6 h até +360 h em todas as rodadas.
+# Duplicado deliberadamente de data/ecmwf.py (AIFS_VALID_STEPS) para não puxar
+# xarray na importação das constantes de GUI — teste de deriva garante a
+# igualdade (test_aifs.py).
+AIFS_VALID_STEPS: list[int] = list(range(0, 361, 6))
+
 
 def get_assets_path() -> Path:
     """Retorna caminho dos assets, funciona em dev e no executável."""

@@ -170,6 +170,10 @@ class Config:
 
     # ECMWF
     ecmwf_source: str = "ecmwf"  # ou "aws", "azure", "google"
+    # Modelo global do ECMWF: "ifs" (físico) ou "aifs" (IA, aifs-single).
+    # Fonte única lida pelos loaders via DataService — o seletor da GUI só
+    # escreve aqui. AIFS: steps de 6/6 h até +360 h; ver AIFS_UNAVAILABLE_VARS.
+    model: str = "ifs"
 
     def __post_init__(self) -> None:
         """Valida parâmetros e garante que diretórios existam."""

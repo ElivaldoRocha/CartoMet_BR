@@ -114,11 +114,17 @@ def download_ecmwf(
     force_download: bool = False,
     levtype: str | None = None,
     date: str | None = None,
+    model: str | None = None,
 ) -> Path:
     """
-    Baixa dados do ECMWF Open Data (IFS).
+    Baixa dados do ECMWF Open Data (IFS ou AIFS).
 
     Se o arquivo já existir, reutiliza (evita rate limit 429).
+
+    ``model``: "ifs" | "aifs". Quando None (padrão), é INFERIDO do prefixo do
+    ``output_path`` ("aifs_..." → AIFS) — o prefixo do cache é o contrato do
+    modelo no disco (ver ``grib_prefix``), então os loaders só trocam o
+    prefixo e este ponto único fala com o modelo certo.
 
     Parâmetros
     ----------
@@ -197,9 +203,14 @@ def download_ecmwf(
         logger.info("Arquivo já existe, reutilizando: %s", output_path)
         return output_path
 
+    # Modelo (IFS × AIFS): explícito via kwarg ou inferido do contrato do
+    # prefixo do cache. model= é kwarg do CONSTRUTOR do Client (não do retrieve).
+    if model is None:
+        model = "aifs" if output_path.name.startswith("aifs_") else "ifs"
+
     # Cria cliente ECMWF
     try:
-        client = Client(source=source)
+        client = Client(source=source, model="aifs-single" if model == "aifs" else "ifs")
     except Exception as e:
         raise ConnectionError(f"Erro ao conectar ao ECMWF: {e}") from e
 
@@ -338,6 +349,10 @@ class SynopticData:
     # Andes/Altiplano). None quando `sp` não está disponível (cache antigo).
     highland_mask: np.ndarray | None = None
 
+    # Modelo de origem: "ifs" (físico) ou "aifs" (IA) — governa o prefixo
+    # honesto do título da carta.
+    source: str = "ifs"
+
 
 # Limiar da máscara orográfica dos centros H/L: onde a REDUÇÃO ao nível do mar
 # (msl − sp) excede este valor, a PNMM é extrapolação sob a montanha (ISA:
@@ -355,6 +370,7 @@ def load_synoptic_data(
     smoothing_sigma: float = 1.5,
     source: str = "ecmwf",
     force_download: bool = False,
+    model: str = "ifs",
 ) -> SynopticData:
     """
     Carrega e processa dados sinóticos do ECMWF.
@@ -402,12 +418,13 @@ def load_synoptic_data(
     # ou fallback para hoje se auto.
     date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
+    prefix = grib_prefix(model)  # contrato do modelo no cache (ecmwf_ | aifs_)
 
     msl_file = download_ecmwf(
         variables=["msl"],
         step=step,
         cycle=cycle,
-        output_path=data_dir / f"ecmwf_msl_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+        output_path=data_dir / f"{prefix}_msl_{date_str}_{cycle_tag}_f{step:03d}.grib2",
         data_dir=data_dir,
         source=source,
         force_download=force_download,
@@ -419,7 +436,7 @@ def load_synoptic_data(
         levels=[500, 1000],
         step=step,
         cycle=cycle,
-        output_path=data_dir / f"ecmwf_gh_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+        output_path=data_dir / f"{prefix}_gh_{date_str}_{cycle_tag}_f{step:03d}.grib2",
         data_dir=data_dir,
         source=source,
         force_download=force_download,
@@ -480,7 +497,7 @@ def load_synoptic_data(
             variables=["sp"],
             step=step,
             cycle=cycle,
-            output_path=data_dir / f"ecmwf_sp_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+            output_path=data_dir / f"{prefix}_sp_{date_str}_{cycle_tag}_f{step:03d}.grib2",
             data_dir=data_dir,
             source=source,
             force_download=force_download,
@@ -578,15 +595,51 @@ CYCLE_SCHEDULE = [
 PUBLISH_DELAY = 7.5  # horas após a rodada até a publicação no Open Data
 N_RECENT_CYCLES = 12  # rodadas listadas = arquivo rotativo do ECMWF (~3 dias)
 
+# ── AIFS (modelo de IA do ECMWF, aifs-single 0.25°) ──
+# Mesmo endpoint/cliente do IFS, com model="aifs-single" no CONSTRUTOR do
+# Client. Grade temporal própria: steps de 6/6 h até +360 h nas 4 rodadas
+# (00/06/12/18Z, todas com o mesmo alcance) e publicação ~6 h após a rodada
+# (medido ao vivo em 31/07/2026: ~5,75 h).
+AIFS_PUBLISH_DELAY = 6.0
+AIFS_MAX_STEP = 360
+AIFS_VALID_STEPS: list[int] = list(range(0, 361, 6))
 
-def estimate_available_cycles() -> dict:
+# Variáveis do CartoMet SEM equivalente no aifs-single (index verificado ao
+# vivo em 31/07/2026): sem r/vo/d em níveis de pressão; sem ttr (OLR), tcwv
+# (só tcw), mx2t3/mn2t3 e lsm em superfície. precip fica fora por ora: o tp
+# existe, mas a desacumulação do app é de 3 h e a janela do AIFS é 6 h.
+AIFS_UNAVAILABLE_VARS: frozenset[str] = frozenset(
+    {"r", "d", "vo", "olr", "precip", "tcwv", "tmax2m", "tmin2m", "sst_model", "sst_grad"}
+)
+
+
+def variable_available(variable_key: str, model: str = "ifs") -> bool:
+    """O modelo oferece esta variável? (IFS: todas; AIFS: ver lista acima)."""
+    if model != "aifs":
+        return True
+    return variable_key not in AIFS_UNAVAILABLE_VARS
+
+
+def grib_prefix(model: str = "ifs") -> str:
+    """Prefixo dos arquivos de cache GRIB — o CONTRATO do modelo no disco.
+
+    "ecmwf_" = IFS (nome histórico, preserva os caches existentes);
+    "aifs_" = AIFS. ``download_ecmwf`` infere o modelo do prefixo do
+    ``output_path`` — trocar o prefixo no loader é o único plumbing
+    necessário para um loader falar com o outro modelo.
+    """
+    return "aifs" if model == "aifs" else "ecmwf"
+
+
+def estimate_available_cycles(model: str = "ifs") -> dict:
     """
     Estima as rodadas ECMWF mais recentes via JANELA DESLIZANTE (rolling window).
 
     Caminha para trás em passos de 6 h a partir do horário sinótico atual,
-    aplicando o atraso de publicação (~7,5 h), até coletar exatamente as
-    ``N_RECENT_CYCLES`` rodadas já publicadas — cruzando a meia-noite (e dias
-    anteriores) naturalmente, sem travar no dia corrente.
+    aplicando o atraso de publicação do MODELO (IFS ~7,5 h; AIFS ~6 h), até
+    coletar exatamente as ``N_RECENT_CYCLES`` rodadas já publicadas — cruzando
+    a meia-noite (e dias anteriores) naturalmente, sem travar no dia corrente.
+    No AIFS todas as rodadas alcançam +360 h (não há o corte 06Z/18Z do IFS).
 
     Retorna
     -------
@@ -598,6 +651,7 @@ def estimate_available_cycles() -> dict:
     """
     now = datetime.now(UTC)
     by_cycle = {c["cycle"]: c for c in CYCLE_SCHEDULE}
+    delay = AIFS_PUBLISH_DELAY if model == "aifs" else PUBLISH_DELAY
 
     # Ancora no horário sinótico atual (piso para 0/6/12/18)
     anchor = now.replace(minute=0, second=0, microsecond=0)
@@ -608,13 +662,13 @@ def estimate_available_cycles() -> dict:
     cand = anchor
     guard = 80  # segurança (~20 dias de ciclos)
     while len(available) < N_RECENT_CYCLES and guard > 0:
-        if now >= cand + timedelta(hours=PUBLISH_DELAY):
+        if now >= cand + timedelta(hours=delay):
             info = by_cycle[cand.hour]
             available.append(
                 {
                     "cycle": cand.hour,
                     "label": info["label"],
-                    "max_step": info["max_step"],
+                    "max_step": AIFS_MAX_STEP if model == "aifs" else info["max_step"],
                     "base_datetime": cand,
                     "date_str": cand.strftime("%d/%m/%Y"),
                 }
@@ -626,7 +680,7 @@ def estimate_available_cycles() -> dict:
     next_cycle = None
     fwd = anchor
     for _ in range(8):
-        publish_dt = fwd + timedelta(hours=PUBLISH_DELAY)
+        publish_dt = fwd + timedelta(hours=delay)
         if now < publish_dt:
             wait_minutes = int((publish_dt - now).total_seconds() / 60)
             next_cycle = {
@@ -2633,6 +2687,7 @@ def load_pl_variable(
     smoothing_sigma: float = 1.0,
     source: str = "ecmwf",
     force_download: bool = False,
+    model: str = "ifs",
 ) -> PLFieldData:
     """
     Baixa e processa uma variável em nível de pressão.
@@ -2693,7 +2748,10 @@ def load_pl_variable(
             source=source,
             valid_time_str="",
             base_time_str="",
+            model=model,
         )
+
+    prefix = grib_prefix(model)  # contrato do modelo no cache (ecmwf_ | aifs_)
 
     # Download
     grib_file = download_ecmwf(
@@ -2702,7 +2760,7 @@ def load_pl_variable(
         step=step,
         cycle=cycle,
         output_path=data_dir
-        / f"ecmwf_{param_str}_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
+        / f"{prefix}_{param_str}_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
         data_dir=data_dir,
         source=source,
         force_download=force_download,
@@ -2852,6 +2910,7 @@ def _compute_derived_variable(
     source: str,
     valid_time_str: str,
     base_time_str: str,
+    model: str = "ifs",
 ) -> PLFieldData:
     """
     Calcula variáveis derivadas (advecção de T, gradiente de T).
@@ -2861,6 +2920,7 @@ def _compute_derived_variable(
     var_info = VARIABLE_REGISTRY[variable_key]
     date_str = cycle_date if cycle_date else datetime.now(UTC).strftime("%Y%m%d")
     cycle_tag = f"{cycle:02d}Z" if cycle is not None else "latest"
+    prefix = grib_prefix(model)  # contrato do modelo no cache (ecmwf_ | aifs_)
 
     # ─── Baixa temperatura ───
     t_file = download_ecmwf(
@@ -2868,7 +2928,7 @@ def _compute_derived_variable(
         levels=[level],
         step=step,
         cycle=cycle,
-        output_path=data_dir / f"ecmwf_t_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
+        output_path=data_dir / f"{prefix}_t_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
         data_dir=data_dir,
         source=source,
         date=cycle_date,
@@ -2950,7 +3010,8 @@ def _compute_derived_variable(
             levels=[level],
             step=step,
             cycle=cycle,
-            output_path=data_dir / f"ecmwf_u_v_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
+            output_path=data_dir
+            / f"{prefix}_u_v_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
             data_dir=data_dir,
             source=source,
             date=cycle_date,
@@ -3013,7 +3074,8 @@ def _compute_derived_variable(
             levels=[level],
             step=step,
             cycle=cycle,
-            output_path=data_dir / f"ecmwf_u_v_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
+            output_path=data_dir
+            / f"{prefix}_u_v_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
             data_dir=data_dir,
             source=source,
             date=cycle_date,
@@ -3087,7 +3149,8 @@ def _compute_derived_variable(
             levels=[level],
             step=step,
             cycle=cycle,
-            output_path=data_dir / f"ecmwf_q_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
+            output_path=data_dir
+            / f"{prefix}_q_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
             data_dir=data_dir,
             source=source,
             date=cycle_date,
@@ -3131,7 +3194,8 @@ def _compute_derived_variable(
             levels=[level],
             step=step,
             cycle=cycle,
-            output_path=data_dir / f"ecmwf_u_v_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
+            output_path=data_dir
+            / f"{prefix}_u_v_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
             data_dir=data_dir,
             source=source,
             date=cycle_date,
@@ -3213,7 +3277,7 @@ def _compute_derived_variable(
                 step=step,
                 cycle=cycle,
                 output_path=data_dir
-                / f"ecmwf_{tag}_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
+                / f"{prefix}_{tag}_{date_str}_{cycle_tag}_{level}hPa_f{step:03d}.grib2",
                 data_dir=data_dir,
                 source=source,
                 date=cycle_date,
@@ -3251,7 +3315,7 @@ def _compute_derived_variable(
                 variables=["sp"],
                 step=step,
                 cycle=cycle,
-                output_path=data_dir / f"ecmwf_sp_{date_str}_{cycle_tag}_f{step:03d}.grib2",
+                output_path=data_dir / f"{prefix}_sp_{date_str}_{cycle_tag}_f{step:03d}.grib2",
                 data_dir=data_dir,
                 source=source,
                 date=cycle_date,

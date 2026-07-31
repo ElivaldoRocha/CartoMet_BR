@@ -101,7 +101,7 @@ class TestRunMath:
         monkeypatch.setattr(
             ds_mod,
             "estimate_available_cycles",
-            lambda: {"latest": {"cycle": 12, "base_datetime": base}},
+            lambda model="ifs": {"latest": {"cycle": 12, "base_datetime": base}},
         )
         svc.load_run_comparison("gh", 500, step=12, cycle=None, cycle_date=None, delta_hours=6)
         a, b = svc._calls

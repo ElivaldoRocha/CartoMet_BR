@@ -192,6 +192,9 @@ def test_restore_layers_from_cache_miss_never_networks(canvas, tmp_path):
         def add_layer_entry(self, *a):
             pass
 
+        def set_model_gating(self, *a):  # sync do modelo IFS×AIFS na abertura
+            pass
+
     fake = types.SimpleNamespace(
         config=Config(data_dir=tmp_path / "data", output_dir=tmp_path / "out"),
         canvas=canvas,

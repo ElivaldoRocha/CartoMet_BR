@@ -765,6 +765,7 @@ class MainWindow(QMainWindow):
         # Recorte por UF: apply_extent preserva os dados carregados e replota
         self.settings_panel.uf_extent_requested.connect(self.canvas.apply_extent)
         self.settings_panel.theme_changed.connect(self._on_theme_changed)
+        self.settings_panel.model_changed.connect(self._on_model_changed)
         self.settings_panel.layers_changed.connect(self._on_layer_toggled)
 
         self.field_panel.add_layer_requested.connect(self._on_add_pl_layer)
@@ -1828,6 +1829,8 @@ class MainWindow(QMainWindow):
         CPU pesada (ascensão de parcela no CAPE/LI) → roda em thread com barra de
         progresso; a GUI nunca congela. Os campos voltam como camadas PL.
         """
+        if not self._require_ifs("A análise de Instabilidade"):
+            return
         if self._instability_worker is not None and self._instability_worker.isRunning():
             return
         cycle = self.settings_panel.get_cycle()
@@ -2537,6 +2540,36 @@ class MainWindow(QMainWindow):
     def _on_layer_toggled(self, layer_name: str, visible: bool):
         self.canvas.toggle_layer(layer_name, visible)
 
+    def _on_model_changed(self, model: str) -> None:
+        """Seletor IFS × AIFS: propaga ao Config (fonte única dos loaders).
+
+        As camadas já plotadas permanecem — cada uma carrega o carimbo honesto
+        do próprio modelo no título; os PRÓXIMOS downloads usam o novo modelo.
+        """
+        self.config.model = model
+        self.field_panel.set_model_gating(model)
+        nome = "AIFS (IA)" if model == "aifs" else "IFS (físico)"
+        self.status_label.setText(f"● Modelo: ECMWF {nome} — baixe os dados para atualizar")
+        self.status_label.setStyleSheet("color: #9B59B6;")
+
+    def _require_ifs(self, feature: str) -> bool:
+        """True se o modelo vigente é IFS; senão avisa e bloqueia a análise.
+
+        As análises calculadas dependem de variáveis/climatologias do IFS
+        (OLR/skt/lsm no LOCZCIT; climatologia calibrada no bloqueio) — rodá-las
+        sobre carta AIFS misturaria modelos na MESMA carta.
+        """
+        if getattr(self.config, "model", "ifs") != "aifs":
+            return True
+        QMessageBox.information(
+            self,
+            "Disponível apenas no IFS",
+            f"{feature} usa dados/climatologias do modelo físico (IFS) e por "
+            "enquanto não roda sobre o AIFS.\n\n"
+            "Troque o Modelo para IFS (físico) no painel à direita.",
+        )
+        return False
+
     def _on_hydrography_toggled(self, enabled: bool) -> None:
         """Camada de hidrografia: persiste a preferência e aplica no canvas."""
         QSettings("PPGGRD-UFPA", APP_NAME).setValue("map/hydrography", enabled)
@@ -3081,6 +3114,29 @@ class MainWindow(QMainWindow):
 
         layers = presets[preset_name]
 
+        # AIFS: filtra variáveis sem equivalente; avisa o que ficou de fora.
+        if getattr(self.config, "model", "ifs") == "aifs":
+            from cartomet_br.data.ecmwf import variable_available
+
+            faltantes = [v for v, _lv, _wt in layers if not variable_available(v, "aifs")]
+            layers = [item for item in layers if variable_available(item[0], "aifs")]
+            if faltantes:
+                nomes = ", ".join(VARIABLE_REGISTRY.get(v, {}).get("nome", v) for v in faltantes)
+                if not layers:
+                    QMessageBox.information(
+                        self,
+                        "Preset indisponível no AIFS",
+                        f'O preset "{preset_name}" usa apenas variáveis que o AIFS '
+                        f"não publica ({nomes}).\n\nTroque o Modelo para IFS (físico).",
+                    )
+                    return
+                QMessageBox.information(
+                    self,
+                    "Preset parcial no AIFS",
+                    f"O AIFS não publica: {nomes}.\n\n"
+                    f'O preset "{preset_name}" será carregado sem essas camadas.',
+                )
+
         self._preset_queue = list(layers)
         self._preset_name = preset_name
 
@@ -3134,6 +3190,8 @@ class MainWindow(QMainWindow):
 
     def _on_loczcit_requested(self):
         """Calcula o índice LOCZCIT-PA (ZCIT) em thread e injeta o raster categórico."""
+        if not self._require_ifs("O índice ZCIT (LOCZCIT-PA)"):
+            return
         if getattr(self, "loczcit_thread", None) and self.loczcit_thread.isRunning():
             return
 
@@ -3301,6 +3359,8 @@ class MainWindow(QMainWindow):
 
     def _on_blocking_requested(self):
         """Calcula a anomalia de Z500 (bloqueio) em thread e injeta o campo no mapa."""
+        if not self._require_ifs("A análise de Bloqueio Atmosférico"):
+            return
         if getattr(self, "blocking_thread", None) and self.blocking_thread.isRunning():
             return
 
@@ -3974,6 +4034,9 @@ class MainWindow(QMainWindow):
                 # Técnica de desacumulação (OLR/precip) — necessária p/ refazer
                 # esses campos do cache na mesma janela ao abrir.
                 "technique": self.field_panel.get_technique(),
+                # Modelo (IFS × AIFS) — o cache é prefixado por modelo; sem
+                # isto, um projeto AIFS restauraria procurando GRIBs do IFS.
+                "model": getattr(self.config, "model", "ifs"),
             },
             # Camadas ativas: as de cache são redesenhadas SÓ do cache na abertura
             # (ver _restore_layers_from_cache); as computadas/externas ficam
@@ -4416,6 +4479,15 @@ class MainWindow(QMainWindow):
         cycle = ctx.get("cycle")
         cdate = ctx.get("cycle_date")
         technique = ctx.get("technique") or "direct"
+        # Modelo do projeto (ausente em .cmbr antigos = IFS): sincroniza o
+        # Config ANTES dos loaders (cache prefixado) e o seletor do painel.
+        # getattr defensivo: o harness de teste roda este método sem painéis.
+        model = ctx.get("model") or "ifs"
+        self.config.model = model
+        if getattr(self, "settings_panel", None) is not None:
+            self.settings_panel.set_model(model)
+        if getattr(self, "field_panel", None) is not None:
+            self.field_panel.set_model_gating(model)
         svc = DataService(self.config)
         restored = 0
         missed: list[str] = []
@@ -4752,10 +4824,14 @@ class MainWindow(QMainWindow):
         fname = file_path.name
 
         # ─── Regex para nome padrão ECMWF do CartoMet ───
-        # PL:  ecmwf_{param}_{YYYYMMDD}_{cycle}_{level}hPa_f{step}.grib2
-        # SFC: ecmwf_{param}_{YYYYMMDD}_{cycle}_f{step}.grib2
-        pat_pl = re.compile(r"^ecmwf_(.+?)_(\d{8})_(latest|\d{2}Z)_(\d+)hPa_f(\d{3})\.grib2?$")
-        pat_sfc = re.compile(r"^ecmwf_(.+?)_(\d{8})_(latest|\d{2}Z)_f(\d{3})\.grib2?$")
+        # PL:  {ecmwf|aifs}_{param}_{YYYYMMDD}_{cycle}_{level}hPa_f{step}.grib2
+        # SFC: {ecmwf|aifs}_{param}_{YYYYMMDD}_{cycle}_f{step}.grib2
+        # O prefixo é o contrato do modelo no disco (ecmwf_ = IFS; aifs_ = AIFS).
+        pat_pl = re.compile(
+            r"^(?:ecmwf|aifs)_(.+?)_(\d{8})_(latest|\d{2}Z)_(\d+)hPa_f(\d{3})\.grib2?$"
+        )
+        pat_sfc = re.compile(r"^(?:ecmwf|aifs)_(.+?)_(\d{8})_(latest|\d{2}Z)_f(\d{3})\.grib2?$")
+        file_model = "aifs" if fname.startswith("aifs_") else "ifs"
 
         m_pl = pat_pl.match(fname)
         m_sfc = pat_sfc.match(fname)
@@ -4821,7 +4897,9 @@ class MainWindow(QMainWindow):
                 data_dir=data_dir,
                 smoothing_sigma=smoothing,
                 force_download=False,
+                model=file_model,
             )
+            data.source = file_model if file_model == "aifs" else "ifs"
 
             # Injeta via pipeline oficial (mesmo que _on_download_ok)
             self.canvas.set_synoptic_data(data)
@@ -4910,7 +4988,9 @@ class MainWindow(QMainWindow):
                 data_dir=data_dir,
                 smoothing_sigma=smoothing,
                 force_download=False,
+                model=file_model,
             )
+            data.source = file_model if file_model == "aifs" else "ifs"
 
             layer_id = f"wind_{level}_barbs" if reg_key == "wind" else f"{reg_key}_{level}"
 

@@ -1546,10 +1546,15 @@ class MapCanvas(FigureCanvas):
             if top_extra.get("title_desc"):
                 field_desc = str(top_extra["title_desc"])
 
-            # Reanálise ≠ previsão: o prefixo do título nunca deve dizer "IFS"
-            # sobre um campo ERA5 (honestidade científica).
+            # Reanálise ≠ previsão ≠ IA: o prefixo do título nunca pode dizer
+            # "IFS" sobre um campo ERA5 ou AIFS (honestidade científica).
             source = getattr(top_data, "source", "ifs")
-            prefix = "ERA5 (reanálise)" if source == "era5" else "ECMWF IFS"
+            if source == "era5":
+                prefix = "ERA5 (reanálise)"
+            elif source == "aifs":
+                prefix = "ECMWF AIFS (IA)"
+            else:
+                prefix = "ECMWF IFS"
 
             if has_synoptic:
                 line1 = f"{prefix} — {field_desc} + PNMM (hPa)"
@@ -1560,13 +1565,18 @@ class MapCanvas(FigureCanvas):
             ref_data = top_data
 
         elif has_synoptic:
-            # Só a base sinótica
+            # Só a base sinótica — prefixo honesto pelo modelo de origem
+            syn_prefix = (
+                "ECMWF AIFS (IA)"
+                if getattr(self.synoptic_data, "source", "ifs") == "aifs"
+                else "ECMWF IFS"
+            )
             parts = []
             if self.plot_options.get("pnmm", True):
                 parts.append("PNMM (hPa)")
             if self.plot_options.get("thickness", True):
                 parts.append("Espessura 1000-500 hPa (m)")
-            line1 = f"ECMWF IFS — {' + '.join(parts)}" if parts else "ECMWF IFS"
+            line1 = f"{syn_prefix} — {' + '.join(parts)}" if parts else syn_prefix
 
             ref_data = self.synoptic_data
 

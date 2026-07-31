@@ -15,6 +15,7 @@ from pathlib import Path
 from cartomet_br.core.config import Config
 from cartomet_br.data.cds_credentials import ERA5_MIN_DELAY_DAYS
 from cartomet_br.data.ecmwf import (
+    AIFS_VALID_STEPS,
     PL_LEVELS,
     VARIABLE_REGISTRY,
     PLFieldData,
@@ -30,6 +31,7 @@ from cartomet_br.data.ecmwf import (
     load_synoptic_data,
     load_t2_extreme,
     load_tcwv,
+    variable_available,
 )
 from cartomet_br.data.era5 import (
     AGG_INDEX_MODES,
@@ -46,6 +48,12 @@ logger = logging.getLogger(__name__)
 
 # Steps válidos do ECMWF Open Data
 VALID_STEPS: list[int] = list(range(0, 145, 3)) + list(range(150, 241, 6))
+
+
+def valid_steps_for(model: str = "ifs") -> list[int]:
+    """Grade de steps do modelo: IFS 3/3 h até 144 + 6/6 até 240; AIFS 6/6 até 360."""
+    return AIFS_VALID_STEPS if model == "aifs" else VALID_STEPS
+
 
 # Variáveis elegíveis para a comparação de rodadas (Δ novo − antigo). Escalares
 # com significado direto na diferença; vetores (vento) e acumulados desde o
@@ -99,26 +107,48 @@ class DataService:
     # ─── validação ───────────────────────────────────────────────────────
 
     @staticmethod
-    def validate_step(step: int) -> None:
-        """Valida se o step está na grade do ECMWF Open Data."""
-        if step not in VALID_STEPS:
-            closest = min(VALID_STEPS, key=lambda x: abs(x - step))
+    def validate_step(step: int, model: str = "ifs") -> None:
+        """Valida se o step está na grade do modelo (IFS ou AIFS)."""
+        steps = valid_steps_for(model)
+        if step not in steps:
+            closest = min(steps, key=lambda x: abs(x - step))
+            grade = (
+                "  - 6 em 6 horas (0h até 360h)"
+                if model == "aifs"
+                else "  - 3 em 3 horas (0h até 144h)\n  - 6 em 6 horas (150h até 240h)"
+            )
+            nome = "AIFS" if model == "aifs" else "IFS"
             raise ValidationError(
-                f"Step +{step}h não está disponível no ECMWF Open Data.\n\n"
-                f"O ECMWF disponibiliza dados em intervalos de:\n"
-                f"  - 3 em 3 horas (0h até 144h)\n"
-                f"  - 6 em 6 horas (150h até 240h)\n\n"
+                f"Step +{step}h não está disponível no ECMWF {nome} Open Data.\n\n"
+                f"O {nome} disponibiliza dados em intervalos de:\n"
+                f"{grade}\n\n"
                 f"Sugestão: use step +{closest}h"
             )
 
     @staticmethod
-    def validate_cycle(cycle: int | None, step: int) -> None:
-        """Valida combinação ciclo × step."""
+    def validate_cycle(cycle: int | None, step: int, model: str = "ifs") -> None:
+        """Valida combinação ciclo × step (no AIFS todas as rodadas vão a +360h)."""
+        if model == "aifs":
+            return
         if cycle is not None and cycle in (6, 18) and step > 144:
             raise ValidationError(
                 f"A rodada {cycle:02d}Z tem alcance máximo de +144h.\n\n"
                 f"Step +{step}h excede esse limite.\n"
                 f"Use a rodada 00Z ou 12Z (alcance até +240h)."
+            )
+
+    @staticmethod
+    def validate_variable_model(variable_key: str, model: str = "ifs") -> None:
+        """Bloqueia variáveis sem equivalente no modelo selecionado."""
+        if not variable_available(variable_key, model):
+            nome = VARIABLE_REGISTRY.get(variable_key, {}).get("nome", variable_key)
+            raise ValidationError(
+                f"{nome} não está disponível no AIFS.\n\n"
+                "O aifs-single não publica r, vo, d (níveis de pressão) nem "
+                "OLR (ttr), água precipitável (tcwv), extremos de T 2 m, "
+                "precipitação (janela de 6 h ainda não suportada) e TSM do "
+                "modelo.\n\nTroque o Modelo para IFS (físico) para usar esta "
+                "variável."
             )
 
     @staticmethod
@@ -158,25 +188,30 @@ class DataService:
         DownloadError
             Se o download falhar.
         """
-        self.validate_step(step)
-        self.validate_cycle(cycle, step)
+        model = getattr(self._config, "model", "ifs")
+        self.validate_step(step, model)
+        self.validate_cycle(cycle, step, model)
 
         logger.info(
-            "Solicitando dados sinóticos: step=%d, cycle=%s, date=%s",
+            "Solicitando dados sinóticos: step=%d, cycle=%s, date=%s, model=%s",
             step,
             cycle,
             cycle_date,
+            model,
         )
 
         try:
-            return load_synoptic_data(
+            data = load_synoptic_data(
                 extent=self._config.extent,
                 step=step,
                 cycle=cycle,
                 cycle_date=cycle_date,
                 data_dir=self._config.grib_dir,
                 smoothing_sigma=self._config.smoothing_sigma,
+                model=model,
             )
+            data.source = "aifs" if model == "aifs" else "ifs"
+            return data
         except (ValidationError, DataServiceError):
             raise
         except Exception as exc:
@@ -199,17 +234,20 @@ class DataService:
         tuple[str, PLFieldData]
             (layer_id, dados processados)
         """
-        self.validate_step(step)
-        self.validate_cycle(cycle, step)
+        model = getattr(self._config, "model", "ifs")
+        self.validate_step(step, model)
+        self.validate_cycle(cycle, step, model)
         self.validate_variable(variable_key)
+        self.validate_variable_model(variable_key, model)
         self.validate_level(variable_key, level)
 
         logger.info(
-            "Solicitando campo: %s nível=%s step=%d cycle=%s",
+            "Solicitando campo: %s nível=%s step=%d cycle=%s model=%s",
             variable_key,
             level,
             step,
             cycle,
+            model,
         )
 
         try:
@@ -282,10 +320,12 @@ class DataService:
                     step=step,
                     cycle=cycle,
                     cycle_date=cycle_date,
+                    model=model,
                     data_dir=self._config.grib_dir,
                     smoothing_sigma=self._config.smoothing_sigma,
                 )
 
+            data.source = "aifs" if model == "aifs" else "ifs"
             return layer_id, data
 
         except (ValidationError, DataServiceError):
@@ -296,10 +336,10 @@ class DataService:
     # ─── Comparação de rodadas (Δ novo − antigo, mesmo valid_time) ──────────
 
     @staticmethod
-    def _resolve_run(cycle: int | None, cycle_date: str | None) -> datetime:
+    def _resolve_run(cycle: int | None, cycle_date: str | None, model: str = "ifs") -> datetime:
         """Instante-base (aware UTC) da rodada pedida; None = mais recente."""
         if cycle is None or not cycle_date:
-            latest = estimate_available_cycles()["latest"]
+            latest = estimate_available_cycles(model)["latest"]
             if latest is None:  # defensivo — a janela deslizante sempre acha
                 raise ValidationError("Não foi possível estimar a rodada mais recente.")
             base_latest = latest["base_datetime"]
@@ -330,6 +370,7 @@ class DataService:
         (``variable="run_diff"``): Δ > 0 = a rodada nova intensificou o campo.
         Hábito operacional de consistência entre rodadas.
         """
+        model = getattr(self._config, "model", "ifs")
         if variable_key not in RUN_DIFF_VARIABLES:
             raise ValidationError(
                 f"A comparação de rodadas não está disponível para '{variable_key}'.\n"
@@ -337,22 +378,24 @@ class DataService:
             )
         if delta_hours <= 0 or delta_hours % 6 != 0:
             raise ValidationError("A defasagem entre rodadas deve ser múltiplo de 6 h.")
-        self.validate_step(step)
+        self.validate_step(step, model)
         self.validate_variable(variable_key)
+        self.validate_variable_model(variable_key, model)
         self.validate_level(variable_key, level)
 
-        base_a = self._resolve_run(cycle, cycle_date)
+        base_a = self._resolve_run(cycle, cycle_date, model)
         base_b = base_a - timedelta(hours=delta_hours)
         step_b = step + delta_hours
 
-        if step_b not in VALID_STEPS:
+        if step_b not in valid_steps_for(model):
+            grade = "6/6 h até 360 h" if model == "aifs" else "3/3 h até 144 h; 6/6 h até 240 h"
             raise ValidationError(
                 f"Comparar com a rodada de {delta_hours} h atrás exigiria o step "
-                f"+{step_b}h na rodada antiga, que não existe na grade do ECMWF "
-                f"(3/3 h até 144 h; 6/6 h até 240 h).\n\n"
+                f"+{step_b}h na rodada antiga, que não existe na grade do modelo "
+                f"({grade}).\n\n"
                 f"Use um step compatível ou outra defasagem."
             )
-        self.validate_cycle(base_b.hour, step_b)
+        self.validate_cycle(base_b.hour, step_b, model)
 
         cycle_date_a = base_a.strftime("%Y%m%d")
         _lid_a, data_a = self.load_field(variable_key, level, step, base_a.hour, cycle_date_a)
@@ -599,9 +642,9 @@ class DataService:
             raise DownloadError(f"Erro ao baixar imagem de satélite: {exc}") from exc
 
     def get_available_cycles(self) -> dict:
-        """Estima ciclos ECMWF disponíveis com base no horário UTC."""
+        """Estima ciclos disponíveis do modelo vigente com base no horário UTC."""
         try:
-            return estimate_available_cycles()
+            return estimate_available_cycles(getattr(self._config, "model", "ifs"))
         except Exception as exc:
             logger.warning("Falha ao estimar ciclos: %s", exc)
             return {"latest": None, "available": []}
