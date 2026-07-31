@@ -63,6 +63,12 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   `data_context` do `.cmbr` (restaura do cache certo); import GRIB local
   aceita o prefixo `aifs_`. Validado ao vivo: t850 AIFS × IFS no mesmo
   valid_time (Δ médio +0,11 °C), caches coexistindo por prefixo.
+  **Animação de Steps ciente do modelo**: sob AIFS o diálogo oferece a grade
+  6/6 h até +360 h em todas as rodadas (15 dias de animação — inclusive
+  06Z/18Z, que no IFS param em +144 h), o passo "Nativo" vira 6/6 h, o
+  arquivo ganha o prefixo `anim_aifs-...` (não sobrescreve a versão IFS da
+  mesma composição) e composições com camadas IFS-only (ZCIT, bloqueio,
+  variáveis ausentes) recebem aviso claro em vez de falhar no meio.
 
 - **🔀 Comparação de Rodadas — consistência run-to-run (Onda 1 da v3.2).**
   Nova Análise Pronta: campo Δ = rodada atual − rodada anterior no MESMO

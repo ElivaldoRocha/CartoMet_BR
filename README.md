@@ -241,6 +241,7 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 - **Honestidade científica em camadas**: o título da carta carimba **"ECMWF AIFS (IA)"** (nunca diz IFS sobre dado de IA); os caches GRIB são separados por prefixo (`aifs_` × `ecmwf_`), então dá para carregar **t850 dos dois modelos no mesmo valid_time e comparar** — física × IA lado a lado
 - Variáveis que o AIFS não publica (UR, vorticidade, divergência, OLR, água precipitável, extremos de T 2 m, TSM do modelo) ficam **desabilitadas em cinza** com tooltip explicativo; presets são filtrados com aviso; análises calculadas do IFS (ZCIT, bloqueio, instabilidade) avisam e pedem o modelo físico
 - O modelo fica registrado no projeto `.cmbr` — reabrir um projeto AIFS restaura do cache certo
+- A **Animação de Steps** também fala AIFS: grade 6/6 h até **+360 h em todas as rodadas** (uma animação de 15 dias — no IFS as rodadas 06Z/18Z param em +144 h), nome de arquivo com prefixo próprio (`anim_aifs-...`) e aviso claro se a composição tiver camadas que só existem no IFS
 
 ### 🔀 Comparação de Rodadas (consistência run-to-run)
 

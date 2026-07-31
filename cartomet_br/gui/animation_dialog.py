@@ -60,6 +60,12 @@ STRIDE_OPTIONS = (
     (12, "12 em 12 horas"),
     (24, "24 em 24 horas"),
 )
+# AIFS: a grade nativa JÁ é 6/6h — a opção "6 em 6 horas" seria redundante.
+AIFS_STRIDE_OPTIONS = (
+    (0, "Nativo (6 em 6 horas)"),
+    (12, "12 em 12 horas"),
+    (24, "24 em 24 horas"),
+)
 DEFAULT_SPAN_H = 72  # intervalo default: step atual → +72h (ou o alcance da rodada)
 
 
@@ -82,6 +88,7 @@ class AnimationDialog(QDialog):
         layer_labels: list[str],
         static_labels: list[str],
         loczcit_lisa: bool = False,
+        model: str = "ifs",
         parent=None,
     ):
         super().__init__(parent)
@@ -91,14 +98,15 @@ class AnimationDialog(QDialog):
         self._technique = technique
         self._charts_dir = charts_dir
         self._loczcit_lisa = loczcit_lisa
+        self._model = model
         self._dest_user_edited = False
         self._in_progress = False
         self._allow_close = True
         self._escape_offered = False
 
-        self._cap = max_step_for_composition(layer_specs, cycle)
+        self._cap = max_step_for_composition(layer_specs, cycle, model)
         self._min_start = min_start_for_composition(layer_specs, technique)
-        self._allowed_steps = build_animation_steps(self._min_start, self._cap, 0, cycle)
+        self._allowed_steps = build_animation_steps(self._min_start, self._cap, 0, cycle, model)
 
         self.setWindowTitle("Animação de Steps (GIF/MP4)")
         self.setModal(True)
@@ -138,10 +146,11 @@ class AnimationDialog(QDialog):
         except ValueError:
             date_fmt = self._cycle_date
         cap_note = ""
-        if self._cap < max_step_for_cycle(self._cycle):
+        if self._cap < max_step_for_cycle(self._cycle, self._model):
             cap_note = " (ZCIT: a OLR madura da Técnica B limita a +228h)"
+        model_tag = " · AIFS (IA)" if self._model == "aifs" else ""
         rodada_label = QLabel(
-            f"Rodada: {self._cycle:02d}Z {date_fmt} — alcance até +{self._cap}h{cap_note}"
+            f"Rodada: {self._cycle:02d}Z {date_fmt}{model_tag} — alcance até +{self._cap}h{cap_note}"
         )
         rodada_label.setStyleSheet("font-weight: bold; font-size: 12px;")
         rodada_label.setWordWrap(True)
@@ -162,7 +171,8 @@ class AnimationDialog(QDialog):
         row.addWidget(self.end_combo)
         row.addWidget(QLabel("passo:"))
         self.stride_combo = QComboBox()
-        for stride, label in STRIDE_OPTIONS:
+        stride_options = AIFS_STRIDE_OPTIONS if self._model == "aifs" else STRIDE_OPTIONS
+        for stride, label in stride_options:
             self.stride_combo.addItem(label, stride)
         row.addWidget(self.stride_combo)
         row.addStretch()
@@ -360,14 +370,14 @@ class AnimationDialog(QDialog):
         stride = self.stride_combo.currentData() or 0
         if start is None or end is None:
             return []
-        return build_animation_steps(int(start), int(end), int(stride), self._cycle)
+        return build_animation_steps(int(start), int(end), int(stride), self._cycle, self._model)
 
     def _refresh_estimate(self) -> None:
         steps = self._current_steps()
         n = len(steps)
         txt = f"{n} quadros"
         stride = self.stride_combo.currentData() or 0
-        if steps and stride == 0 and steps[0] < 144 < steps[-1]:
+        if steps and stride == 0 and self._model == "ifs" and steps[0] < 144 < steps[-1]:
             self.range_note.setText(
                 "O intervalo cruza +144h: a cadência nativa muda de 3h para 6h "
                 '(o tempo da animação "acelera" levemente após +144h).'
@@ -390,8 +400,11 @@ class AnimationDialog(QDialog):
             return
         fmt = "mp4" if self.mp4_radio.isChecked() else "gif"
         stride = self.stride_combo.currentData() or 0
+        tag = composition_tag(self._layer_specs)
+        if self._model == "aifs":
+            tag = f"aifs-{tag}"  # não sobrescrever a animação IFS da mesma composição
         name = default_animation_filename(
-            composition_tag(self._layer_specs),
+            tag,
             self._cycle,
             self._cycle_date,
             steps[0],

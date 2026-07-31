@@ -22,8 +22,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageOps
 
+from cartomet_br.data.ecmwf import variable_available
 from cartomet_br.data.olr_timing import OLR_MATURITY_HOURS
-from cartomet_br.services.data_service import VALID_STEPS
+from cartomet_br.services.data_service import VALID_STEPS, valid_steps_for
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +38,9 @@ class EncoderUnavailableError(AnimationError):
 
 
 # Alcance máximo de step por rodada (h). Espelha DataService.validate_cycle:
-# 06Z/18Z publicam até +144h; 00Z/12Z até +240h.
+# IFS: 06Z/18Z publicam até +144h; 00Z/12Z até +240h. AIFS: todas até +360h.
 ANIMATION_MAX_STEP: dict[int, int] = {0: 240, 6: 144, 12: 240, 18: 144}
+AIFS_ANIMATION_MAX_STEP = 360
 
 # Teto do LOCZCIT-PA: a Técnica B desacumula a OLR na rodada-base madura com
 # step alvo = step + OLR_MATURITY_HOURS (12h), e o IFS Open Data publica até
@@ -60,46 +62,76 @@ _CLAMP_ZERO_VARS = ("r", "q", "wind_speed", "temp_grad", "tcwv", "sst_grad")
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def max_step_for_cycle(cycle: int | None) -> int:
-    """Alcance máximo (h) da rodada. ``None`` (auto não resolvida) → 144, conservador."""
+def max_step_for_cycle(cycle: int | None, model: str = "ifs") -> int:
+    """Alcance máximo (h) da rodada. ``None`` (auto não resolvida) → 144, conservador.
+
+    No AIFS todas as 4 rodadas publicam até +360h — inclusive 06Z/18Z.
+    """
+    if model == "aifs":
+        return AIFS_ANIMATION_MAX_STEP
     if cycle is None:
         return 144
     return ANIMATION_MAX_STEP.get(int(cycle), 144)
 
 
-def max_step_for_composition(layer_specs: Sequence[dict], cycle: int | None) -> int:
+def max_step_for_composition(
+    layer_specs: Sequence[dict], cycle: int | None, model: str = "ifs"
+) -> int:
     """Alcance máximo (h) da animação para a composição.
 
     Parte do alcance da rodada e reduz para ``LOCZCIT_MAX_STEP`` (+228h) se a
     composição inclui o LOCZCIT-PA — a OLR madura da Técnica B precisa do step
     ``step + 12`` na rodada-base, inexistente além de +240h.
     """
-    cap = max_step_for_cycle(cycle)
+    cap = max_step_for_cycle(cycle, model)
     if any(spec.get("kind") == "loczcit" for spec in layer_specs):
         cap = min(cap, LOCZCIT_MAX_STEP)
     return cap
 
 
-def build_animation_steps(start: int, end: int, stride_hours: int, cycle: int | None) -> list[int]:
+def build_animation_steps(
+    start: int, end: int, stride_hours: int, cycle: int | None, model: str = "ifs"
+) -> list[int]:
     """Monta a lista de steps da animação.
 
-    Interseção de ``[start, end]`` com a grade ``VALID_STEPS`` (3/3h até
-    +144h, 6/6h de +150h a +240h), limitada ao alcance da rodada — por
-    construção, nunca produz um step que dispararia o erro de alcance.
+    Interseção de ``[start, end]`` com a grade do modelo (IFS: 3/3h até
+    +144h, 6/6h de +150h a +240h; AIFS: 6/6h até +360h), limitada ao
+    alcance da rodada — por construção, nunca produz um step que
+    dispararia o erro de alcance.
 
-    ``stride_hours=0`` usa a cadência nativa da grade (3h → 6h após +144h).
-    Com stride explícito, steps além de +144h que não caem na grade de 6h
-    são simplesmente omitidos (a UI oferece inícios alinhados à grade).
+    ``stride_hours=0`` usa a cadência nativa da grade (IFS: 3h → 6h após
+    +144h; AIFS: 6h sempre). Com stride explícito, steps que não caem na
+    grade são simplesmente omitidos (a UI oferece inícios alinhados).
     """
-    cap = max_step_for_cycle(cycle)
+    cap = max_step_for_cycle(cycle, model)
     end = min(end, cap)
     start = max(start, 0)
     if end < start:
         return []
-    steps = [s for s in VALID_STEPS if start <= s <= end]
+    steps = [s for s in valid_steps_for(model) if start <= s <= end]
     if stride_hours > 0:
         steps = [s for s in steps if (s - start) % stride_hours == 0]
     return steps
+
+
+def unsupported_specs_for_model(layer_specs: Sequence[dict], model: str = "ifs") -> list[dict]:
+    """Camadas da composição que o modelo selecionado não sabe animar.
+
+    Sob AIFS: bloqueio e LOCZCIT são IFS-only (misturariam modelos na mesma
+    carta) e campos com variável ausente do AIFS falhariam no download. A
+    animação re-baixa TODOS os steps com o modelo corrente — a composição
+    na tela pode ter vindo do IFS antes de o usuário trocar o combo.
+    """
+    if model != "aifs":
+        return []
+    bad: list[dict] = []
+    for spec in layer_specs:
+        kind = spec.get("kind")
+        if kind in ("blocking", "loczcit") or (
+            kind == "field" and not variable_available(str(spec.get("variable") or ""), model)
+        ):
+            bad.append(spec)
+    return bad
 
 
 # Extremos de janela (Tmax/Tmin 2 m): step ≥ 3h SEMPRE (janela degenerada no 0),

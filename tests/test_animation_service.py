@@ -19,6 +19,7 @@ from cartomet_br.services.animation_service import (
     max_step_for_composition,
     max_step_for_cycle,
     min_start_for_composition,
+    unsupported_specs_for_model,
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -74,6 +75,59 @@ class TestBuildAnimationSteps:
         assert max_step_for_composition(loczcit, 6) == 144  # cap da rodada prevalece
         assert max_step_for_composition([{"kind": "synoptic"}], 0) == 240
         assert max_step_for_composition([{"kind": "blocking"}, *loczcit], 0) == 228
+
+
+class TestAifsSteps:
+    """Sob AIFS a grade é 6/6h até +360h em TODAS as rodadas (inclusive 06/18Z)."""
+
+    def test_grade_nativa_6h(self):
+        assert build_animation_steps(0, 24, 0, 0, model="aifs") == [0, 6, 12, 18, 24]
+
+    def test_nunca_oferece_step_3h(self):
+        # No IFS o intervalo [3, 9] renderia [3, 6, 9]; no AIFS só o +6h existe.
+        assert build_animation_steps(3, 9, 0, 0, model="aifs") == [6]
+
+    def test_todas_as_rodadas_alcancam_360(self):
+        for cycle in (0, 6, 12, 18):
+            assert max_step_for_cycle(cycle, model="aifs") == 360
+            assert build_animation_steps(300, 400, 0, cycle, model="aifs")[-1] == 360
+
+    def test_cycle_none_tambem_360(self):
+        # AIFS publica +360h nas 4 rodadas — não há caso conservador de 144h.
+        assert max_step_for_cycle(None, model="aifs") == 360
+
+    def test_stride_24h_ate_360(self):
+        steps = build_animation_steps(0, 360, 24, 0, model="aifs")
+        assert steps == list(range(0, 361, 24))
+
+    def test_default_continua_ifs(self):
+        # Sem model= explícito nada muda — as regras do IFS permanecem intactas.
+        assert build_animation_steps(0, 12, 0, 0) == [0, 3, 6, 9, 12]
+        assert max_step_for_cycle(6) == 144
+
+
+class TestUnsupportedSpecsForModel:
+    def test_ifs_nunca_bloqueia(self):
+        specs = [{"kind": "loczcit"}, {"kind": "field", "variable": "olr"}]
+        assert unsupported_specs_for_model(specs, "ifs") == []
+
+    def test_aifs_bloqueia_loczcit_e_bloqueio(self):
+        specs = [{"kind": "synoptic"}, {"kind": "blocking"}, {"kind": "loczcit", "axis": True}]
+        bad = unsupported_specs_for_model(specs, "aifs")
+        assert [s.get("kind") for s in bad] == ["blocking", "loczcit"]
+
+    def test_aifs_bloqueia_variavel_ausente(self):
+        specs = [
+            {"kind": "field", "variable": "gh", "level": 500},
+            {"kind": "field", "variable": "r", "level": 700},
+            {"kind": "field", "variable": "olr"},
+        ]
+        bad = unsupported_specs_for_model(specs, "aifs")
+        assert [s.get("variable") for s in bad] == ["r", "olr"]
+
+    def test_aifs_composicao_limpa_passa(self):
+        specs = [{"kind": "synoptic"}, {"kind": "field", "variable": "t", "level": 850}]
+        assert unsupported_specs_for_model(specs, "aifs") == []
 
 
 class TestMinStartForComposition:

@@ -3606,6 +3606,25 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # A animação re-baixa todos os steps com o modelo CORRENTE — se a
+        # composição na tela tem camadas que o AIFS não oferece (vieram do
+        # IFS antes da troca do combo), avisar em vez de falhar no meio.
+        model = getattr(self.config, "model", "ifs")
+        from cartomet_br.services.animation_service import unsupported_specs_for_model
+
+        unsupported = unsupported_specs_for_model(layer_specs, model)
+        if unsupported:
+            labels = "\n".join(f"  • {self._layer_label(s)}" for s in unsupported)
+            QMessageBox.warning(
+                self,
+                "Animação de Steps",
+                "O modelo AIFS (IA) não oferece estas camadas da composição:\n\n"
+                f"{labels}\n\n"
+                "Elas foram geradas com o IFS. Para animar esta composição, "
+                'volte o Modelo para "IFS (físico)" — ou remova essas camadas.',
+            )
+            return
+
         # Resolve a rodada (mesmo padrão do LOCZCIT: "auto" → mais recente)
         cycle = self.settings_panel.get_cycle()
         cycle_date = self.settings_panel.get_cycle_date()
@@ -3613,7 +3632,7 @@ class MainWindow(QMainWindow):
             try:
                 from cartomet_br.data.ecmwf import estimate_available_cycles
 
-                latest = estimate_available_cycles().get("latest")
+                latest = estimate_available_cycles(model).get("latest")
                 if latest:
                     cycle = latest["cycle"]
                     cycle_date = latest["base_datetime"].strftime("%Y%m%d")
@@ -3664,6 +3683,7 @@ class MainWindow(QMainWindow):
             layer_labels=[self._layer_label(s) for s in layer_specs],
             static_labels=static_labels,
             loczcit_lisa=loczcit_lisa,
+            model=model,
             parent=self,
         )
         dlg.setStyleSheet(DARK_STYLE)

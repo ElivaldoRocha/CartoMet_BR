@@ -304,3 +304,52 @@ def test_title_prefix_aifs(canvas):
     title = canvas.ax.get_title(loc="left")
     assert title.startswith("ECMWF AIFS (IA)")
     assert "ECMWF IFS" not in title
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Animação de steps sob AIFS (offscreen)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _animation_dialog(model: str, tmp_path, cycle: int = 6):
+    from cartomet_br.gui.animation_dialog import AnimationDialog
+
+    return AnimationDialog(
+        cycle=cycle,
+        cycle_date="20260731",
+        layer_specs=[{"kind": "synoptic", "step": 0}],
+        technique="direct",
+        current_step=12,
+        charts_dir=tmp_path,
+        layer_labels=["Carta Sinótica"],
+        static_labels=[],
+        model=model,
+    )
+
+
+class TestAnimationDialogAifs:
+    def test_grade_6h_e_alcance_360_mesmo_na_rodada_06z(self, qapp, tmp_path):
+        dlg = _animation_dialog("aifs", tmp_path, cycle=6)
+        starts = [dlg.start_combo.itemData(i) for i in range(dlg.start_combo.count())]
+        assert all(s % 6 == 0 for s in starts)  # nunca oferece +3h/+9h...
+        assert starts[-1] == 360
+        ends = [dlg.end_combo.itemData(i) for i in range(dlg.end_combo.count())]
+        assert ends[-1] == 360  # IFS 06Z pararia em +144h
+
+    def test_stride_nativo_sem_opcao_6h_redundante(self, qapp, tmp_path):
+        dlg = _animation_dialog("aifs", tmp_path)
+        strides = [dlg.stride_combo.itemData(i) for i in range(dlg.stride_combo.count())]
+        assert 6 not in strides  # a grade nativa JÁ é 6/6h
+        assert dlg.stride_combo.itemText(0) == "Nativo (6 em 6 horas)"
+
+    def test_nome_do_arquivo_leva_prefixo_aifs(self, qapp, tmp_path):
+        dlg = _animation_dialog("aifs", tmp_path)
+        assert "aifs-" in dlg.dest_edit.text()
+        assert "aifs-" not in _animation_dialog("ifs", tmp_path).dest_edit.text()
+
+    def test_ifs_dialogo_inalterado(self, qapp, tmp_path):
+        dlg = _animation_dialog("ifs", tmp_path, cycle=6)
+        starts = [dlg.start_combo.itemData(i) for i in range(dlg.start_combo.count())]
+        assert 3 in starts  # grade 3h preservada
+        ends = [dlg.end_combo.itemData(i) for i in range(dlg.end_combo.count())]
+        assert ends[-1] == 144  # cap da rodada 06Z preservado
