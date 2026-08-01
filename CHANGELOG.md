@@ -46,6 +46,23 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   ganharam o guard de sender (padrão dos avisos INMET) e a invalidação de
   overlays passou a abandonar o thread e fechar o diálogo.
 
+### Corrigido
+
+- **🌊 TSM resiliente — cadeia de espelhos quando o ERDDAP da NOAA cai.**
+  Em 31/07/2026 o nó oeste (PFEG, `coastwatch.pfeg`/`upwell.pfeg`) saiu do
+  ar e o app culpava a internet do usuário. Agora a TSM tenta uma CADEIA:
+  MUR 1km (PFEG) → espelho upwell → **Geo-Polar Blended 5km global** (nó
+  leste, `noaacwBLENDEDsstDNDaily` — mesma variável/unidades/sintaxe), com
+  timeout de conexão curto (15 s por fonte, em vez de prender o worker),
+  User-Agent de navegador (o WAF do nó leste bloqueia o UA padrão do
+  requests com 403) e stride reescalado por grade (~5 km efetivos nas
+  duas fontes). **Honestidade**: título/colorbar da carta dizem a fonte
+  REAL que serviu ("Geo-Polar Blended 5km — contingência do MUR"), o cache
+  é por produto (`mur_sst_`/`blended_sst_`, restauração de projeto tenta
+  ambos) e o erro final não culpa a internet: distingue servidores da NOAA
+  fora do ar de data indisponível (latência), detalhando o que foi tentado.
+  Quando o PFEG voltar, o MUR 1km reassume a prioridade automaticamente.
+
 ### Adicionado
 
 - **⚡ Raios GLM — o sensor de raios do GOES-East no mapa (Onda 4 da v3.2).**

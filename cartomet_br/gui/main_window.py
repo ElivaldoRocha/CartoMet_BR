@@ -2237,11 +2237,11 @@ class MainWindow(QMainWindow):
 
         self.sst_panel.set_downloading(True)
         date_str = target_date.strftime("%d/%m/%Y")
-        self.status_label.setText(f"● Baixando TSM — MUR SST para {date_str}...")
+        self.status_label.setText(f"● Baixando TSM para {date_str}...")
         self.status_label.setStyleSheet("color: #E67E22;")
 
         self._sst_dl_dialog = DownloadProgressDialog(
-            f"Baixando TSM — MUR SST {date_str}",
+            f"Baixando TSM — {date_str}",
             parent=self,
         )
         self._sst_dl_dialog.setStyleSheet(DARK_STYLE)
@@ -4541,7 +4541,7 @@ class MainWindow(QMainWindow):
             return "Satélite GOES"
         if kind == "sst":
             ts = spec.get("time_str", "")
-            return f"TSM — MUR SST {ts}".strip()
+            return f"TSM {ts}".strip()
         if kind == "loczcit":
             return "ZCIT (LOCZCIT-PA)" + (" + eixo" if spec.get("axis") else "")
         if kind == "blocking":
@@ -4607,13 +4607,24 @@ class MainWindow(QMainWindow):
         return True
 
     def _restore_sst_from_cache(self, spec: dict) -> bool:
-        """Relê a TSM (MUR SST) do .nc em cache, sem rede. True se restaurou."""
+        """Relê a TSM do .nc em cache, sem rede. True se restaurou.
+
+        Tenta os prefixos de TODOS os produtos (mur_sst_/blended_sst_) — a
+        camada pode ter vindo da contingência Blended quando o PFEG caiu.
+        """
         time_str = spec.get("time_str", "")
         stride = int(spec.get("stride", 5))
         if not time_str:
             return False
-        path = self.config.sst_dir / f"mur_sst_{time_str}_s{stride}.nc"
-        if not path.exists():
+        from cartomet_br.data.sst import SST_SOURCES
+
+        path = None
+        for src in SST_SOURCES:
+            cand = self.config.sst_dir / f"{src['cache_prefix']}_{time_str}_s{stride}.nc"
+            if cand.exists():
+                path = cand
+                break
+        if path is None:
             return False
         try:
             from cartomet_br.data.sst import _load_sst_from_file

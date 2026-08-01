@@ -594,7 +594,7 @@ class SSTDownloadThread(QThread):
         try:
             from cartomet_br.data.sst import download_mur_sst
 
-            self.progress.emit("Conectando ao ERDDAP — MUR SST 1km...")
+            self.progress.emit("Conectando aos servidores de TSM (MUR 1km / Blended 5km)...")
 
             data = download_mur_sst(
                 target_date=self.target_date,

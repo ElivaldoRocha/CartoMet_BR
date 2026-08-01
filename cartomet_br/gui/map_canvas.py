@@ -1594,7 +1594,9 @@ class MapCanvas(FigureCanvas):
                 and self._sst_artist.get_visible()
             )
             if has_sst:
-                line1 = "TSM (°C) — MUR SST 1km (NASA/NOAA)"
+                # Fonte real do dado (MUR 1km ou contingência Blended 5km)
+                sst_src = getattr(self._sst_data, "source", "MUR SST 1km (NASA/NOAA)")
+                line1 = f"TSM (°C) — {sst_src}"
                 obs_labels = self._active_obs_labels()
                 if obs_labels:
                     line1 += " + " + "/".join(obs_labels)
@@ -5157,7 +5159,7 @@ class MapCanvas(FigureCanvas):
             self._sst_artist,
             cax=cax,
             orientation="horizontal",
-            label="TSM (°C) — MUR SST 1km",
+            label=f"TSM (°C) — {getattr(sst_data, 'source', 'MUR SST 1km (NASA/NOAA)')}",
         )
         self._sst_colorbar.ax.tick_params(labelsize=8)
 

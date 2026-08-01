@@ -31,8 +31,51 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# URL base do ERDDAP — dataset MUR SST v4.1
+# URL base do ERDDAP — dataset MUR SST v4.1 (mantida p/ compatibilidade)
 ERDDAP_URL = "https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41"
+
+# O WAF da NOAA (nó leste) responde 403 ao User-Agent padrão do requests —
+# um UA de navegador libera todos os nós.
+_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CartoMetBR"}
+
+# Conexão curta + leitura longa: um servidor FORA DO AR falha em ~15 s e a
+# cadeia cai para o próximo espelho, em vez de prender o worker por minutos.
+CONNECT_TIMEOUT_S = 15
+READ_TIMEOUT_S = 300
+
+# Cadeia de fontes, na ordem de tentativa. O MUR 1km (nó oeste/PFEG) é o
+# produto titular; em 31/07/2026 o PFEG saiu do ar (timeout de conexão nos
+# dois hostnames) e o Geo-Polar Blended 5km global do nó leste entrou como
+# CONTINGÊNCIA honesta — mesma variável `analysed_sst`, mesmas unidades (°C
+# via ERDDAP), mesma sintaxe griddap; só muda a grade (0.05°) e a hora da
+# análise diária (12Z em vez de 09Z). O rótulo da carta sempre diz qual
+# fonte serviu (SSTData.source).
+SST_SOURCES: tuple[dict, ...] = (
+    {
+        "base": "https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41",
+        "nome": "MUR SST 1km (NASA/NOAA)",
+        "curto": "MUR 1km (PFEG)",
+        "grid_deg": 0.01,
+        "hora": "09:00:00Z",
+        "cache_prefix": "mur_sst",
+    },
+    {
+        "base": "https://upwell.pfeg.noaa.gov/erddap/griddap/jplMURSST41",
+        "nome": "MUR SST 1km (NASA/NOAA)",
+        "curto": "MUR 1km (espelho upwell)",
+        "grid_deg": 0.01,
+        "hora": "09:00:00Z",
+        "cache_prefix": "mur_sst",
+    },
+    {
+        "base": "https://coastwatch.noaa.gov/erddap/griddap/noaacwBLENDEDsstDNDaily",
+        "nome": "Geo-Polar Blended 5km (NOAA — contingência do MUR)",
+        "curto": "Blended 5km (nó leste)",
+        "grid_deg": 0.05,
+        "hora": "12:00:00Z",
+        "cache_prefix": "blended_sst",
+    },
+)
 
 
 @dataclass
@@ -43,7 +86,9 @@ class SSTData:
     lons: np.ndarray  # Longitudes 1D
     lats: np.ndarray  # Latitudes 1D
     time_str: str  # Data da análise (ex.: "2026-03-23")
-    source: str = "MUR SST 1km — NASA/NOAA"
+    # Qual produto serviu o dado (MUR 1km ou o fallback Blended 5km) —
+    # vai para o título da carta (honestidade: a fonte real, sempre).
+    source: str = "MUR SST 1km (NASA/NOAA)"
 
 
 def download_mur_sst(
@@ -80,9 +125,6 @@ def download_mur_sst(
     SSTData
         Container com SST, coordenadas e metadados.
     """
-    import pandas as pd
-    import requests
-    import xarray as xr
 
     def _emit(kind, value):
         if progress_callback:
@@ -96,68 +138,130 @@ def download_mur_sst(
     # ── Data alvo ──
     use_latest = target_date is None
     if use_latest:
-        time_constraint = "last"
         date_label = "mais recente"
         date_tag = "latest"
     else:
         assert target_date is not None  # use_latest == False ⇒ target_date definido
         date_tag = target_date.strftime("%Y-%m-%d")
-        # MUR SST análise diária: hora fixa 09:00:00Z
-        time_constraint = f"{date_tag}T09:00:00Z"
         date_label = date_tag
 
-    # ── Cache local (apenas para datas específicas) ──
-    if data_dir is not None and not use_latest:
-        cache_file = data_dir / f"mur_sst_{date_tag}_s{stride}.nc"
-        if cache_file.exists() and not force_download:
-            _emit("status", f"Cache encontrado: {cache_file.name}")
-            _emit("percent", 100)
-            logger.info("MUR SST cache hit: %s", cache_file)
-            return _load_sst_from_file(cache_file)
+    # ── Cache local (apenas para datas específicas) — por PRODUTO ──
+    if data_dir is not None and not use_latest and not force_download:
+        for src in SST_SOURCES:
+            cache_file = data_dir / f"{src['cache_prefix']}_{date_tag}_s{stride}.nc"
+            if cache_file.exists():
+                _emit("status", f"Cache encontrado: {cache_file.name}")
+                _emit("percent", 100)
+                logger.info("TSM cache hit: %s", cache_file)
+                return _load_sst_from_file(cache_file)
 
-    # ── Constrói URL com subsetting server-side ──
-    # Formato ERDDAP griddap: var[(time)][(lat_min):stride:(lat_max)][(lon_min):stride:(lon_max)]
-    _emit("status", f"Conectando ao ERDDAP — MUR SST {date_label}...")
-    _emit("percent", 5)
+    # ── Cadeia de fontes: tenta cada uma até obter o dado ──
+    errors: list[str] = []
+    date_missing = 0
+    for i, src in enumerate(SST_SOURCES):
+        _emit("status", f"Conectando: {src['curto']} — TSM {date_label}...")
+        _emit("percent", 5)
+        try:
+            return _download_from_source(
+                src,
+                use_latest=use_latest,
+                date_tag=date_tag,
+                date_label=date_label,
+                extent=extent,
+                data_dir=data_dir,
+                stride=stride,
+                emit=_emit,
+            )
+        except _DateUnavailable as e:
+            date_missing += 1
+            errors.append(f"• {src['curto']}: {e}")
+            logger.warning("TSM: %s sem a data %s", src["curto"], date_label)
+        except Exception as e:  # rede/timeout/HTTP/parse — tenta o próximo espelho
+            errors.append(f"• {src['curto']}: {e}")
+            logger.warning("TSM: falha em %s: %s", src["curto"], e)
+        if i < len(SST_SOURCES) - 1:
+            _emit("status", f"{src['curto']} indisponível — tentando o próximo espelho...")
 
-    constraint_url = (
-        f"{ERDDAP_URL}.nc?"
-        f"analysed_sst[({time_constraint}):1:({time_constraint})]"
-        f"[({lat_min}):{stride}:({lat_max})]"
-        f"[({lon_min}):{stride}:({lon_max})]"
+    # ── Todas as fontes falharam — erro honesto (não culpar a internet) ──
+    detalhes = "\n".join(errors)
+    if date_missing == len(SST_SOURCES):
+        raise RuntimeError(
+            f"A data {date_label} não está disponível em nenhuma das fontes de TSM.\n\n"
+            "O MUR tem ~2 dias de latência (e o Blended ~1 dia) em relação ao "
+            "dia atual. Tente uma data mais antiga.\n\n"
+            f"{detalhes}"
+        )
+    raise RuntimeError(
+        "Não foi possível obter a TSM de nenhuma das fontes da NOAA.\n\n"
+        "Isso normalmente é manutenção/queda NOS SERVIDORES (o nó oeste/PFEG "
+        "fica fora do ar de tempos em tempos) — não precisa ser a sua "
+        "internet. Tente novamente mais tarde.\n\n"
+        f"{detalhes}"
     )
 
-    logger.info("MUR SST request URL: %s", constraint_url)
-    res_km = stride * 0.01 * 111  # resolução efetiva aproximada em km
-    _emit("status", f"Baixando TSM ({date_label}) — resolução ~{res_km:.0f} km...")
-    _emit("percent", 10)
 
-    # ── Download com progresso em bytes ──
+class _DateUnavailable(RuntimeError):
+    """A fonte respondeu, mas não tem a data pedida (404/400 do griddap)."""
+
+
+def _download_from_source(
+    src: dict,
+    *,
+    use_latest: bool,
+    date_tag: str,
+    date_label: str,
+    extent: list[float],
+    data_dir: Path | None,
+    stride: int,
+    emit,
+) -> SSTData:
+    """Uma tentativa completa (URL → download → parse → cache) numa fonte."""
+    import pandas as pd
+    import requests
+    import xarray as xr
+
+    lon_min, lat_min, lon_max, lat_max = extent
+
+    # Stride EFETIVO: `stride` é calibrado para a grade de 0.01° do MUR
+    # (5 ≈ 5 km). Numa grade mais grossa (Blended 0.05°), o mesmo passo
+    # daria ~27 km — reescala para preservar a resolução efetiva pedida.
+    eff_stride = max(1, round(stride * 0.01 / float(src["grid_deg"])))
+
+    time_constraint = "last" if use_latest else f"{date_tag}T{src['hora']}"
+    constraint_url = (
+        f"{src['base']}.nc?"
+        f"analysed_sst[({time_constraint}):1:({time_constraint})]"
+        f"[({lat_min}):{eff_stride}:({lat_max})]"
+        f"[({lon_min}):{eff_stride}:({lon_max})]"
+    )
+    logger.info("TSM request (%s): %s", src["curto"], constraint_url)
+    res_km = eff_stride * float(src["grid_deg"]) * 111
+    emit("status", f"Baixando TSM ({date_label}) — {src['curto']}, ~{res_km:.0f} km...")
+    emit("percent", 10)
+
     try:
-        resp = requests.get(constraint_url, timeout=300, stream=True)
+        resp = requests.get(
+            constraint_url,
+            timeout=(CONNECT_TIMEOUT_S, READ_TIMEOUT_S),
+            stream=True,
+            headers=_UA,
+        )
         resp.raise_for_status()
     except requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else "?"
         if status in (404, 400):
-            raise RuntimeError(
-                f"Data {date_label} não disponível no MUR SST.\n\n"
-                f"O MUR SST tem ~2 dias de latência em relação ao dia atual.\n"
-                f"Tente uma data mais antiga."
-            ) from e
-        raise RuntimeError(f"Erro HTTP {status} ao acessar ERDDAP:\n{e}") from e
+            raise _DateUnavailable(f"data {date_label} não disponível (HTTP {status})") from e
+        raise RuntimeError(f"HTTP {status}") from e
     except requests.ConnectionError as e:
-        raise RuntimeError(
-            "Não foi possível conectar ao ERDDAP.\nVerifique sua conexão com a internet."
-        ) from e
+        raise RuntimeError("sem resposta (servidor fora do ar?)") from e
     except requests.Timeout as e:
-        raise RuntimeError(
-            "Timeout ao conectar ao ERDDAP (300s).\nO servidor pode estar lento — tente novamente."
-        ) from e
+        raise RuntimeError(f"timeout de conexão ({CONNECT_TIMEOUT_S}s)") from e
 
     total_size = int(resp.headers.get("content-length", 0))
     downloaded = 0
 
-    # Download para arquivo temporário
+    # Download para arquivo temporário — quedas NO MEIO da transferência
+    # também caem na cadeia de espelhos (o try do chamador envolve tudo).
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".nc")
     try:
         with os.fdopen(tmp_fd, "wb") as f:
@@ -166,20 +270,20 @@ def download_mur_sst(
                 downloaded += len(chunk)
                 if total_size > 0:
                     pct = 10 + int(downloaded * 75 / total_size)
-                    _emit("percent", min(pct, 85))
+                    emit("percent", min(pct, 85))
                     # Atualiza status a cada ~256 KB
                     if downloaded % (256 * 1024) < 65536:
                         mb_down = downloaded / (1024 * 1024)
                         mb_total = total_size / (1024 * 1024)
-                        _emit("status", f"Baixando... {mb_down:.1f} / {mb_total:.1f} MB")
+                        emit("status", f"Baixando... {mb_down:.1f} / {mb_total:.1f} MB")
                 else:
                     # Sem content-length: mostra apenas bytes baixados
                     if downloaded % (256 * 1024) < 65536:
                         mb_down = downloaded / (1024 * 1024)
-                        _emit("status", f"Baixando... {mb_down:.1f} MB")
+                        emit("status", f"Baixando... {mb_down:.1f} MB")
 
-        _emit("status", "Processando dados SST...")
-        _emit("percent", 90)
+        emit("status", "Processando dados SST...")
+        emit("percent", 90)
 
         # ── Abre e extrai dados ──
         ds = xr.open_dataset(tmp_path, engine="netcdf4")
@@ -204,14 +308,14 @@ def download_mur_sst(
 
         ds.close()
 
-        # ── Salva no cache ──
+        # ── Salva no cache (prefixo do PRODUTO — MUR e Blended não colidem) ──
         if data_dir is not None:
-            final_cache = data_dir / f"mur_sst_{actual_date_str}_s{stride}.nc"
+            final_cache = data_dir / f"{src['cache_prefix']}_{actual_date_str}_s{stride}.nc"
             if not final_cache.exists():
                 try:
                     final_cache.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(tmp_path, final_cache)
-                    logger.info("MUR SST salvo em cache: %s", final_cache)
+                    logger.info("TSM salva em cache: %s", final_cache)
                 except Exception as e:
                     logger.warning("Falha ao salvar cache SST: %s", e)
 
@@ -219,11 +323,15 @@ def download_mur_sst(
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
 
-    _emit("status", f"TSM carregada — {actual_date_str}")
-    _emit("percent", 100)
+    emit("status", f"TSM carregada — {actual_date_str} ({src['curto']})")
+    emit("percent", 100)
 
     logger.info(
-        "MUR SST carregado: %s, shape=%s, stride=%d", actual_date_str, sst_arr.shape, stride
+        "TSM carregada de %s: %s, shape=%s, stride_ef=%d",
+        src["curto"],
+        actual_date_str,
+        sst_arr.shape,
+        eff_stride,
     )
 
     return SSTData(
@@ -231,6 +339,7 @@ def download_mur_sst(
         lons=lons,
         lats=lats,
         time_str=actual_date_str,
+        source=str(src["nome"]),
     )
 
 
@@ -260,9 +369,18 @@ def _load_sst_from_file(filepath: Path) -> SSTData:
 
     ds.close()
 
+    # Fonte inferida do prefixo do cache — um Blended restaurado do disco
+    # continua rotulado como Blended na carta (honestidade sobrevive ao cache).
+    source = "MUR SST 1km (NASA/NOAA)"
+    for src in SST_SOURCES:
+        if filepath.name.startswith(f"{src['cache_prefix']}_"):
+            source = str(src["nome"])
+            break
+
     return SSTData(
         sst=sst_arr,
         lons=lons,
         lats=lats,
         time_str=date_str,
+        source=source,
     )
