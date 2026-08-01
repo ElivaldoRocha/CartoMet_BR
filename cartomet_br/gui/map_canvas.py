@@ -5602,8 +5602,14 @@ class MapCanvas(FigureCanvas):
             )
             artists.append(sc)
             handles.append(sc)
+        from cartomet_br.data.glm_lightning import window_label
+
+        # 2ª linha: a semântica das cores precisa viajar com o PNG exportado —
+        # num caso histórico, "0–5 min" é relativo ao FIM da janela, não a agora.
         title = (
-            f"Raios GLM {data.window_start:%H:%M}–{data.window_end:%H:%M} UTC ({data.satellite})"
+            f"Raios GLM {window_label(data.window_start, data.window_end)} "
+            f"({data.satellite})\n"
+            "cor = minutos antes do fim da janela"
         )
         legend = self.ax.legend(
             handles=handles,

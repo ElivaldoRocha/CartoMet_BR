@@ -48,13 +48,27 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
-- **⚡ Raios GLM ao vivo — o sensor de raios do GOES-East no mapa (Onda 4 da v3.2).**
-  Botão "⚡ Raios GLM (últimos 15 min)" nas Análises Prontas: baixa os
+- **⚡ Raios GLM — o sensor de raios do GOES-East no mapa (Onda 4 da v3.2).**
+  Botão "⚡ Raios GLM (janela de 15 min)" nas Análises Prontas: baixa os
   arquivos `GLM-L2-LCFA` (um a cada ~20 s) do S3 público da NOAA — os
   mesmos buckets da imagem de satélite (GOES-19, fallback GOES-16) — e
   plota os *flashes* como scatter colorido por idade (vermelho 0–5 min,
   laranja 5–10, amarelo 10–15), recortado à vista atual do mapa (+2° de
-  margem). Legenda carimba a JANELA REAL e o satélite ("Raios GLM
+  margem). **Sem prender o usuário ao presente** (como no canal 13):
+  checkbox "Agora" (default, ao vivo) ou data/hora/minuto/segundo UTC
+  livres como fim da janela — os buckets da NOAA guardam anos de
+  histórico (estudos de caso). Blindagens do modo histórico (revisão
+  adversária multi-agente): carimbo da janela SEMPRE com ano e com a
+  data do fim quando cruza a meia-noite (fonte única `window_label`);
+  janelas pré-04/2025 preferem o **GOES-16** (o bucket do G19 tem dados
+  preliminares do checkout que passariam por operacionais); fim de
+  janela EXCLUSIVO (granulo que começa no instante final cobre os 20 s
+  seguintes — fora); datas futuras recusadas antes da rede com
+  diagnóstico claro; `now=` naive/fuso-alheio normalizado a UTC; o
+  valor digitado sobrevive ao vai-e-vem do checkbox "Agora"; a legenda
+  exportada explica "cor = minutos antes do fim da janela"; e o aviso
+  de zero raios distingue janela ao vivo ("tente mais tarde") de
+  histórica ("mude a data ou o recorte"). Legenda carimba a JANELA REAL e o satélite ("Raios GLM
   22:36–22:51 UTC (GOES-19)") — raio tem hora própria, não a do step do
   modelo. Zero raios na janela é resultado válido (céu eletricamente
   calmo), informado sem drama. Engenharia: `requests.Session` keep-alive +

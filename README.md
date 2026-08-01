@@ -234,10 +234,11 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 - Cálculo e download em **thread separada** (cancelável); o GRIB de `gh` 500 hPa **compartilha o cache** com a camada normal de geopotencial
 - Menu **Ajuda → "Sobre a Análise de Bloqueio (Z500)"** com resumo e a metodologia completa. Climatologia: **ERA5** (Hersbach et al., 2020) via **Copernicus Climate Change Service (C3S)**
 
-### ⚡ Raios GLM ao vivo — a convecção elétrica em tempo quase real
+### ⚡ Raios GLM — a convecção elétrica em tempo quase real (ou em qualquer data)
 
-- Botão **⚡ Raios GLM (últimos 15 min)** nas Análises Prontas: os *flashes* do **Geostationary Lightning Mapper** do GOES-East, direto do S3 público da NOAA (sem cadastro), plotados sobre a carta em ~5 segundos
-- **Cor = idade do raio**: vermelho (0–5 min), laranja (5–10), amarelo (10–15) — a legenda carimba a janela real e o satélite de origem; zero raios na janela é resposta honesta ("céu eletricamente calmo"), não erro
+- Botão **⚡ Raios GLM (janela de 15 min)** nas Análises Prontas: os *flashes* do **Geostationary Lightning Mapper** do GOES-East, direto do S3 público da NOAA (sem cadastro), plotados sobre a carta em ~5 segundos
+- **Sem prender você ao presente**: "Agora" (default) ou qualquer **data/hora/minuto/segundo UTC** como fim da janela — igual ao canal 13. Os buckets da NOAA guardam anos de histórico: perfeito para revisitar a tempestade de ontem ou montar um estudo de caso
+- **Cor = idade do raio**: vermelho (0–5 min), laranja (5–10), amarelo (10–15), relativas ao fim da janela — a legenda carimba a data, a janela real e o satélite de origem; zero raios na janela é resposta honesta ("céu eletricamente calmo"), não erro
 - Par perfeito do satélite IR + células convectivas: a célula que aparece fria no IR **e** pisca no GLM está eletricamente ativa **agora** — critério objetivo para priorizar o traçado
 - Atualização manual (clique de novo) — como tudo no CartoMet, a rede só é tocada por iniciativa do usuário
 

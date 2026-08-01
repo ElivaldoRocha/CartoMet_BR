@@ -8,11 +8,12 @@ e SSTPanel (TSM MUR SST 1km).
 
 from datetime import UTC, datetime, timedelta
 
-from PyQt6.QtCore import QDate, QSettings, Qt, pyqtSignal
+from PyQt6.QtCore import QDate, QDateTime, QSettings, Qt, QTimeZone, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDateEdit,
+    QDateTimeEdit,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -1211,7 +1212,8 @@ class FieldLayerPanel(QWidget):
     run_compare_requested = pyqtSignal()  # comparação de rodadas (Δ novo − antigo)
     ens_requested = pyqtSignal(str, float)  # Ensemble ENS: (produto, limiar mm)
     inmet_avisos_requested = pyqtSignal()  # avisos meteorológicos ativos do INMET
-    glm_lightning_requested = pyqtSignal()  # raios GLM (GOES-East) dos últimos 15 min
+    # Raios GLM: fim da janela de 15 min (datetime UTC) ou None = agora
+    glm_lightning_requested = pyqtSignal(object)
     # Filtro dos avisos INMET: incluir os "futuros" (emitidos, validade por
     # começar)? Re-renderiza a última busca na hora — sem nova consulta.
     inmet_future_toggled = pyqtSignal(bool)
@@ -1279,6 +1281,9 @@ class FieldLayerPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._layer_widgets = {}
+        # Seletor GLM: a 1ª liberação posiciona no agora; depois preserva o
+        # valor digitado (fluxo de comparar caso histórico × presente).
+        self._glm_dt_seeded: bool = False
         self._setup_ui()
 
     def set_model_gating(self, model: str) -> None:
@@ -1327,6 +1332,34 @@ class FieldLayerPanel(QWidget):
         product = str(self.ens_product_combo.currentData())
         thr = float(self.ens_thr_combo.currentData() or 10.0)
         self.ens_requested.emit(product, thr)
+
+    def _on_glm_now_toggled(self, now_mode: bool) -> None:
+        """'Agora' desligado libera o seletor.
+
+        A data digitada é PRESERVADA entre idas e vindas do checkbox (fluxo
+        de comparar caso histórico × presente) — só a PRIMEIRA liberação
+        posiciona no UTC corrente. O máximo é re-cravado no agora (+1 min de
+        folga) a cada liberação: o GLM não tem dados do futuro.
+        """
+        self.glm_datetime_edit.setEnabled(not now_mode)
+        if not now_mode:
+            self.glm_datetime_edit.setMaximumDateTime(QDateTime.currentDateTimeUtc().addSecs(60))
+            if not self._glm_dt_seeded:
+                self.glm_datetime_edit.setDateTime(QDateTime.currentDateTimeUtc())
+                self._glm_dt_seeded = True
+
+    def _on_glm_clicked(self) -> None:
+        """Emite o fim da janela GLM: None = agora; datetime UTC = histórico.
+
+        ``microsecond=0``: o seletor exibe até segundos — milissegundos
+        herdados do relógio no seed ficariam invisíveis e fariam o pedido
+        divergir sub-segundo do que a tela mostra.
+        """
+        if self.glm_now_check.isChecked():
+            self.glm_lightning_requested.emit(None)
+            return
+        when = self.glm_datetime_edit.dateTime().toPyDateTime().replace(tzinfo=UTC, microsecond=0)
+        self.glm_lightning_requested.emit(when)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -1527,8 +1560,30 @@ class FieldLayerPanel(QWidget):
         self.inmet_future_check.toggled.connect(self.inmet_future_toggled)
         layout.addWidget(self.inmet_future_check)
 
-        # ─── Raios GLM (GOES-East ao vivo — sensor óptico geoestacionário) ───
-        glm_btn = QPushButton("⚡ Raios GLM (últimos 15 min)")
+        # ─── Raios GLM (GOES-East — sensor óptico geoestacionário) ───
+        # Como no canal 13 do GOES, o usuário NÃO fica preso ao presente:
+        # "Agora" (default) ou qualquer data/hora/min/seg como fim da janela.
+        glm_time_row = QHBoxLayout()
+        self.glm_now_check = QCheckBox("Agora")
+        self.glm_now_check.setChecked(True)
+        self.glm_now_check.setToolTip(
+            "Ligado: janela = últimos 15 min.\n"
+            "Desligado: escolha o FIM da janela de 15 min (UTC) ao lado —\n"
+            "os buckets da NOAA guardam anos de histórico (estudos de caso)."
+        )
+        glm_time_row.addWidget(self.glm_now_check)
+        self.glm_datetime_edit = QDateTimeEdit()
+        self.glm_datetime_edit.setCalendarPopup(True)
+        self.glm_datetime_edit.setDisplayFormat("dd/MM/yyyy HH:mm:ss")
+        self.glm_datetime_edit.setTimeZone(QTimeZone.utc())
+        self.glm_datetime_edit.setDateTime(QDateTime.currentDateTimeUtc())
+        self.glm_datetime_edit.setEnabled(False)
+        self.glm_datetime_edit.setToolTip("Fim da janela de 15 min, em UTC (precisão de segundo)")
+        glm_time_row.addWidget(self.glm_datetime_edit, stretch=1)
+        layout.addLayout(glm_time_row)
+        self.glm_now_check.toggled.connect(self._on_glm_now_toggled)
+
+        glm_btn = QPushButton("⚡ Raios GLM (janela de 15 min)")
         glm_btn.setStyleSheet("""
             QPushButton {
                 background-color: #B7950B; padding: 7px;
@@ -1537,13 +1592,13 @@ class FieldLayerPanel(QWidget):
             QPushButton:hover { background-color: #D4AC0D; }
         """)
         glm_btn.setToolTip(
-            "Flashes do Geostationary Lightning Mapper (GLM) do GOES-East nos\n"
-            "últimos 15 min, direto do S3 público da NOAA (~45 arquivos de 20 s).\n"
-            "Cores por idade: vermelho 0–5 min, laranja 5–10, amarelo 10–15.\n"
-            "Par natural do satélite + células convectivas: raio = convecção\n"
-            "eletricamente ativa AGORA. Clique de novo para atualizar a janela."
+            "Flashes do Geostationary Lightning Mapper (GLM) do GOES-East numa\n"
+            "janela de 15 min, direto do S3 público da NOAA (~45 arquivos de 20 s).\n"
+            "Cores por idade: vermelho 0–5 min, laranja 5–10, amarelo 10–15\n"
+            "(relativas ao fim da janela). Par natural do satélite + células\n"
+            "convectivas. 'Agora' ligado: clique de novo para atualizar."
         )
-        glm_btn.clicked.connect(self.glm_lightning_requested.emit)
+        glm_btn.clicked.connect(self._on_glm_clicked)
         layout.addWidget(glm_btn)
 
         # ─── Instabilidade (CAPE/CIN/LI/K) — campos derivados do modelo (F9) ───

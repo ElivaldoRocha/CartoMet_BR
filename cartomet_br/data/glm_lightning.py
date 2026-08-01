@@ -40,6 +40,11 @@ _SATELLITES = (
     ("noaa-goes19", "G19", "GOES-19"),
     ("noaa-goes16", "G16", "GOES-16"),
 )
+# GOES-19 assumiu como GOES-East operacional em 04/04/2025. Antes disso o
+# bucket noaa-goes19 já continha dados PRELIMINARES do período de checkout
+# (set/2024+) — para janelas históricas anteriores, o GOES-East da época era
+# o G16 e a preferência se inverte (senão o preliminar passaria por oficial).
+G19_OPERATIONAL_SINCE = datetime(2025, 4, 4, tzinfo=UTC)
 
 _KEY_RE = re.compile(r"<Key>([^<]+)</Key>")
 # Campo _s do nome: OR_GLM-L2-LCFA_G19_s20262121858200_e..._c....nc
@@ -69,10 +74,27 @@ class GLMLightningData:
     satellite: str  # "GOES-19" | "GOES-16"
     n_files: int
     extent: list[float] | None = field(default=None)
+    # True = janela "agora" (re-buscar depois traz dados novos); False =
+    # janela histórica fixa (re-buscar repete o MESMO resultado).
+    live: bool = True
 
     @property
     def n_flashes(self) -> int:
         return int(self.lons.size)
+
+
+def window_label(window_start: datetime, window_end: datetime) -> str:
+    """Rótulo honesto da janela: SEMPRE com ano; data do fim quando cruza o dia.
+
+    Fonte única dos carimbos (legenda, status, detalhe da camada, erros) —
+    uma janela 31/12/2025 23:50 → 01/01/2026 00:05 nunca pode aparecer como
+    "31/12 23:50–00:05". Segundos só quando o usuário os usou.
+    """
+    fmt_t = "%H:%M:%S" if (window_start.second or window_end.second) else "%H:%M"
+    ini = f"{window_start:%d/%m/%Y} {window_start:{fmt_t}}"
+    if window_start.date() == window_end.date():
+        return f"{ini}–{window_end:{fmt_t}} UTC"
+    return f"{ini}–{window_end:%d/%m/%Y} {window_end:{fmt_t}} UTC"
 
 
 def parse_start_time(filename: str) -> datetime | None:
@@ -111,7 +133,12 @@ def list_glm_keys(
 
     http = session if session is not None else requests
 
-    for bucket_name, sat_id, sat_label in _SATELLITES:
+    satellites = (
+        _SATELLITES
+        if window_end >= G19_OPERATIONAL_SINCE
+        else tuple(reversed(_SATELLITES))  # caso histórico: o GOES-East era o G16
+    )
+    for bucket_name, sat_id, sat_label in satellites:
         bucket_url = f"https://{bucket_name}.s3.amazonaws.com"
         keys: list[str] = []
         for prefix in _hour_prefixes(window_start, window_end):
@@ -125,16 +152,21 @@ def list_glm_keys(
             for key in _KEY_RE.findall(resp.text):
                 if sat_id not in key or not key.endswith(".nc"):
                     continue
+                # Fim EXCLUSIVO: um granulo que COMEÇA no fim da janela cobre
+                # os 20 s seguintes — seus flashes são posteriores ao instante
+                # pedido e entrariam como "mais recentes" (idade 0).
                 start = parse_start_time(key.rsplit("/", 1)[-1])
-                if start is not None and window_start <= start <= window_end:
+                if start is not None and window_start <= start < window_end:
                     keys.append(key)
         if keys:
             return bucket_url, sat_label, sorted(set(keys))  # dedup defensivo
     raise GlmError(
-        "Nenhum arquivo GLM encontrado nos últimos "
-        f"{GLM_WINDOW_MINUTES} min (GOES-19 e GOES-16).\n\n"
-        "Pode ser indisponibilidade momentânea do S3 da NOAA ou falha de "
-        "conexão. Tente novamente em instantes."
+        "Nenhum arquivo GLM encontrado na janela "
+        f"{window_label(window_start, window_end)} (GOES-19 e GOES-16).\n\n"
+        "Janela recente: pode ser indisponibilidade momentânea do S3 da NOAA "
+        "ou falha de conexão — tente de novo em instantes.\n"
+        "Janela histórica: confira a data (o GLM opera desde 2017, no ar do "
+        "GOES-16 em diante)."
     )
 
 
@@ -189,7 +221,20 @@ def fetch_glm_flashes(
 
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
-    window_end = now if now is not None else datetime.now(UTC)
+    live = now is None
+    if now is None:
+        window_end = datetime.now(UTC)
+    else:
+        # Normaliza QUALQUER datetime a UTC: naive = já-é-UTC (contrato da
+        # GUI e dos scripts externos); aware de outro fuso é convertido —
+        # sem isto, os prefixos de hora do S3 seriam listados no fuso errado.
+        window_end = now.replace(tzinfo=UTC) if now.tzinfo is None else now.astimezone(UTC)
+        if window_end - datetime.now(UTC) > timedelta(minutes=2):
+            raise GlmError(
+                f"O fim da janela está no futuro ({window_end:%d/%m/%Y %H:%M:%S} UTC).\n\n"
+                "O GLM só tem dados do passado — confira o ano e a hora "
+                "escolhidos (o horário do seletor é UTC, não hora local)."
+            )
     window_start = window_end - timedelta(minutes=window_minutes)
 
     if progress_callback:
@@ -257,4 +302,5 @@ def fetch_glm_flashes(
         satellite=sat_label,
         n_files=n_read,
         extent=list(extent) if extent is not None else None,
+        live=live,
     )

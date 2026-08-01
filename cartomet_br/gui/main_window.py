@@ -3624,13 +3624,20 @@ class MainWindow(QMainWindow):
 
     # ─── Raios GLM (GOES-East ao vivo) ───────────────────────────────────────
 
-    def _on_glm_requested(self):
-        """⚡ Busca os raios GLM dos últimos 15 min e desenha o overlay.
+    def _on_glm_requested(self, when=None):
+        """⚡ Busca os raios GLM (janela de 15 min) e desenha o overlay.
 
-        Clicar de novo re-busca com a janela atual (atualização manual — a
-        doutrina do app: toda rede é iniciada pelo usuário, sem timers).
+        ``when`` (datetime UTC) é o FIM da janela; None = agora. Como no
+        canal 13, o usuário não fica preso ao presente — o histórico da NOAA
+        cobre anos. Atualização manual (doutrina do app: rede só por clique).
         """
         if getattr(self, "glm_lightning_thread", None) and self.glm_lightning_thread.isRunning():
+            # Com o seletor de data, um 2º clique pode pedir uma JANELA
+            # DIFERENTE — descartar em silêncio faria o usuário tomar o
+            # resultado em voo pela janela que acabou de pedir.
+            QMessageBox.information(
+                self, "Aguarde", "Uma busca de raios GLM já está em andamento. Aguarde concluir."
+            )
             return
         # Recorte = vista ATUAL do mapa + margem de 2° (tolera pequenos pans
         # sem re-buscar; o disco cheio do GOES teria dezenas de milhares de pontos).
@@ -3638,11 +3645,13 @@ class MainWindow(QMainWindow):
 
         x0, x1, y0, y1 = self.canvas.ax.get_extent(crs=ccrs.PlateCarree())
         extent = [x0 - 2.0, y0 - 2.0, x1 + 2.0, y1 + 2.0]
-        self.status_label.setText("● Buscando raios GLM (GOES-East)…")
+        alvo = f" ({when:%d/%m/%Y %H:%M:%S} UTC)" if when is not None else ""
+        self.status_label.setText(f"● Buscando raios GLM (GOES-East){alvo}…")
         self.status_label.setStyleSheet("color: #B7950B;")
         self.glm_lightning_thread = GlmLightningWorker(
             data_dir=self.config.satellite_dir,
             extent=extent,
+            when=when,
             parent=self,
         )
         self.glm_lightning_thread.progress.connect(self._on_glm_progress)
@@ -3651,6 +3660,8 @@ class MainWindow(QMainWindow):
         self.glm_lightning_thread.start()
 
     def _on_glm_progress(self, msg: str):
+        if self.sender() is not getattr(self, "glm_lightning_thread", None):
+            return  # worker abandonado não sobrescreve o status corrente
         self.status_label.setText(f"● {msg}")
         self.status_label.setStyleSheet("color: #B7950B;")
 
@@ -3658,19 +3669,28 @@ class MainWindow(QMainWindow):
         if self.sender() is not getattr(self, "glm_lightning_thread", None):
             return  # busca abandonada ('Limpar mapa' no meio) — descarta o resultado
         self.glm_lightning_thread = None
-        window = f"{data.window_start:%H:%M}–{data.window_end:%H:%M} UTC"
+        from cartomet_br.data.glm_lightning import window_label
+
+        window = window_label(data.window_start, data.window_end)
         if data.n_flashes == 0:
             self.canvas.remove_glm_lightning(reflow=True)
             self.field_panel.remove_layer_entry("glm_lightning")
             self.canvas.draw()
             self.status_label.setText("● Nenhum raio GLM no recorte nesta janela")
             self.status_label.setStyleSheet("color: #27AE60;")
+            # Conselho por MODO: janela histórica é fixa — "tentar de novo
+            # mais tarde" repetiria o mesmo resultado para sempre.
+            hint = (
+                "clique de novo mais tarde para uma janela nova."
+                if getattr(data, "live", True)
+                else "esta janela histórica é fixa — mude a data ou o recorte do mapa."
+            )
             QMessageBox.information(
                 self,
                 "Raios GLM",
                 f"O {data.satellite} não registrou raios no recorte atual do mapa "
                 f"entre {window}.\n\nCéu eletricamente calmo é um resultado válido "
-                "— clique de novo mais tarde para uma janela nova.",
+                f"— {hint}",
             )
             return
         was_visible = self.field_panel.layer_entry_checked("glm_lightning")

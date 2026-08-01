@@ -344,10 +344,11 @@ class GlmLightningWorker(QThread):
     finished_ok = pyqtSignal(object)  # GLMLightningData
     finished_error = pyqtSignal(str)
 
-    def __init__(self, data_dir, extent, parent=None):
+    def __init__(self, data_dir, extent, when=None, parent=None):
         super().__init__(parent)
         self.data_dir = data_dir
         self.extent = list(extent) if extent else None
+        self.when = when  # fim da janela (datetime UTC) | None = agora
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -364,6 +365,7 @@ class GlmLightningWorker(QThread):
             data = fetch_glm_flashes(
                 self.data_dir,
                 extent=self.extent,
+                now=self.when,
                 progress_callback=lambda msg: self.progress.emit(msg),
                 cancel_check=lambda: self._cancelled,
             )
