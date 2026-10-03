@@ -376,6 +376,24 @@ class TestEnsCanvas:
         # contourf(σ) + contour fino de σ + contour da MÉDIA = 3 conjuntos
         assert len(contour_sets) >= 3
 
+    def test_remover_camada_ens_remove_a_colorbar(self, canvas):
+        # Bug de campo: a colorbar era registrada pela VARIÁVEL (ens_prob) e a
+        # remoção buscava o layer_id (ens_prob_10mm) — ficava órfã no mapa.
+        canvas.add_pl_layer("ens_prob_10mm", _prob_field(), "barbs")
+        assert "ens_prob_10mm" in canvas._pl_colorbars
+        cax = canvas._pl_colorbars["ens_prob_10mm"].ax
+        canvas.remove_pl_layer("ens_prob_10mm")
+        assert canvas._pl_colorbars == {}
+        assert cax not in canvas.fig.axes
+
+    def test_ocultar_camada_ens_tambem_remove_a_colorbar(self, canvas):
+        canvas.add_pl_layer("ens_spread_msl", _spread_field(), "barbs")
+        assert "ens_spread_msl" in canvas._pl_colorbars
+        canvas.toggle_pl_layer("ens_spread_msl", visible=False)
+        assert "ens_spread_msl" not in canvas._pl_colorbars
+        canvas.toggle_pl_layer("ens_spread_msl", visible=True)  # religar re-registra
+        assert "ens_spread_msl" in canvas._pl_colorbars
+
     def test_manifesto_round_trip(self, canvas):
         canvas._pl_data["ens_prob_10mm"] = _prob_field()
         canvas._pl_data["ens_spread_msl"] = _spread_field()

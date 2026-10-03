@@ -5874,7 +5874,9 @@ class MapCanvas(FigureCanvas):
         elif var_info.get("plot_type") == "contour":
             artists = self._plot_scalar_contour(data, var_info, self._frozen_levels.get(layer_id))
         else:
-            artists = self._plot_scalar_contourf(data, var_info, self._frozen_levels.get(layer_id))
+            artists = self._plot_scalar_contourf(
+                layer_id, data, var_info, self._frozen_levels.get(layer_id)
+            )
 
         self._pl_artists[layer_id] = artists
         self._reflow_layout()  # motor da mesa: reserva espaço p/ a colorbar inset
@@ -5958,11 +5960,14 @@ class MapCanvas(FigureCanvas):
         "#7a0a16",
     ]
 
-    def _plot_scalar_contourf(self, data: PLFieldData, var_info: dict, fixed_levels=None) -> list:
+    def _plot_scalar_contourf(
+        self, layer_id: str, data: PLFieldData, var_info: dict, fixed_levels=None
+    ) -> list:
         """Plota campo escalar com contourf (preenchido) + contour labels.
 
-        ``fixed_levels`` (animação) substitui a derivação de níveis do
-        próprio quadro — ver ``freeze_levels()``.
+        ``layer_id`` identifica a camada dona da colorbar (mesma chave usada
+        na remoção/ocultação). ``fixed_levels`` (animação) substitui a
+        derivação de níveis do próprio quadro — ver ``freeze_levels()``.
         """
         artists = []
         values = data.values
@@ -6139,8 +6144,9 @@ class MapCanvas(FigureCanvas):
                 label=f"{data.unit}",
             )
             cb.ax.tick_params(labelsize=7)
-            cb_id = f"{data.variable}_{data.level}" if data.level else data.variable
-            self._pl_colorbars[cb_id] = cb
+            # Chave = layer_id REAL da camada: a remoção/ocultação busca por ele,
+            # e ids desambiguados (ens_prob_10mm ≠ ens_prob) órfãvam a colorbar.
+            self._pl_colorbars[layer_id] = cb
         except Exception:
             pass
 
