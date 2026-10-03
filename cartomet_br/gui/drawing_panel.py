@@ -237,10 +237,17 @@ class SymbologyPanel(QWidget):
             ("symbology", "Simbologias e desenhos"),
             ("emojis", "Emojis"),
             ("annotations", "Anotações"),
+            ("reference", "Análise de referência"),
         ):
             chk = QCheckBox(texto)
             chk.setChecked(True)
-            chk.setToolTip("Esconde/mostra este grupo na carta sem apagar nada.")
+            if kind == "reference":
+                chk.setToolTip(
+                    "Esconde/mostra o overlay cinza da análise de referência\n"
+                    '(Arquivo → "Abrir Análise de Referência...") sem fechá-la.'
+                )
+            else:
+                chk.setToolTip("Esconde/mostra este grupo na carta sem apagar nada.")
             chk.stateChanged.connect(
                 lambda state, k=kind: self.drawings_visibility_toggled.emit(
                     k, state == Qt.CheckState.Checked.value

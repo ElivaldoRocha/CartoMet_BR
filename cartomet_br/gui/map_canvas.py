@@ -389,7 +389,13 @@ class MapCanvas(FigureCanvas):
             "symbology": True,  # simbologia OMM + caneta + formas + régua
             "emojis": True,
             "annotations": True,
+            "reference": True,  # análise de referência (overlay do professor)
         }
+
+        # Análise de referência (.cmbr do professor): artistas FORA do
+        # histórico e das listas do usuário — não editável, não desfazível,
+        # nunca serializada no projeto do aluno. Estado de sessão.
+        self._reference_artists: list = []
 
         # Ímã de vértices entre frentes (aderência). Estado de sessão.
         self._snap_enabled: bool = True
@@ -611,6 +617,9 @@ class MapCanvas(FigureCanvas):
         self._emoji_records.clear()
         self._ruler_points.clear()
         self._ruler_artists.clear()
+        # ax.clear() abaixo mata os artistas da análise de referência — o
+        # overlay NÃO sobrevive ao rebuild (regra dos demais overlays).
+        self._reference_artists = []
         # Desenhos apagados pelo ax.clear() → toggles de visibilidade re-armados
         self._drawings_visible = dict.fromkeys(self._drawings_visible, True)
         self._sat_artist = None
@@ -3471,6 +3480,8 @@ class MapCanvas(FigureCanvas):
             return list(self._emoji_annotations)
         if kind == "annotations":
             return list(self._annotations)
+        if kind == "reference":
+            return list(self._reference_artists)
         return []
 
     def set_drawings_visible(self, kind: str, visible: bool) -> None:
@@ -3939,15 +3950,30 @@ class MapCanvas(FigureCanvas):
         self._reflow_layout()
         self.draw()
 
-    def import_drawings_state(self, records: list[dict]) -> None:
+    # Estilo da análise de referência: o traçado do professor entra cinza e
+    # translúcido, POR BAIXO do traçado do aluno (zorder rebaixado) — guia,
+    # não gabarito gritando. Os valores são calibração visual, não dogma.
+    _REFERENCE_COLOR = "#7F8C8D"
+    _REFERENCE_ALPHA = 0.55
+
+    def import_drawings_state(self, records: list[dict], *, reference: bool = False) -> None:
         """Reconstrói desenhos a partir de records (.cmbr). NÃO limpa o mapa.
 
         Desenhos comuns entram no histórico (undo/redo passam a funcionar);
         emojis vão para a lista de emojis (via ``add_emoji``). O chamador
         (abrir projeto) decide se limpa antes. Nunca dispara rede.
+
+        ``reference=True`` (terceiro chamador sancionado do seam) renderiza os
+        records como ANÁLISE DE REFERÊNCIA: artistas cinza/translúcidos fora
+        do histórico e das listas do usuário — o Desfazer do aluno nunca toca
+        o traçado do professor, o modo edição não o seleciona e Salvar
+        Projeto não o absorve. Uma referência nova substitui a anterior.
         """
         from cartomet_br.gui.project_io import record_to_command
 
+        if reference:
+            self._import_reference(records)
+            return
         for rec in records:
             cmd = record_to_command(rec)
             if isinstance(cmd, EmojiCommand):
@@ -3956,6 +3982,99 @@ class MapCanvas(FigureCanvas):
                 self._rebuild_artist(cmd)
                 self.history.push(cmd)
         self.draw()
+
+    def _import_reference(self, records: list[dict]) -> None:
+        """Monta o overlay de referência reusando ``_rebuild_artist`` e
+        DES-registrando cada artista das listas do usuário logo em seguida —
+        o comando nunca entra no histórico (DrawCommand não carrega estilo
+        próprio; o override pós-construção é a rota sancionada do plano).
+        """
+        from cartomet_br.gui.project_io import record_to_command
+
+        self.remove_reference()
+        for rec in records:
+            cmd = record_to_command(rec)
+            if isinstance(cmd, EmojiCommand):
+                # _build_emoji_artist já adiciona ao eixo (fonte única).
+                artist = self._build_emoji_artist(cmd)
+            else:
+                self._rebuild_artist(cmd)
+                artist = cmd.artist
+                # O traçado do professor não pertence ao documento do aluno.
+                if artist in self.lines:
+                    self.lines.remove(artist)
+                if artist in self._annotations:
+                    self._annotations.remove(artist)
+            if artist is None:
+                continue
+            self._apply_reference_style(artist)
+            # O grupo de visibilidade da referência manda (não o do kind que
+            # o _rebuild_artist aplicou — "symbology" oculto não contamina).
+            with contextlib.suppress(AttributeError):
+                artist.set_visible(self._drawings_visible.get("reference", True))
+            self._reference_artists.append(artist)
+        self.draw()
+
+    def _apply_reference_style(self, artist: object) -> None:
+        """Rebaixa um artista ao estilo de referência (cinza, translúcido, por baixo).
+
+        Os efeitos de linha das frentes cravam a própria cor no gc
+        (``symbols/effects.py``) — ``line.set_color`` não os alcança, mas
+        mutar ``ef.color`` sim (todos os efeitos expõem o atributo). Artistas
+        COMPOSTOS (``GroupedArtist``/``_CompoundArtist``, atributo
+        ``_artists``) são estilizados recursivamente, folha a folha. Emojis
+        (imagem renderizada) ficam apenas translúcidos, sem recolorir.
+        """
+        sub = getattr(artist, "_artists", None)
+        if isinstance(sub, list) and sub:
+            for leaf in sub:
+                self._apply_reference_style(leaf)
+            return
+        with contextlib.suppress(AttributeError, TypeError):
+            artist.set_alpha(self._REFERENCE_ALPHA)  # type: ignore[attr-defined]
+        with contextlib.suppress(AttributeError, ValueError, TypeError):
+            artist.set_color(self._REFERENCE_COLOR)  # type: ignore[attr-defined]
+        # Patches (formas/retângulos): contorno cinza; o preenchimento só é
+        # recolorido se existia (não inventar fill numa forma vazada).
+        if not hasattr(artist, "set_color"):
+            with contextlib.suppress(AttributeError, ValueError, TypeError):
+                artist.set_edgecolor(self._REFERENCE_COLOR)  # type: ignore[attr-defined]
+            with contextlib.suppress(AttributeError, ValueError, TypeError, IndexError):
+                import matplotlib.colors as mcolors
+
+                fc = artist.get_facecolor()  # type: ignore[attr-defined]
+                if fc is not None and mcolors.to_rgba(fc)[3] > 0:
+                    artist.set_facecolor(self._REFERENCE_COLOR)  # type: ignore[attr-defined]
+        # Glifos das frentes (triângulos/semicírculos/traços da ZCIT).
+        get_pe = getattr(artist, "get_path_effects", None)
+        if callable(get_pe):
+            for ef in get_pe() or []:
+                if hasattr(ef, "color"):
+                    ef.color = self._REFERENCE_COLOR
+        # Caixa das anotações: discreta, sem gritar sobre a do aluno.
+        bbox = getattr(artist, "get_bbox_patch", lambda: None)()
+        if bbox is not None:
+            with contextlib.suppress(AttributeError, ValueError):
+                bbox.set_facecolor(self._REFERENCE_COLOR)
+                bbox.set_alpha(0.2)
+        # Por baixo do traçado do aluno (linhas 20, pontos/textos 25).
+        with contextlib.suppress(AttributeError, TypeError):
+            artist.set_zorder(max(1.0, float(artist.get_zorder()) - 2.0))  # type: ignore[attr-defined]
+
+    def remove_reference(self) -> None:
+        """Remove o overlay da análise de referência (não mexe no resto).
+
+        Usa o removedor defensivo do emoji: ``AnnotationBbox.remove()`` lança
+        ``NotImplementedError`` quando o eixo foi redesenhado — o fallback
+        expurga de ``ax._children`` para não deixar artista fantasma.
+        """
+        for artist in self._reference_artists:
+            self._remove_emoji_artist(artist)
+        self._reference_artists = []
+
+    def has_reference(self) -> bool:
+        """True se há uma análise de referência aberta sobre a carta."""
+        return bool(self._reference_artists)
 
     def clear_all(self):
         # Cancela rascunhos de caneta/forma antes de varrer os artistas finais
@@ -3978,8 +4097,13 @@ class MapCanvas(FigureCanvas):
         self.clear_snap_marker()
         self.clear_edit_selection()
         self.history.clear()
-        # Desenhos apagados → toggles de visibilidade re-armados
+        # Desenhos apagados → toggles de visibilidade re-armados. A análise de
+        # referência NÃO é desenho do usuário: sobrevive ao "Limpar" (o aluno
+        # refaz o próprio traçado ainda vendo o do professor) e preserva o
+        # toggle que tinha.
+        ref_visible = self._drawings_visible.get("reference", True)
         self._drawings_visible = dict.fromkeys(self._drawings_visible, True)
+        self._drawings_visible["reference"] = ref_visible
 
         self.draw()
 
@@ -3991,6 +4115,9 @@ class MapCanvas(FigureCanvas):
         """
         # Desenhos / anotações / emojis / régua / histórico
         self.clear_all()
+        # Análise de referência (overlay do professor) sai junto — "mapa limpo"
+        # é limpo de verdade (sobrevive só ao clear_all, não ao clear_map).
+        self.remove_reference()
         # Campos em altitude (PL)
         for layer_id in list(self._pl_data.keys()):
             self.remove_pl_layer(layer_id)

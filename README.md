@@ -67,6 +67,14 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 
 ## Novidades da v3.2 (em desenvolvimento)
 
+### 📐 Análise de Referência — o gabarito do professor sobre a carta do aluno
+
+- Menu *Arquivo → "Abrir Análise de Referência..."*: um segundo `.cmbr` (a análise do professor, ou uma análise antiga sua) entra como **overlay cinza e translúcido por baixo do seu traçado** — frentes com os glifos recoloridos, símbolos, caneta, formas e anotações
+- **O gabarito não é tocável**: fora do histórico (seu Desfazer nunca apaga o traçado do professor), fora do modo edição, e *Salvar Projeto* **não o absorve** — seu `.cmbr` continua só com o seu trabalho
+- A autoria (schema v4) aparece na barra de status: *"Referência: análise de Fulano, 2 revisões — N feições"*
+- Grupo próprio **"Análise de referência"** na Visibilidade (aba Simbologias) para esconder/mostrar sem fechar; *"Fechar Análise de Referência"* remove o overlay; *Limpar* desenhos preserva o gabarito (refaça seu traçado ainda vendo a referência)
+- Abrir **não mexe** no seu mapa (tema/região/camadas intactos) e nunca dispara rede — fluxo didático completo: aluno analisa → professor manda o `.cmbr` → aluno sobrepõe e compara frente a frente
+
 ### 📚 Estudos de Caso (ERA5) — biblioteca didática de eventos marcantes
 
 - Botão **📚 Estudos de Caso (ERA5)** nas Análises Prontas: cinco eventos consagrados reconstruídos com a reanálise Copernicus — **Furacão Catarina** (2004), **ciclone-bomba no Sul** (2020), **ZCAS e a tragédia de Petrópolis** (2022), **friagem e neve históricas** (2021) e a **cheia recorde do Amazonas** (2021)

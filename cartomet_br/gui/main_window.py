@@ -361,6 +361,14 @@ class MainWindow(QMainWindow):
         open_project_action.triggered.connect(self._open_project)
         file_menu.addAction(open_project_action)
 
+        open_reference_action = QAction("Abrir Análise de Referência...", self)
+        open_reference_action.triggered.connect(self._open_reference)
+        file_menu.addAction(open_reference_action)
+
+        close_reference_action = QAction("Fechar Análise de Referência", self)
+        close_reference_action.triggered.connect(self._close_reference)
+        file_menu.addAction(close_reference_action)
+
         export_bulletin_action = QAction("Exportar Boletim Codificado (CODSAS)...", self)
         export_bulletin_action.triggered.connect(self._export_bulletin)
         file_menu.addAction(export_bulletin_action)
@@ -2552,7 +2560,9 @@ class MainWindow(QMainWindow):
         self._close_era5_dialog()
         if getattr(self, "satellite_panel", None) is not None:
             self.satellite_panel.reset_state()
-        for kind in ("symbology", "emojis", "annotations"):
+        # "reference" entra aqui (e NÃO no _on_clear_drawings): a análise de
+        # referência morre no rebuild do mapa base, mas sobrevive ao Limpar.
+        for kind in ("symbology", "emojis", "annotations", "reference"):
             self.symbol_panel.set_visibility_checked(kind, True)
 
     def _on_theme_changed(self, theme_name: str):
@@ -4555,6 +4565,85 @@ class MainWindow(QMainWindow):
             authorship=self._project_authorship,
         )
         self.status_label.setText(f"● Projeto aberto: {Path(filepath).name}")
+        self.status_label.setStyleSheet("color: #27AE60;")
+
+    def _open_reference(self):
+        """Abre um segundo .cmbr como ANÁLISE DE REFERÊNCIA (overlay cinza).
+
+        Fluxo professor→aluno: o traçado de referência entra por cima da
+        carta ATUAL — não mexe em tema, região, camadas nem no histórico (o
+        Desfazer do aluno nunca apaga o traçado do professor), e Salvar
+        Projeto não o absorve. Uma referência nova substitui a anterior.
+        Morre junto com o mapa base (troca de região/tema, abrir projeto) —
+        reabrir leva dois cliques. Nunca dispara rede.
+        """
+        from cartomet_br.gui import bulletin_io, project_io
+
+        filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            "Abrir Análise de Referência",
+            str(self.config.projects_dir),
+            f"Projeto CartoMet BR (*{project_io.PROJECT_EXTENSION});;Todos (*)",
+        )
+        if not filepath:
+            return
+        try:
+            data = project_io.load_project(Path(filepath).read_text(encoding="utf-8"))
+            records = data.get("drawings", [])
+            # Valida/converte cedo: erro claro ANTES de mexer no mapa.
+            commands = project_io.records_to_commands(records)
+        except (OSError, project_io.ProjectError) as e:
+            QMessageBox.warning(
+                self, "Abrir Análise de Referência", f"Não foi possível abrir o projeto:\n\n{e}"
+            )
+            return
+        if not records:
+            QMessageBox.information(
+                self,
+                "Abrir Análise de Referência",
+                "Este projeto não tem desenhos — nada para sobrepor como referência.",
+            )
+            return
+
+        self.canvas.import_drawings_state(records, reference=True)
+        self.symbol_panel.set_visibility_checked("reference", True)
+
+        # Autoria leve (v4) no contexto: "análise de Fulano, N revisões".
+        auth = project_io.read_authorship(data)
+        autor = auth["author"] or "autor não identificado"
+        n_rev = len(auth["revisions"])
+        rev_txt = f", {n_rev} {'revisões' if n_rev > 1 else 'revisão'}" if n_rev else ""
+        self.status_label.setText(
+            f"● Referência: análise de {autor}{rev_txt} — "
+            f"{len(records)} feições ({Path(filepath).name})"
+        )
+        self.status_label.setStyleSheet("color: #9B59B6;")
+
+        # Referência de OUTRA região ficaria invisível em silêncio — avisa
+        # (sem auto-enquadrar: o mapa do aluno é dele).
+        bbox = bulletin_io.commands_bbox(commands)
+        if bbox is not None:
+            x0, y0, x1, y1 = self.config.extent
+            cx, cy = (bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0
+            if not (x0 <= cx <= x1 and y0 <= cy <= y1):
+                QMessageBox.information(
+                    self,
+                    "Análise de Referência",
+                    "O traçado da referência está fora do enquadramento atual "
+                    f"(centro em {cx:.0f}°, {cy:.0f}°).\n\n"
+                    "Ajuste a região em Configurações (ou o zoom) para vê-lo — "
+                    "a referência não muda o seu mapa.",
+                )
+
+    def _close_reference(self):
+        """Fecha o overlay da análise de referência (o traçado do aluno fica)."""
+        if not self.canvas.has_reference():
+            self.status_label.setText("● Nenhuma análise de referência aberta")
+            self.status_label.setStyleSheet("color: #F39C12;")
+            return
+        self.canvas.remove_reference()
+        self.canvas.draw()
+        self.status_label.setText("● Análise de referência fechada")
         self.status_label.setStyleSheet("color: #27AE60;")
 
     def _export_bulletin(self):

@@ -88,7 +88,12 @@ def test_redo_respects_hidden_group(canvas):
 
 
 def test_clear_all_rearms_flags(canvas):
-    """Apagar os desenhos re-arma os toggles (recomeço limpo)."""
+    """Apagar os desenhos re-arma os toggles (recomeço limpo).
+
+    O grupo "reference" (análise de referência) NÃO é desenho do usuário:
+    clear_all preserva o estado do toggle dele (coberto em
+    test_reference_analysis.py); aqui ele está no default True.
+    """
     _populate(canvas)
     canvas.set_drawings_visible("emojis", False)
     canvas.clear_all()
@@ -96,6 +101,7 @@ def test_clear_all_rearms_flags(canvas):
         "symbology": True,
         "emojis": True,
         "annotations": True,
+        "reference": True,
     }
 
 

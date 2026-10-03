@@ -73,6 +73,29 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **📐 Análise de Referência — o gabarito do professor sobre a carta do aluno (Onda 6 da v3.2).**
+  Menu Arquivo → "Abrir Análise de Referência...": um segundo `.cmbr` (a
+  análise do professor, ou uma análise antiga sua) entra como **overlay
+  cinza e translúcido POR BAIXO do traçado do aluno** — todos os desenhos
+  (frentes com seus glifos, símbolos pontuais, caneta, formas, anotações,
+  emojis) são recolorados para o cinza de referência (os efeitos de linha
+  das frentes cravam a própria cor no gc; o override muta `ef.color` para
+  alcançar os triângulos/semicírculos também). **O gabarito não é
+  tocável**: fica fora do histórico (o Desfazer do aluno nunca apaga o
+  traçado do professor), fora do modo edição (não é selecionável), e
+  Salvar Projeto **não o absorve** — o `.cmbr` do aluno continua só com o
+  trabalho dele. A autoria do schema v4 aparece no contexto ("Referência:
+  análise de Fulano, 2 revisões — N feições"). Grupo próprio
+  **"Análise de referência"** na Visibilidade da aba Simbologias
+  (esconder ≠ fechar); ação "Fechar Análise de Referência" remove o
+  overlay. Abrir **não mexe** no mapa do aluno (tema/região/camadas
+  intactos) — referência de outra região gera aviso em vez de mover o
+  mapa; uma referência nova substitui a anterior; "Limpar" desenhos
+  preserva o gabarito (o aluno refaz o traçado ainda vendo a referência),
+  troca de região/tema/projeto o fecha junto com o rebuild do mapa.
+  Nunca dispara rede. Fluxo didático completo: aluno analisa → professor
+  manda o `.cmbr` dele → aluno sobrepõe e compara frente a frente.
+
 - **📚 Estudos de Caso ERA5 — biblioteca didática de eventos marcantes (Onda 5 da v3.2).**
   Botão "📚 Estudos de Caso (ERA5)" nas Análises Prontas abre um catálogo
   curado de cinco eventos consagrados, reconstruídos com a reanálise
