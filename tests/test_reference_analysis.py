@@ -62,16 +62,58 @@ class TestImportReferencia:
         assert canvas.export_drawings_state() == []
 
     def test_estilo_cinza_translucido_por_baixo(self, canvas):
+        from matplotlib.colors import to_rgba
+
+        ref_rgba = to_rgba(canvas._REFERENCE_COLOR, canvas._REFERENCE_ALPHA)
         canvas.import_drawings_state(REF_RECORDS, reference=True)
         line = canvas._reference_artists[0]  # Line2D da frente
         assert line.get_alpha() == pytest.approx(canvas._REFERENCE_ALPHA)
         assert line.get_color() == canvas._REFERENCE_COLOR
-        # Glifos do efeito (triângulos da frente) recoloridos junto.
+        # Glifos do efeito recoloridos com RGBA COM alpha: os efeitos
+        # redesenham com set_foreground(self.color)/to_rgba(color), que
+        # descartariam o alpha do Line2D — só a tupla RGBA o leva ao render.
         for ef in line.get_path_effects():
             if hasattr(ef, "color"):
-                assert ef.color == canvas._REFERENCE_COLOR
+                assert ef.color == ref_rgba
+                assert ef.color[3] == pytest.approx(canvas._REFERENCE_ALPHA)
         # Por baixo do traçado do aluno (linhas do usuário têm zorder 20).
         assert line.get_zorder() < 20
+
+    def test_frente_estacionaria_tambem_vira_cinza(self, canvas):
+        # FrenteEstacionaria nunca lê self.color — desenha com as constantes
+        # de classe _COR_FRIA/_COR_QUENTE. O override sobrescreve as DUAS na
+        # instância (cada artista tem efeitos próprios — não vaza p/ o aluno).
+        from matplotlib.colors import to_rgba
+
+        from cartomet_br.symbols.fronts import FrenteEstacionaria
+
+        ref_rgba = to_rgba(canvas._REFERENCE_COLOR, canvas._REFERENCE_ALPHA)
+        rec = dict(REF_RECORDS[0], symbol_key="3")
+        canvas.import_drawings_state([rec], reference=True)
+        line = canvas._reference_artists[0]
+        efs = [ef for ef in line.get_path_effects() if isinstance(ef, FrenteEstacionaria)]
+        assert efs, "symbol_key '3' deveria usar FrenteEstacionaria"
+        for ef in efs:
+            assert ref_rgba == ef._COR_FRIA
+            assert ref_rgba == ef._COR_QUENTE
+        # As constantes de CLASSE ficam intactas (o aluno desenha colorido).
+        assert FrenteEstacionaria._COR_FRIA == "#1a6faf"
+        assert FrenteEstacionaria._COR_QUENTE == "#c0392b"
+
+    def test_emoji_translucido_na_imagem_e_zorder_na_banda(self, canvas):
+        # AnnotationBbox ignora set_alpha no wrapper — o alpha vai nos filhos
+        # do offsetbox (BboxImage honra no make_image). E TODO artista da
+        # referência cai na banda (15, 19.5): acima dos campos (<=14), abaixo
+        # de tudo do aluno (linhas 20, fill 21, textos 25, emojis 26).
+        canvas.import_drawings_state(REF_RECORDS, reference=True)
+        for artist in canvas._reference_artists:
+            ob = getattr(artist, "offsetbox", None)
+            if ob is not None:  # emoji via imagem
+                for child in ob.get_children():
+                    assert child.get_alpha() == pytest.approx(canvas._REFERENCE_ALPHA)
+            z = getattr(artist, "get_zorder", lambda: None)()
+            if z is not None:
+                assert 14.0 < z < 20.0, f"zorder {z} fora da banda de referência"
 
     def test_referencia_nova_substitui_a_anterior(self, canvas):
         canvas.import_drawings_state(REF_RECORDS, reference=True)
@@ -136,6 +178,42 @@ class TestVisibilidadeEVida:
         canvas.import_drawings_state(REF_RECORDS, reference=True)
         # Candidatos à edição vêm do documento do aluno — vazio.
         assert canvas._edit_candidates() == []
+
+    def test_prancha_exportada_carimba_a_referencia(self, canvas):
+        # O PNG absorve o overlay visível — a prancha DIZ que há uma segunda
+        # análise (e de quem), em vez de atribuí-la ao analista do cabeçalho.
+        canvas.import_drawings_state(REF_RECORDS[:1], reference=True)
+        canvas.set_reference_note("análise de Prof. Everaldo, 2 revisões")
+        added = canvas.render_chart_furniture({"institution": "UFPA"})
+        texts = [a.get_text() for a in added if hasattr(a, "get_text")]
+        assert any("Sobreposição" in t and "Prof. Everaldo" in t for t in texts)
+        canvas.clear_chart_furniture()
+        # Com o grupo OCULTO o overlay não sai no PNG — carimbo seria mentira.
+        canvas.set_drawings_visible("reference", False)
+        added2 = canvas.render_chart_furniture({"institution": "UFPA"})
+        texts2 = [a.get_text() for a in added2 if hasattr(a, "get_text")]
+        assert not any("Sobreposição" in t for t in texts2)
+
+
+def test_bbox_cobre_caneta_formas_emojis():
+    # commands_bbox ignorava Pen/Shape/Emoji (escopo CODSAS) — um gabarito só
+    # de anotações à mão livre voltava None e silenciava o aviso de vista.
+    from cartomet_br.gui.bulletin_io import commands_bbox
+    from cartomet_br.gui.draw_tools import EmojiCommand, PenCommand, ShapeCommand
+
+    cmds = [
+        PenCommand(points_x=[-55.0, -53.0], points_y=[-10.0, -12.0], style={}),
+        ShapeCommand(
+            tool="rect",
+            points_x=[-40.0],
+            points_y=[-5.0],
+            style={},
+            head_size_deg=0.0,
+            rotation_deg=0.0,
+        ),
+        EmojiCommand(x=-38.0, y=-8.0, emoji="CB", fontsize=28),
+    ]
+    assert commands_bbox(cmds) == (-55.0, -12.0, -38.0, -5.0)
 
 
 class TestFluxoNaJanela:
@@ -230,3 +308,39 @@ class TestFluxoNaJanela:
         chk = window.symbol_panel._visibility_checks.get("reference")
         assert chk is not None
         assert chk.isChecked()
+
+    def test_abrir_com_grupo_oculto_reexibe_de_verdade(self, window, tmp_path, monkeypatch):
+        # Bug confirmado na revisão: re-armar SÓ o checkbox (sinais
+        # bloqueados) deixava o flag do canvas em False e a referência nova
+        # abria invisível com a caixa marcada. O flag vem primeiro agora.
+        window.canvas.set_drawings_visible("reference", False)
+        self._patch_dialog(monkeypatch, self._cmbr(tmp_path))
+        window._open_reference()
+        assert window.canvas._drawings_visible["reference"] is True
+        assert all(
+            a.get_visible() for a in window.canvas._reference_artists if hasattr(a, "get_visible")
+        )
+        assert window.symbol_panel._visibility_checks["reference"].isChecked()
+
+    def test_uma_feicao_no_singular(self, window, tmp_path, monkeypatch):
+        self._patch_dialog(monkeypatch, self._cmbr(tmp_path, drawings=REF_RECORDS[:1]))
+        window._open_reference()
+        assert "1 feição (" in window.status_label.text()
+
+    def test_aviso_de_vista_usa_o_que_esta_na_tela(self, window, tmp_path, monkeypatch):
+        # Scroll/pan mudam só a VISTA (ax.get_extent), não config.extent — o
+        # aviso compara com a tela: zoom longe da referência deve avisar
+        # mesmo com o centro dela dentro da régua configurada.
+        from PyQt6.QtWidgets import QMessageBox
+
+        avisos = []
+        monkeypatch.setattr(
+            QMessageBox, "information", staticmethod(lambda *a, **k: avisos.append(a[2]))
+        )
+        # Vista simulada no canto noroeste, longe do centro dos records (~-46,-17).
+        monkeypatch.setattr(
+            window.canvas.ax, "get_extent", lambda crs=None: (-75.0, -70.0, 4.0, 6.0)
+        )
+        self._patch_dialog(monkeypatch, self._cmbr(tmp_path))
+        window._open_reference()
+        assert any("fora da vista" in msg for msg in avisos)

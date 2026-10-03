@@ -128,18 +128,24 @@ def exportable_commands(commands: list) -> tuple[list, int]:
 
 
 def commands_bbox(commands: list) -> tuple[float, float, float, float] | None:
-    """Caixa envolvente ``(lon_min, lat_min, lon_max, lat_max)`` das feições.
+    """Caixa envolvente ``(lon_min, lat_min, lon_max, lat_max)`` dos desenhos.
 
-    ``None`` se não houver coordenadas — usada pelo auto-enquadre da importação.
+    ``None`` se não houver coordenadas — usada pelo auto-enquadre da importação
+    de boletim e pelo aviso de vista da análise de referência. Cobre TODOS os
+    tipos de comando (caneta/formas/emojis inclusos): um ``.cmbr`` só de
+    anotações à mão livre também tem caixa — ignorá-los silenciava o aviso.
     """
     lons: list[float] = []
     lats: list[float] = []
     for cmd in commands:
-        if isinstance(cmd, DrawCommand):
-            lons.extend(cmd.points_x)
+        pxs = getattr(cmd, "points_x", None)
+        if pxs is not None:  # DrawCommand, PenCommand, ShapeCommand
+            lons.extend(pxs)
             lats.extend(cmd.points_y)
-        elif isinstance(cmd, (PointCommand, AnnotationCommand)):
-            lons.append(cmd.x)
+            continue
+        x = getattr(cmd, "x", None)  # PointCommand, AnnotationCommand, EmojiCommand
+        if x is not None:
+            lons.append(x)
             lats.append(cmd.y)
     if not lons:
         return None

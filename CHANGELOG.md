@@ -95,6 +95,22 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   troca de região/tema/projeto o fecha junto com o rebuild do mapa.
   Nunca dispara rede. Fluxo didático completo: aluno analisa → professor
   manda o `.cmbr` dele → aluno sobrepõe e compara frente a frente.
+  **Blindagens da revisão adversária** (12 achados confirmados em reprodução
+  de pixel, todos corrigidos): o cinza e o alpha chegam de verdade ao render
+  — os efeitos de frente redesenham com a própria cor opaca no gc, então o
+  override injeta uma tupla **RGBA** (cinza+0.55) em `ef.color`, sobrescreve
+  as cores próprias da **Frente Estacionária** (que nunca lê `self.color`) e
+  aplica o alpha nos filhos do `AnnotationBbox` do emoji (o wrapper ignora
+  `set_alpha`); a referência inteira vive na banda de zorder (15, 19.5) —
+  abaixo de TUDO do aluno (até do preenchimento de formas, 21) e acima dos
+  campos; abrir com o grupo oculto **re-exibe de verdade** (o flag do canvas
+  vem antes do checkbox, que bloqueia sinais); o aviso de fora-de-vista
+  compara com o que está **na tela** (`ax.get_extent`), não com os spinboxes
+  — zoom/pan não mentem nos dois sentidos; o bbox cobre caneta/formas/emojis
+  (gabarito à mão livre também avisa); e a **prancha exportada carimba** a
+  sobreposição ("Sobreposição: análise de Fulano — traçado cinza
+  translúcido") quando o overlay visível sai no PNG — a análise do professor
+  nunca é atribuída implicitamente ao analista do cabeçalho.
 
 - **📚 Estudos de Caso ERA5 — biblioteca didática de eventos marcantes (Onda 5 da v3.2).**
   Botão "📚 Estudos de Caso (ERA5)" nas Análises Prontas abre um catálogo

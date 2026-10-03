@@ -4605,33 +4605,49 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # A referência nasce VISÍVEL de verdade: o flag do canvas PRIMEIRO
+        # (os artistas o herdam no import) e o checkbox depois — re-armar só
+        # o checkbox (set_visibility_checked bloqueia sinais) deixava o
+        # overlay invisível com a caixa marcada se o grupo estava oculto.
+        self.canvas.set_drawings_visible("reference", True)
         self.canvas.import_drawings_state(records, reference=True)
         self.symbol_panel.set_visibility_checked("reference", True)
 
         # Autoria leve (v4) no contexto: "análise de Fulano, N revisões".
+        # O mesmo rótulo vai à prancha exportada (o PNG não pode absorver o
+        # traçado do professor sem dizer que ele existe).
         auth = project_io.read_authorship(data)
         autor = auth["author"] or "autor não identificado"
         n_rev = len(auth["revisions"])
         rev_txt = f", {n_rev} {'revisões' if n_rev > 1 else 'revisão'}" if n_rev else ""
-        self.status_label.setText(
-            f"● Referência: análise de {autor}{rev_txt} — "
-            f"{len(records)} feições ({Path(filepath).name})"
-        )
+        nota = f"análise de {autor}{rev_txt}"
+        self.canvas.set_reference_note(nota)
+        n_feic = len(records)
+        feic_txt = f"{n_feic} {'feição' if n_feic == 1 else 'feições'}"
+        self.status_label.setText(f"● Referência: {nota} — {feic_txt} ({Path(filepath).name})")
         self.status_label.setStyleSheet("color: #9B59B6;")
 
-        # Referência de OUTRA região ficaria invisível em silêncio — avisa
-        # (sem auto-enquadrar: o mapa do aluno é dele).
+        # Referência fora da VISTA ficaria invisível em silêncio — e a vista
+        # é o que está NA TELA: scroll/pan deliberadamente não tocam
+        # config.extent (padrão de _replot_cities_for_view), então comparar
+        # com os spinboxes mentiria nos dois sentidos. Sem auto-enquadrar:
+        # o mapa do aluno é dele.
         bbox = bulletin_io.commands_bbox(commands)
         if bbox is not None:
-            x0, y0, x1, y1 = self.config.extent
+            import cartopy.crs as ccrs
+
+            try:
+                x0, x1, y0, y1 = self.canvas.ax.get_extent(crs=ccrs.PlateCarree())
+            except Exception:  # noqa: BLE001 — vista indisponível: régua configurada
+                x0, y0, x1, y1 = self.config.extent
             cx, cy = (bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0
             if not (x0 <= cx <= x1 and y0 <= cy <= y1):
                 QMessageBox.information(
                     self,
                     "Análise de Referência",
-                    "O traçado da referência está fora do enquadramento atual "
+                    "O traçado da referência está fora da vista atual "
                     f"(centro em {cx:.0f}°, {cy:.0f}°).\n\n"
-                    "Ajuste a região em Configurações (ou o zoom) para vê-lo — "
+                    "Ajuste a região ou o zoom para vê-lo — "
                     "a referência não muda o seu mapa.",
                 )
 

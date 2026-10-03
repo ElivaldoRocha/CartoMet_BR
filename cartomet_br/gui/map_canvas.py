@@ -396,6 +396,10 @@ class MapCanvas(FigureCanvas):
         # histórico e das listas do usuário — não editável, não desfazível,
         # nunca serializada no projeto do aluno. Estado de sessão.
         self._reference_artists: list = []
+        # Rótulo de autoria da referência ("análise de Fulano, 2 revisões") —
+        # vai na prancha exportada: o PNG não pode absorver o traçado do
+        # professor sem dizer que ele existe (honestidade da carta).
+        self._reference_note: str = ""
 
         # Ímã de vértices entre frentes (aderência). Estado de sessão.
         self._snap_enabled: bool = True
@@ -620,6 +624,7 @@ class MapCanvas(FigureCanvas):
         # ax.clear() abaixo mata os artistas da análise de referência — o
         # overlay NÃO sobrevive ao rebuild (regra dos demais overlays).
         self._reference_artists = []
+        self._reference_note = ""
         # Desenhos apagados pelo ax.clear() → toggles de visibilidade re-armados
         self._drawings_visible = dict.fromkeys(self._drawings_visible, True)
         self._sat_artist = None
@@ -4018,13 +4023,31 @@ class MapCanvas(FigureCanvas):
     def _apply_reference_style(self, artist: object) -> None:
         """Rebaixa um artista ao estilo de referência (cinza, translúcido, por baixo).
 
-        Os efeitos de linha das frentes cravam a própria cor no gc
-        (``symbols/effects.py``) — ``line.set_color`` não os alcança, mas
-        mutar ``ef.color`` sim (todos os efeitos expõem o atributo). Artistas
-        COMPOSTOS (``GroupedArtist``/``_CompoundArtist``, atributo
-        ``_artists``) são estilizados recursivamente, folha a folha. Emojis
-        (imagem renderizada) ficam apenas translúcidos, sem recolorir.
+        Lições da revisão adversarial (todas com reprodução em pixel):
+        - Os efeitos de linha REDESENHAM linha e glifos com
+          ``gc0.set_foreground(self.color)`` / ``to_rgba(color)`` — o alpha do
+          Line2D morre no caminho. Por isso ``ef.color`` recebe uma tupla
+          **RGBA** (cinza + alpha 0.55): ``to_rgba`` e ``set_foreground``
+          preservam o alpha de tupla, e a translucidez chega aos glifos.
+        - ``FrenteEstacionaria`` nunca lê ``self.color`` — desenha com as
+          constantes de classe ``_COR_FRIA``/``_COR_QUENTE``. Cada artista tem
+          instâncias PRÓPRIAS de efeito (fábrica em ``MODOS``), então
+          sobrescrevê-las na instância é seguro e não vaza para o aluno.
+        - O emoji é ``AnnotationBbox(OffsetImage)``: ``set_alpha`` no wrapper
+          é ignorado pelo draw — o alpha vai nos FILHOS do offsetbox
+          (``BboxImage.set_alpha`` é honrado no ``make_image``).
+        - zorder: o traçado do aluno vive em 20 (linhas) a 26 (emojis) e o
+          preenchimento de formas em 21 — a referência inteira é mapeada para
+          a banda (15, 19.5), acima dos campos (≤14) e abaixo de TUDO do
+          aluno, preservando a ordem relativa interna.
+
+        Artistas COMPOSTOS (``GroupedArtist``/``_CompoundArtist``, atributo
+        ``_artists``) são estilizados recursivamente, folha a folha.
         """
+        import matplotlib.colors as mcolors
+
+        ref_rgba = mcolors.to_rgba(self._REFERENCE_COLOR, self._REFERENCE_ALPHA)
+
         sub = getattr(artist, "_artists", None)
         if isinstance(sub, list) and sub:
             for leaf in sub:
@@ -4040,26 +4063,37 @@ class MapCanvas(FigureCanvas):
             with contextlib.suppress(AttributeError, ValueError, TypeError):
                 artist.set_edgecolor(self._REFERENCE_COLOR)  # type: ignore[attr-defined]
             with contextlib.suppress(AttributeError, ValueError, TypeError, IndexError):
-                import matplotlib.colors as mcolors
-
                 fc = artist.get_facecolor()  # type: ignore[attr-defined]
                 if fc is not None and mcolors.to_rgba(fc)[3] > 0:
                     artist.set_facecolor(self._REFERENCE_COLOR)  # type: ignore[attr-defined]
-        # Glifos das frentes (triângulos/semicírculos/traços da ZCIT).
+        # Glifos das frentes (triângulos/semicírculos/traços da ZCIT): RGBA
+        # com alpha, senão o efeito re-pinta opaco por cima do set_alpha.
         get_pe = getattr(artist, "get_path_effects", None)
         if callable(get_pe):
             for ef in get_pe() or []:
                 if hasattr(ef, "color"):
-                    ef.color = self._REFERENCE_COLOR
+                    ef.color = ref_rgba
+                # FrenteEstacionaria ignora self.color — cores próprias.
+                if hasattr(ef, "_COR_FRIA"):
+                    ef._COR_FRIA = ref_rgba
+                if hasattr(ef, "_COR_QUENTE"):
+                    ef._COR_QUENTE = ref_rgba
+        # Emoji (AnnotationBbox): o alpha de verdade vai na imagem filha.
+        offsetbox = getattr(artist, "offsetbox", None)
+        if offsetbox is not None:
+            for child in getattr(offsetbox, "get_children", list)() or []:
+                with contextlib.suppress(AttributeError, TypeError):
+                    child.set_alpha(self._REFERENCE_ALPHA)
         # Caixa das anotações: discreta, sem gritar sobre a do aluno.
         bbox = getattr(artist, "get_bbox_patch", lambda: None)()
         if bbox is not None:
             with contextlib.suppress(AttributeError, ValueError):
                 bbox.set_facecolor(self._REFERENCE_COLOR)
                 bbox.set_alpha(0.2)
-        # Por baixo do traçado do aluno (linhas 20, pontos/textos 25).
+        # Banda (15, 19.5): abaixo do aluno (≥20), acima dos campos (≤14).
         with contextlib.suppress(AttributeError, TypeError):
-            artist.set_zorder(max(1.0, float(artist.get_zorder()) - 2.0))  # type: ignore[attr-defined]
+            orig = float(artist.get_zorder())  # type: ignore[attr-defined]
+            artist.set_zorder(15.0 + max(0.0, orig - 19.0) * 0.6)  # type: ignore[attr-defined]
 
     def remove_reference(self) -> None:
         """Remove o overlay da análise de referência (não mexe no resto).
@@ -4071,10 +4105,15 @@ class MapCanvas(FigureCanvas):
         for artist in self._reference_artists:
             self._remove_emoji_artist(artist)
         self._reference_artists = []
+        self._reference_note = ""
 
     def has_reference(self) -> bool:
         """True se há uma análise de referência aberta sobre a carta."""
         return bool(self._reference_artists)
+
+    def set_reference_note(self, note: str) -> None:
+        """Rótulo de autoria da referência, carimbado na prancha exportada."""
+        self._reference_note = str(note or "")
 
     def clear_all(self):
         # Cancela rascunhos de caneta/forma antes de varrer os artistas finais
@@ -4401,6 +4440,22 @@ class MapCanvas(FigureCanvas):
         )
         self.fig.add_artist(spacer)
         added.append(spacer)
+
+        # Honestidade da prancha: se o overlay da referência está visível, o
+        # PNG o inclui — então a carta DIZ que há uma segunda análise (e de
+        # quem), em vez de atribuí-la implicitamente ao analista do cabeçalho.
+        if self.has_reference() and self._drawings_visible.get("reference", True):
+            nota = self._reference_note or "análise de referência"
+            _t(
+                0.02,
+                -0.018,
+                f"Sobreposição: {nota} — traçado cinza translúcido",
+                fontsize=8,
+                color="#777777",
+                style="italic",
+                ha="left",
+                va="center",
+            )
 
         # ── Legenda da simbologia OMM (abaixo da figura) ──
         used = self.get_used_symbols()
