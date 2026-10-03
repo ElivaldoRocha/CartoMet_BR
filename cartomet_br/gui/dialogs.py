@@ -5,6 +5,7 @@ Contém WelcomeDialog (boas-vindas), FirstRunDialog (configuração inicial) e o
 StationReportDialog (relatório da estação METAR/SYNOP clicada no mapa).
 """
 
+import html
 import math
 from pathlib import Path
 
@@ -20,12 +21,15 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QTextBrowser,
     QVBoxLayout,
 )
 
+from cartomet_br.data.case_studies import CASE_STUDIES, CaseStudy
 from cartomet_br.gui._constants import (
     APP_DESCRIPTION,
     APP_NAME,
@@ -707,3 +711,129 @@ class RunCompareDialog(QDialog):
         var = str(self.var_combo.currentData())
         level = None if var in self._SFC_VARS else int(self.level_combo.currentData())
         return var, level, int(self.delta_combo.currentData())
+
+
+class CaseStudyDialog(QDialog):
+    """Biblioteca de estudos de caso ERA5 (Análises Prontas → 📚).
+
+    Lista o catálogo curado de ``data/case_studies.py`` à esquerda e o material
+    didático do caso selecionado à direita (o que aconteceu, o "porquê"
+    sinótico, a receita de camadas e as referências). ``selected_case()``
+    devolve o ``CaseStudy`` escolhido após ``exec()`` retornar ``Accepted``.
+
+    O diálogo NÃO baixa nada: quem aplica o extent e roda a fila serializada
+    de downloads (cache-first, um por vez) é a janela principal.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Estudos de Caso (ERA5)")
+        self.setModal(True)
+        self.setStyleSheet(DARK_STYLE)
+        self.setMinimumSize(840, 560)
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(16, 14, 16, 14)
+
+        title = QLabel(
+            "<h3 style='color:#1ABC9C; margin:0;'>📚 Estudos de Caso — reanálise ERA5</h3>"
+        )
+        layout.addWidget(title)
+
+        sub = QLabel(
+            "<p style='font-size:11px; color:#BDC3C7; margin:0;'>"
+            "Eventos marcantes reconstruídos com a reanálise do Copernicus. Ao "
+            "carregar, o mapa é enquadrado na região do caso e as camadas da "
+            "receita são baixadas <b>em fila</b> (uma por vez, cache-first)."
+            "</p>"
+        )
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
+
+        body = QHBoxLayout()
+        body.setSpacing(10)
+
+        self.case_list = QListWidget()
+        self.case_list.setMinimumWidth(240)
+        self.case_list.setMaximumWidth(280)
+        for case in CASE_STUDIES:
+            self.case_list.addItem(f"{case.nome}\n{case.quando}")
+        self.case_list.currentRowChanged.connect(self._show_case)
+        # Duplo clique = escolher e carregar (atalho natural de lista).
+        self.case_list.itemDoubleClicked.connect(lambda *_: self.accept())
+        body.addWidget(self.case_list)
+
+        self.details = QTextBrowser()
+        self.details.setOpenExternalLinks(False)
+        self.details.setStyleSheet(
+            "QTextBrowser { background-color: #1A252F; border: 1px solid #2C3E50;"
+            "border-radius: 5px; padding: 8px; }"
+        )
+        body.addWidget(self.details, stretch=1)
+        layout.addLayout(body, stretch=1)
+
+        note = QLabel(
+            "<small style='color:#95A5A6;'>A fila do CDS pode levar alguns "
+            "minutos por camada na primeira vez; repetições saem do cache. "
+            'Requer a chave gratuita do CDS (Arquivo → "Chave ERA5 (CDS)...").'
+            "</small>"
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton("Cancelar")
+        cancel_btn.setStyleSheet("background-color:#7F8C8D;")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+        ok_btn = QPushButton("📚 Carregar caso")
+        ok_btn.setStyleSheet("background-color:#27AE60; min-width:150px;")
+        ok_btn.setDefault(True)
+        ok_btn.clicked.connect(self.accept)
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+        self.case_list.setCurrentRow(0)
+
+    def _show_case(self, row: int) -> None:
+        if 0 <= row < len(CASE_STUDIES):
+            self.details.setHtml(self._case_html(CASE_STUDIES[row]))
+
+    @staticmethod
+    def _case_html(case: CaseStudy) -> str:
+        """Material didático do caso em HTML simples (sem LaTeX/Mermaid).
+
+        Todo texto do catálogo passa por ``html.escape`` ANTES de entrar no
+        rich text: o parser do Qt engolia de "ω<0 em..." até o próximo ">"
+        (a frase didática inteira do caso ZCAS sumia em silêncio).
+        """
+        body = "font-size:12px; color:#ECF0F1;"
+        muted = "font-size:11px; color:#BDC3C7;"
+        itens = []
+        for spec in case.layers:
+            tag = "" if spec.visible else "<span style='color:#95A5A6;'>[entra desligada] </span>"
+            itens.append(
+                f"<li style='{muted} margin-bottom:3px;'>{tag}{html.escape(spec.nota)}</li>"
+            )
+        porque = html.escape(case.porque).replace("\n\n", f"</p><p style='{body}'>")
+        return (
+            f"<h3 style='color:#1ABC9C; margin:0 0 2px 0;'>{html.escape(case.nome)}</h3>"
+            f"<p style='{muted} margin:0 0 8px 0;'><b>{html.escape(case.quando)}</b></p>"
+            f"<p style='{body}'>{html.escape(case.resumo)}</p>"
+            "<h4 style='color:#F39C12; margin:10px 0 4px 0;'>Por que este caso ensina</h4>"
+            f"<p style='{body}'>{porque}</p>"
+            "<h4 style='color:#F39C12; margin:10px 0 4px 0;'>Camadas da receita</h4>"
+            f"<ul style='margin:0 0 8px 18px; padding:0;'>{''.join(itens)}</ul>"
+            f"<p style='{muted}'><i>Referências: {html.escape(case.referencia)}</i></p>"
+        )
+
+    def selected_case(self) -> CaseStudy | None:
+        """O caso selecionado na lista, ou ``None`` se nada selecionado."""
+        row = self.case_list.currentRow()
+        if 0 <= row < len(CASE_STUDIES):
+            return CASE_STUDIES[row]
+        return None

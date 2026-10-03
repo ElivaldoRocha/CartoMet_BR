@@ -87,6 +87,7 @@ from cartomet_br.gui.analysis_engine import (
 from cartomet_br.gui.cross_section_panel import CrossSectionPanel
 from cartomet_br.gui.dialogs import (
     BaroclinicLevelDialog,
+    CaseStudyDialog,
     FirstRunDialog,
     RunCompareDialog,
     StationReportDialog,
@@ -784,6 +785,7 @@ class MainWindow(QMainWindow):
         self.field_panel.glm_lightning_requested.connect(self._on_glm_requested)
         self.field_panel.instability_requested.connect(self._launch_instability)
         self.field_panel.baroclinic_requested.connect(self._on_baroclinic_requested)
+        self.field_panel.case_studies_requested.connect(self._on_case_studies_requested)
 
         self.era5_panel.add_era5_layer_requested.connect(self._on_add_era5_layer)
         self.era5_panel.series_mode_toggled.connect(self._toggle_era5_series_mode)
@@ -2419,6 +2421,11 @@ class MainWindow(QMainWindow):
             self._obs_dl_dialog.finish_ok()
             self._obs_dl_dialog = None
 
+    def _close_era5_dialog(self) -> None:
+        if getattr(self, "_era5_dl_dialog", None):
+            self._era5_dl_dialog.finish_ok()
+            self._era5_dl_dialog = None
+
     def _on_stations_ok(self, result: dict) -> None:
         # Resultado tardio de um download abandonado (troca de região/tema/projeto)
         # não pode pintar o mapa novo — padrão do guard dos avisos INMET.
@@ -2530,6 +2537,19 @@ class MainWindow(QMainWindow):
         # no guard de sender; o diálogo de progresso não pode ficar órfão.
         self.station_download_thread = None
         self._close_obs_dialog()
+        # Fila de estudos de caso e download ERA5 em voo morrem juntos: o
+        # resultado tardio cai no guard de sender, e a fila NÃO sobrevive ao
+        # rebuild (senão as camadas restantes aterrissariam no mapa novo,
+        # recortadas na região errada).
+        self.era5_download_thread = None
+        self._case_queue = []
+        self._case_pending = None
+        self._case_name = ""
+        self._case_stage = ""
+        self._case_layer_ids = []
+        if getattr(self, "era5_panel", None) is not None:
+            self.era5_panel.set_downloading(False)
+        self._close_era5_dialog()
         if getattr(self, "satellite_panel", None) is not None:
             self.satellite_panel.reset_state()
         for kind in ("symbology", "emojis", "annotations"):
@@ -3004,11 +3024,20 @@ class MainWindow(QMainWindow):
         level: int,
         agg: str,
         thresh: float = 0.0,
+        *,
+        extent_override: list | None = None,
+        queue_connect=None,
     ):
-        """Usuário clicou 'Baixar campo ERA5' no ERA5Panel.
+        """Usuário clicou 'Baixar campo ERA5' no ERA5Panel (ou a fila de caso).
 
-        A região vem do painel de Configurações (mesma régua do app). A fila do
-        CDS não dá porcentagem → barra indeterminada + status textual.
+        A região vem do painel de Configurações (mesma régua do app) — salvo
+        ``extent_override`` (fila de estudos de caso: o extent do EVENTO é
+        cravado uma vez; zoom/UF no meio da fila não re-recorta as camadas
+        restantes). ``queue_connect(thread)`` conecta os slots da fila ANTES
+        do ``start()``: uma conexão enfileirada só entrega sinais que existiam
+        NO MOMENTO do emit — num cache-hit a thread termina em milissegundos e
+        conectar depois do start perdia o sinal (fila travada para sempre).
+        A fila do CDS não dá porcentagem → barra indeterminada + status.
         """
         if self.era5_download_thread and self.era5_download_thread.isRunning():
             QMessageBox.information(
@@ -3022,19 +3051,35 @@ class MainWindow(QMainWindow):
             if not self._confirm_era5_long_period(date_start, date_end, "campo", hpd):
                 return
 
-        # Região atual (spinboxes de extent) aplicada ao motor ERA5.
-        self.config.extent = self.settings_panel.get_extent()
+        # Região: spinboxes (fluxo normal) ou extent cravado do caso (fila).
+        self.config.extent = (
+            list(extent_override)
+            if extent_override is not None
+            else self.settings_panel.get_extent()
+        )
 
         nome = VARIABLE_REGISTRY.get(var_key, {}).get("nome", var_key)
+        stage = getattr(self, "_case_stage", "")
         self.era5_panel.set_downloading(True)
-        self.status_label.setText("● Consultando o CDS (fila do ERA5)...")
+        self.status_label.setText(
+            f"● {stage} — consultando o CDS..."
+            if stage
+            else "● Consultando o CDS (fila do ERA5)..."
+        )
         self.status_label.setStyleSheet("color: #16A085;")
 
-        self._era5_dl_dialog = DownloadProgressDialog(f"Baixando {nome}", parent=self)
+        titulo = f"{stage} — {nome}" if stage else f"Baixando {nome}"
+        self._era5_dl_dialog = DownloadProgressDialog(titulo, parent=self)
         self._era5_dl_dialog.setStyleSheet(DARK_STYLE)
         self._era5_dl_dialog.set_indeterminate()
-        # A fila do CDS não é cancelável de forma limpa; ocultamos o botão.
-        self._era5_dl_dialog.cancel_btn.setEnabled(False)
+        if stage:
+            # A camada EM VOO no CDS não é cancelável de forma limpa, mas a
+            # FILA do caso é: o botão (e o Esc) param a fila após esta camada.
+            self._era5_dl_dialog.cancel_btn.setText("Parar fila do caso")
+            self._era5_dl_dialog.cancel_requested.connect(self._case_cancel)
+        else:
+            # Download avulso: a fila do CDS não cancela limpo; botão fora.
+            self._era5_dl_dialog.cancel_btn.setEnabled(False)
 
         self.era5_download_thread = ERA5DownloadThread(
             variable_key=var_key,
@@ -3050,17 +3095,26 @@ class MainWindow(QMainWindow):
         self.era5_download_thread.progress.connect(self._on_era5_progress)
         self.era5_download_thread.finished_ok.connect(self._on_era5_download_ok)
         self.era5_download_thread.finished_error.connect(self._on_era5_download_error)
+        if queue_connect is not None:
+            queue_connect(self.era5_download_thread)
         self.era5_download_thread.start()
 
         self._era5_dl_dialog.show()
 
     def _on_era5_progress(self, msg: str):
-        self.status_label.setText(f"● {msg}")
+        # Progresso tardio de um download abandonado (troca de região/tema/
+        # projeto) não pode pintar o status novo — padrão do guard das obs.
+        if self.sender() is not self.era5_download_thread:
+            return
+        stage = getattr(self, "_case_stage", "")
+        self.status_label.setText(f"● {stage} — {msg}" if stage else f"● {msg}")
         self.status_label.setStyleSheet("color: #16A085;")
         if getattr(self, "_era5_dl_dialog", None):
             self._era5_dl_dialog.update_status(msg)
 
     def _on_era5_download_ok(self, layer_id: str, data):
+        if self.sender() is not self.era5_download_thread:
+            return
         self.era5_panel.set_downloading(False)
         try:
             self.field_panel.remove_layer_entry(layer_id)
@@ -3077,6 +3131,8 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet("color: #27AE60;")
 
     def _on_era5_download_error(self, error_msg: str):
+        if self.sender() is not self.era5_download_thread:
+            return
         self.era5_panel.set_downloading(False)
         if getattr(self, "_era5_dl_dialog", None):
             self._era5_dl_dialog.finish_error()
@@ -3952,6 +4008,13 @@ class MainWindow(QMainWindow):
                 self, "Aguarde", "Um download já está em andamento. Aguarde concluir."
             )
             return
+        # Guard cruzado com a fila de estudos de caso (mesma razão do guard
+        # inverso em _on_case_studies_requested: dois modais brigando).
+        if getattr(self, "_case_queue", None) or getattr(self, "_case_name", ""):
+            QMessageBox.information(
+                self, "Aguarde", "Um estudo de caso está em andamento. Aguarde concluir."
+            )
+            return
 
         dlg = BaroclinicLevelDialog(PL_LEVELS, default_level=850, parent=self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -3996,6 +4059,169 @@ class MainWindow(QMainWindow):
                 # Desmarcar emite toggle_layer_requested → oculta no canvas.
                 self.field_panel.set_layer_checked(f"{var_key}_{level}", False)
         self._process_baroclinic_queue()
+
+    # ─── Estudos de caso ERA5 (biblioteca didática — Onda 5 da v3.2) ────────
+    # Clone da fila baroclínica sobre o fluxo ERA5: um download por vez
+    # (cache-first), camadas de apoio entram desligadas, e a região do mapa é
+    # enquadrada no evento ANTES da fila (o motor ERA5 lê o extent dos
+    # spinboxes, sincronizados pelo extent_changed do apply_extent).
+
+    def _on_case_studies_requested(self):
+        """Abre a biblioteca de casos e dispara a fila de camadas do escolhido."""
+        from cartomet_br.data.cds_credentials import resolve_cds_key
+
+        if (
+            (self.era5_download_thread and self.era5_download_thread.isRunning())
+            or getattr(self, "_case_queue", None)
+            or getattr(self, "_case_name", "")
+        ):
+            QMessageBox.information(
+                self, "Aguarde", "Um download ERA5 já está em andamento. Aguarde concluir."
+            )
+            return
+        # Guard cruzado: a fila baroclínica tem o próprio diálogo modal — duas
+        # filas simultâneas brigariam pelo modal e pelo status.
+        if getattr(self, "_baro_queue", None) or (
+            self.pl_download_thread and self.pl_download_thread.isRunning()
+        ):
+            QMessageBox.information(
+                self, "Aguarde", "Um download do ECMWF já está em andamento. Aguarde concluir."
+            )
+            return
+        if resolve_cds_key() is None:
+            QMessageBox.information(
+                self,
+                "Chave ERA5 (CDS) necessária",
+                "Os estudos de caso usam a reanálise ERA5 do Copernicus, que "
+                "requer uma chave de API gratuita.\n\n"
+                'Configure em: menu Arquivo → "Chave ERA5 (CDS)..." '
+                "(o diálogo explica como obtê-la em minutos).",
+            )
+            return
+
+        dlg = CaseStudyDialog(parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        case = dlg.selected_case()
+        if case is None:
+            return
+
+        # Um caso NOVO limpa as camadas do anterior: empilhar 2004 sobre 2020
+        # deixaria campos homônimos indistinguíveis no painel e na carta.
+        for lid in getattr(self, "_case_layer_ids", []):
+            self.field_panel.remove_layer_entry(lid)
+            self.canvas.remove_pl_layer(lid)
+        self._case_layer_ids = []
+
+        # Enquadra o mapa na região do evento; o extent é CRAVADO para toda a
+        # fila (_case_extent) — zoom/UF no meio dela não re-recorta as camadas.
+        self.canvas.apply_extent([float(v) for v in case.extent])
+
+        self._case_name = case.nome
+        self._case_extent = [float(v) for v in case.extent]
+        self._case_queue = case.layer_requests()
+        self._case_total = len(self._case_queue)
+        self._case_cancelled = False
+        self._process_case_queue()
+
+    def _process_case_queue(self):
+        """Baixa/empilha a próxima camada do caso (serializado, cache-first)."""
+        if not getattr(self, "_case_queue", None):
+            if getattr(self, "_case_name", ""):
+                if getattr(self, "_case_cancelled", False):
+                    self.status_label.setText(
+                        f"● Caso '{self._case_name}' parado a pedido — "
+                        "as camadas já baixadas ficam na pilha"
+                    )
+                    self.status_label.setStyleSheet("color: #F39C12;")
+                else:
+                    self.status_label.setText(f"● Caso '{self._case_name}' completo — bom estudo!")
+                    self.status_label.setStyleSheet("color: #27AE60;")
+                self._case_name = ""
+                self._case_stage = ""
+            return
+        if self.era5_download_thread and self.era5_download_thread.isRunning():
+            QTimer.singleShot(500, self._process_case_queue)
+            return
+
+        req = self._case_queue.pop(0)
+        self._case_pending = req
+        idx = self._case_total - len(self._case_queue)
+        # O estágio vai no TÍTULO do diálogo modal e prefixa o progresso — um
+        # setText aqui seria sobrescrito sincronamente pelo _on_add_era5_layer
+        # antes de o QLabel repintar (só o último texto da pilha é pintado).
+        self._case_stage = f"Caso: {self._case_name} — camada {idx}/{self._case_total}"
+
+        before = self.era5_download_thread
+        self._on_add_era5_layer(
+            req.var_key,
+            req.date_start,
+            req.date_end,
+            req.hour,
+            req.level,
+            req.agg,
+            req.thresh,
+            extent_override=getattr(self, "_case_extent", None),
+            # Conexões da fila ANTES do start (dentro do _on_add_era5_layer),
+            # DEPOIS das conexões padrão: a entrada da camada já existe quando
+            # o pós-processo roda, e um cache-hit relâmpago não perde o sinal.
+            queue_connect=lambda th: (
+                th.finished_ok.connect(
+                    self._case_after_layer, Qt.ConnectionType.SingleShotConnection
+                ),
+                th.finished_error.connect(self._case_abort, Qt.ConnectionType.SingleShotConnection),
+            ),
+        )
+        thread = self.era5_download_thread
+        if thread is None or thread is before:
+            # O pedido foi recusado antes de criar a thread — aborta a fila
+            # (sem stall silencioso esperando um sinal que nunca virá).
+            self._case_abort()
+            return
+
+    def _case_after_layer(self, layer_id: str, _data):
+        """Camada do caso empilhada: apoio (visível=False) entra desmarcada."""
+        if getattr(self, "_case_name", ""):
+            ids = getattr(self, "_case_layer_ids", [])
+            if layer_id not in ids:
+                ids.append(layer_id)
+            self._case_layer_ids = ids
+        req = getattr(self, "_case_pending", None)
+        if req is not None and not req.visible:
+            # Desmarcar emite toggle_layer_requested → oculta no canvas.
+            self.field_panel.set_layer_checked(layer_id, False)
+        self._case_pending = None
+        self._process_case_queue()
+
+    def _case_cancel(self, *_args):
+        """Usuário pediu para parar a fila (botão/Esc/X do diálogo de progresso).
+
+        A camada EM VOO termina (a fila do CDS não cancela limpo) e entra na
+        pilha; as seguintes não disparam. O cache preserva o progresso —
+        re-carregar o caso retoma de onde parou.
+        """
+        if not getattr(self, "_case_name", ""):
+            return
+        self._case_queue = []
+        self._case_cancelled = True
+
+    def _case_abort(self, *_args):
+        """Erro numa camada aborta a fila (falha de CDS costuma ser sistêmica).
+
+        O QMessageBox do erro em si já foi exibido por
+        ``_on_era5_download_error``; as camadas já baixadas ficam na pilha e o
+        cache preserva o progresso — re-carregar o caso retoma de onde parou.
+        """
+        if getattr(self, "_case_queue", None) or getattr(self, "_case_name", ""):
+            self.status_label.setText(
+                f"● Caso '{getattr(self, '_case_name', '')}' interrompido — "
+                "clique de novo para retomar (cache preserva o progresso)"
+            )
+            self.status_label.setStyleSheet("color: #F39C12;")
+        self._case_queue = []
+        self._case_name = ""
+        self._case_stage = ""
+        self._case_pending = None
 
     # ═══════════════════════════════════════════════════════════════════════
     #  OPERAÇÕES DE ARQUIVO

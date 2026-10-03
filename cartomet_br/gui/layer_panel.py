@@ -1212,6 +1212,7 @@ class FieldLayerPanel(QWidget):
     run_compare_requested = pyqtSignal()  # comparação de rodadas (Δ novo − antigo)
     ens_requested = pyqtSignal(str, float)  # Ensemble ENS: (produto, limiar mm)
     inmet_avisos_requested = pyqtSignal()  # avisos meteorológicos ativos do INMET
+    case_studies_requested = pyqtSignal()  # biblioteca de estudos de caso ERA5
     # Raios GLM: fim da janela de 15 min (datetime UTC) ou None = agora
     glm_lightning_requested = pyqtSignal(object)
     # Filtro dos avisos INMET: incluir os "futuros" (emitidos, validade por
@@ -1523,6 +1524,27 @@ class FieldLayerPanel(QWidget):
         )
         baroclinic_btn.clicked.connect(self.baroclinic_requested.emit)
         layout.addWidget(baroclinic_btn)
+
+        # ─── Estudos de caso ERA5 (biblioteca didática de eventos marcantes) ───
+        cases_btn = QPushButton("📚 Estudos de Caso (ERA5)")
+        cases_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2E86C1; padding: 7px;
+                font-size: 11px; font-weight: bold; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #3498DB; }
+        """)
+        cases_btn.setToolTip(
+            "Biblioteca curada de eventos marcantes reconstruídos com a\n"
+            "reanálise ERA5 (Copernicus): Furacão Catarina (2004),\n"
+            "ciclone-bomba no Sul (2020), ZCAS/Petrópolis (2022), friagem e\n"
+            "neve históricas (2021) e a cheia recorde do Amazonas (2021).\n\n"
+            "Ao carregar um caso, o mapa é enquadrado na região do evento e as\n"
+            "camadas da receita didática baixam em fila (cache-first).\n"
+            'Requer a chave gratuita do CDS (Arquivo → "Chave ERA5 (CDS)...").'
+        )
+        cases_btn.clicked.connect(self.case_studies_requested.emit)
+        layout.addWidget(cases_btn)
 
         # ─── Avisos INMET (overlay de contexto — polígonos de alerta ao vivo) ───
         inmet_btn = QPushButton("⚠ Avisos INMET (ativos)")

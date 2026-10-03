@@ -63,7 +63,58 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   fora do ar de data indisponível (latência), detalhando o que foi tentado.
   Quando o PFEG voltar, o MUR 1km reassume a prioridade automaticamente.
 
+- **Colorbar órfã ao remover (ou ocultar) uma camada do Ensemble ENS.**
+  A colorbar era registrada pela chave derivada dos dados (`variável_nível`)
+  enquanto a remoção buscava pelo `layer_id` da camada — para campos comuns
+  coincidem (`t_850`), mas no ENS (`ens_prob_10mm` ≠ `ens_prob`) a colorbar
+  não era encontrada e ficava pendurada na carta. O plot agora registra pelo
+  `layer_id` real, blindando também qualquer camada futura com id
+  desambiguado. Bug reportado em campo com screenshot — obrigado!
+
 ### Adicionado
+
+- **📚 Estudos de Caso ERA5 — biblioteca didática de eventos marcantes (Onda 5 da v3.2).**
+  Botão "📚 Estudos de Caso (ERA5)" nas Análises Prontas abre um catálogo
+  curado de cinco eventos consagrados, reconstruídos com a reanálise
+  Copernicus: **Furacão Catarina** (27–28/03/2004), **ciclone-bomba no Sul**
+  (30/06–01/07/2020), **ZCAS e a tragédia de Petrópolis** (15/02/2022),
+  **friagem e neve históricas** (28–30/07/2021) e a **cheia recorde do
+  Amazonas** (maio/2021 → pico em junho). Cada caso traz no diálogo o
+  material didático completo — o que aconteceu, o "porquê" sinótico (o
+  mecanismo que o caso ensina), a receita de camadas comentada e as
+  referências (Sanders e Gyakum 1980; Kodama 1992; Marengo et al. 1997;
+  McTaggart-Cowan et al. 2006; Espinoza et al. 2022). Ao carregar, o mapa é
+  **enquadrado na região do evento** e as camadas baixam **em fila
+  serializada** (uma por vez, cache-first, clone da fila do Diagnóstico
+  Baroclínico): a camada-chave entra ligada e as de apoio empilhadas porém
+  desligadas. Erro numa camada aborta a fila com aviso (falha de CDS é
+  sistêmica) e re-carregar o caso **retoma do cache**. Sem chave do CDS, o
+  app aponta Arquivo → "Chave ERA5 (CDS)..." em vez de falhar no meio.
+  Honestidade de escala na didática (Petrópolis: a grade de ~31 km mostra o
+  AMBIENTE da ZCAS, não o total do pluviômetro). Catálogo em
+  `data/case_studies.py` (puro, testável); receitas travadas por teste ao
+  contrato do fluxo ERA5 (validação do service, perfis de agregação da UI,
+  períodos ≤ 31 dias — a fila nunca dispara o diálogo de período longo).
+  **Blindagens da fila** (revisão adversária multi-agente, 9 achados
+  confirmados e corrigidos): abrir projeto / trocar região / trocar tema
+  **aborta a fila** e descarta o download em voo (guard de sender — camada
+  tardia não aterrissa recortada na região errada); o extent do evento é
+  **cravado para a fila inteira** (zoom ou troca de UF no meio dela não
+  re-recorta as camadas restantes); a fila é **cancelável** (botão "Parar
+  fila do caso" no diálogo de progresso — a camada em voo termina, as
+  seguintes não disparam, e o status diz "parado a pedido"); **Esc não vaza
+  mais do modal** de download (vira o cancelamento, ou é engolido quando
+  não há o que cancelar — vale para todos os downloads do app); as conexões
+  da fila entram **antes** do `start()` da thread (um cache-hit relâmpago
+  emitia o sinal antes do connect e travava a fila para sempre); um caso
+  novo **limpa as camadas do anterior** (2004 sobre 2020 seria
+  indistinguível no painel); fila de caso e preset Baroclínico têm guards
+  cruzados (dois modais não brigam); o progresso mostra **"Caso: X — camada
+  i/n"** no título do diálogo e no status; e o texto didático passa por
+  `html.escape` — o "ω<0 em 500 hPa" do caso Petrópolis virava tag para o
+  parser rich-text do Qt, que engolia a frase inteira em silêncio.
+  O README ganhou o capítulo próprio "Novidades da v3.2", reunindo as seções
+  das ondas que estavam encalhadas no capítulo da v3.0.
 
 - **⚡ Raios GLM — o sensor de raios do GOES-East no mapa (Onda 4 da v3.2).**
   Botão "⚡ Raios GLM (janela de 15 min)" nas Análises Prontas: baixa os

@@ -909,6 +909,20 @@ class DownloadProgressDialog(QDialog):
         self.detail_label.setText("Cancelando...")
         self.cancel_btn.setEnabled(False)
 
+    def keyPressEvent(self, event):
+        """Esc não "vaza" do modal: vira o clique no Cancelar (ou nada).
+
+        O reject() default do QDialog fechava a janela deixando o download
+        vivo e a GUI destravada no meio de uma fila. Com cancelamento
+        disponível, Esc cancela; sem (botão desabilitado), Esc é engolido —
+        o modal só sai de cena quando o download termina.
+        """
+        if event.key() == Qt.Key.Key_Escape:
+            if self.cancel_btn.isEnabled():
+                self._on_cancel()
+            return
+        super().keyPressEvent(event)
+
     def closeEvent(self, event):
         self.cancel_requested.emit()
         event.ignore()

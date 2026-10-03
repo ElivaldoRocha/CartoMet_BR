@@ -65,6 +65,51 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 
 ---
 
+## Novidades da v3.2 (em desenvolvimento)
+
+### 📚 Estudos de Caso (ERA5) — biblioteca didática de eventos marcantes
+
+- Botão **📚 Estudos de Caso (ERA5)** nas Análises Prontas: cinco eventos consagrados reconstruídos com a reanálise Copernicus — **Furacão Catarina** (2004), **ciclone-bomba no Sul** (2020), **ZCAS e a tragédia de Petrópolis** (2022), **friagem e neve históricas** (2021) e a **cheia recorde do Amazonas** (2021)
+- Cada caso traz o material didático no próprio diálogo: o que aconteceu, o **"porquê" sinótico** (o mecanismo que o caso ensina), a receita de camadas comentada e as referências científicas (Sanders e Gyakum, Kodama, Marengo, McTaggart-Cowan...)
+- Um clique **enquadra o mapa na região do evento** e baixa a receita **em fila serializada** (cache-first): a camada-chave entra ligada e as de apoio ficam empilhadas porém **desligadas** — mesma coreografia do Diagnóstico Baroclínico
+- **Honestidade de escala embutida**: em Petrópolis, por exemplo, o diálogo avisa que a grade de ~31 km do ERA5 mostra o **ambiente** da ZCAS — o total pontual do pluviômetro não aparece (e não deveria). Interrupções retomam do cache ao recarregar o caso
+- **Fila com rédeas**: o diálogo de progresso mostra "Caso: X — camada i/n" e tem o botão **Parar fila do caso** (a camada em voo termina, as seguintes não disparam); trocar de região/tema ou abrir um projeto no meio da fila a aborta com aviso — nenhuma camada tardia aterrissa no mapa errado; e um caso novo limpa as camadas do anterior
+- Requer a chave gratuita do CDS (menu *Arquivo → "Chave ERA5 (CDS)..."*); sem chave, o app aponta o caminho em vez de falhar no meio
+
+### ⚡ Raios GLM — a convecção elétrica em tempo quase real (ou em qualquer data)
+
+- Botão **⚡ Raios GLM (janela de 15 min)** nas Análises Prontas: os *flashes* do **Geostationary Lightning Mapper** do GOES-East, direto do S3 público da NOAA (sem cadastro), plotados sobre a carta em ~5 segundos
+- **Sem prender você ao presente**: "Agora" (default) ou qualquer **data/hora/minuto/segundo UTC** como fim da janela — igual ao canal 13. Os buckets da NOAA guardam anos de histórico: perfeito para revisitar a tempestade de ontem ou montar um estudo de caso
+- **Cor = idade do raio**: vermelho (0–5 min), laranja (5–10), amarelo (10–15), relativas ao fim da janela — a legenda carimba a data, a janela real e o satélite de origem; zero raios na janela é resposta honesta ("céu eletricamente calmo"), não erro
+- Par perfeito do satélite IR + células convectivas: a célula que aparece fria no IR **e** pisca no GLM está eletricamente ativa **agora** — critério objetivo para priorizar o traçado
+- Atualização manual (clique de novo) — como tudo no CartoMet, a rede só é tocada por iniciativa do usuário
+
+### 🎲 Ensemble ENS — a previsão em 51 cenários
+
+- Novo grupo **Ensemble ENS (51 membros)** nas Análises Prontas: os 50 membros perturbados do ENS + o controle, direto do ECMWF Open Data — a pergunta deixa de ser "vai chover?" e vira "**em quantos % dos cenários chove mais de X mm?**"
+- Três produtos: **P(chuva 24 h > limiar)** (limiar de 1 a 50 mm, janela honesta de 24 h desacumulada membro a membro), **PNMM média ± σ** e **Z500 média ± σ** (média em isolinhas + dispersão sombreada — onde o σ cresce, a atmosfera está imprevisível e a confiança na determinística cai)
+- Engenharia invisível: o arquivo do ENS pós-50r1 tem **~6 GB por step** — o CartoMet baixa só os **~25–40 MB** do campo pedido via byte-ranges, e o controle **reusa o cache** das cartas normais (pós-50r1 o controle É o oper)
+- Título honesto ("ECMWF ENS — ... — 51 membros"), probabilidade em escala fixa 10–100% com áreas < 10% transparentes; camadas ENS entram no projeto `.cmbr` e restauram do cache sem rede
+- O ENS publica ~8 h após a rodada (≈ 30 min depois das cartas normais); probabilidade de chuva requer step ≥ +24 h
+
+### 🤖 AIFS — o modelo de Inteligência Artificial do ECMWF
+
+- Novo seletor **Modelo** no painel (grupo *Modelo e Rodada ECMWF*): **IFS (físico)** — o padrão de sempre — ou **AIFS (IA)**, o modelo de inteligência artificial operacional do ECMWF (`aifs-single`, 0.25°), pelo **mesmo fluxo aberto e gratuito**
+- Grade própria do AIFS respeitada automaticamente: **steps de 6/6 h até +360 h (15 dias)** em todas as 4 rodadas, publicação ~6 h após a rodada (antes do IFS!) — o seletor de steps e o "Verificar Rodadas" se adaptam ao trocar o modelo
+- **Honestidade científica em camadas**: o título da carta carimba **"ECMWF AIFS (IA)"** (nunca diz IFS sobre dado de IA); os caches GRIB são separados por prefixo (`aifs_` × `ecmwf_`), então dá para carregar **t850 dos dois modelos no mesmo valid_time e comparar** — física × IA lado a lado
+- Variáveis que o AIFS não publica (UR, vorticidade, divergência, OLR, água precipitável, extremos de T 2 m, TSM do modelo) ficam **desabilitadas em cinza** com tooltip explicativo; presets são filtrados com aviso; análises calculadas do IFS (ZCIT, bloqueio, instabilidade) avisam e pedem o modelo físico
+- O modelo fica registrado no projeto `.cmbr` — reabrir um projeto AIFS restaura do cache certo
+- A **Animação de Steps** também fala AIFS: grade 6/6 h até **+360 h em todas as rodadas** (uma animação de 15 dias — no IFS as rodadas 06Z/18Z param em +144 h), nome de arquivo com prefixo próprio (`anim_aifs-...`) e aviso claro se a composição tiver camadas que só existem no IFS
+
+### 🔀 Comparação de Rodadas (consistência run-to-run)
+
+- Nova **Análise Pronta**: campo **Δ = rodada atual − rodada anterior** no **mesmo horário de validade** (a rodada antiga entra com `step + defasagem`) — o hábito operacional de checar a consistência entre rodadas antes de confiar na previsão
+- Variáveis elegíveis: **geopotencial, temperatura, umidade relativa/específica, isotacas e água precipitável**; defasagens de **6, 12 ou 24 h**. Vetores e acumulados desde o step 0 (precip/OLR) ficam de fora por honestidade física (janelas de comprimentos diferentes)
+- Render **divergente** (`RdBu_r`, níveis simétricos): **vermelho = a rodada nova intensificou** o campo; azul = enfraqueceu. Diferenças grandes = baixa confiança entre rodadas
+- Título e camada **honestos**: `Δ Altura Geopotencial 500 hPa (mgp) — rodada 00Z 31/07 − 18Z 30/07`; os dois GRIBs compartilham o cache indexado por rodada (re-gerar é instantâneo) e a camada **restaura do cache** ao abrir um projeto `.cmbr`
+
+---
+
 ## Novidades da v3.1
 
 ### 🖱 Modo Edição — corrigir desenhos já traçados (fluxo colaborativo A→B)
@@ -234,37 +279,6 @@ Endurecimento do motor LOCZCIT-PA após auditoria de código e *peer review* cie
 - Cálculo e download em **thread separada** (cancelável); o GRIB de `gh` 500 hPa **compartilha o cache** com a camada normal de geopotencial
 - Menu **Ajuda → "Sobre a Análise de Bloqueio (Z500)"** com resumo e a metodologia completa. Climatologia: **ERA5** (Hersbach et al., 2020) via **Copernicus Climate Change Service (C3S)**
 
-### ⚡ Raios GLM — a convecção elétrica em tempo quase real (ou em qualquer data)
-
-- Botão **⚡ Raios GLM (janela de 15 min)** nas Análises Prontas: os *flashes* do **Geostationary Lightning Mapper** do GOES-East, direto do S3 público da NOAA (sem cadastro), plotados sobre a carta em ~5 segundos
-- **Sem prender você ao presente**: "Agora" (default) ou qualquer **data/hora/minuto/segundo UTC** como fim da janela — igual ao canal 13. Os buckets da NOAA guardam anos de histórico: perfeito para revisitar a tempestade de ontem ou montar um estudo de caso
-- **Cor = idade do raio**: vermelho (0–5 min), laranja (5–10), amarelo (10–15), relativas ao fim da janela — a legenda carimba a data, a janela real e o satélite de origem; zero raios na janela é resposta honesta ("céu eletricamente calmo"), não erro
-- Par perfeito do satélite IR + células convectivas: a célula que aparece fria no IR **e** pisca no GLM está eletricamente ativa **agora** — critério objetivo para priorizar o traçado
-- Atualização manual (clique de novo) — como tudo no CartoMet, a rede só é tocada por iniciativa do usuário
-
-### 🎲 Ensemble ENS — a previsão em 51 cenários
-
-- Novo grupo **Ensemble ENS (51 membros)** nas Análises Prontas: os 50 membros perturbados do ENS + o controle, direto do ECMWF Open Data — a pergunta deixa de ser "vai chover?" e vira "**em quantos % dos cenários chove mais de X mm?**"
-- Três produtos: **P(chuva 24 h > limiar)** (limiar de 1 a 50 mm, janela honesta de 24 h desacumulada membro a membro), **PNMM média ± σ** e **Z500 média ± σ** (média em isolinhas + dispersão sombreada — onde o σ cresce, a atmosfera está imprevisível e a confiança na determinística cai)
-- Engenharia invisível: o arquivo do ENS pós-50r1 tem **~6 GB por step** — o CartoMet baixa só os **~25–40 MB** do campo pedido via byte-ranges, e o controle **reusa o cache** das cartas normais (pós-50r1 o controle É o oper)
-- Título honesto ("ECMWF ENS — ... — 51 membros"), probabilidade em escala fixa 10–100% com áreas < 10% transparentes; camadas ENS entram no projeto `.cmbr` e restauram do cache sem rede
-- O ENS publica ~8 h após a rodada (≈ 30 min depois das cartas normais); probabilidade de chuva requer step ≥ +24 h
-
-### 🤖 AIFS — o modelo de Inteligência Artificial do ECMWF
-
-- Novo seletor **Modelo** no painel (grupo *Modelo e Rodada ECMWF*): **IFS (físico)** — o padrão de sempre — ou **AIFS (IA)**, o modelo de inteligência artificial operacional do ECMWF (`aifs-single`, 0.25°), pelo **mesmo fluxo aberto e gratuito**
-- Grade própria do AIFS respeitada automaticamente: **steps de 6/6 h até +360 h (15 dias)** em todas as 4 rodadas, publicação ~6 h após a rodada (antes do IFS!) — o seletor de steps e o "Verificar Rodadas" se adaptam ao trocar o modelo
-- **Honestidade científica em camadas**: o título da carta carimba **"ECMWF AIFS (IA)"** (nunca diz IFS sobre dado de IA); os caches GRIB são separados por prefixo (`aifs_` × `ecmwf_`), então dá para carregar **t850 dos dois modelos no mesmo valid_time e comparar** — física × IA lado a lado
-- Variáveis que o AIFS não publica (UR, vorticidade, divergência, OLR, água precipitável, extremos de T 2 m, TSM do modelo) ficam **desabilitadas em cinza** com tooltip explicativo; presets são filtrados com aviso; análises calculadas do IFS (ZCIT, bloqueio, instabilidade) avisam e pedem o modelo físico
-- O modelo fica registrado no projeto `.cmbr` — reabrir um projeto AIFS restaura do cache certo
-- A **Animação de Steps** também fala AIFS: grade 6/6 h até **+360 h em todas as rodadas** (uma animação de 15 dias — no IFS as rodadas 06Z/18Z param em +144 h), nome de arquivo com prefixo próprio (`anim_aifs-...`) e aviso claro se a composição tiver camadas que só existem no IFS
-
-### 🔀 Comparação de Rodadas (consistência run-to-run)
-
-- Nova **Análise Pronta**: campo **Δ = rodada atual − rodada anterior** no **mesmo horário de validade** (a rodada antiga entra com `step + defasagem`) — o hábito operacional de checar a consistência entre rodadas antes de confiar na previsão
-- Variáveis elegíveis: **geopotencial, temperatura, umidade relativa/específica, isotacas e água precipitável**; defasagens de **6, 12 ou 24 h**. Vetores e acumulados desde o step 0 (precip/OLR) ficam de fora por honestidade física (janelas de comprimentos diferentes)
-- Render **divergente** (`RdBu_r`, níveis simétricos): **vermelho = a rodada nova intensificou** o campo; azul = enfraqueceu. Diferenças grandes = baixa confiança entre rodadas
-- Título e camada **honestos**: `Δ Altura Geopotencial 500 hPa (mgp) — rodada 00Z 31/07 − 18Z 30/07`; os dois GRIBs compartilham o cache indexado por rodada (re-gerar é instantâneo) e a camada **restaura do cache** ao abrir um projeto `.cmbr`
 
 ### ✏ Caneta e ⬜ Formas customizáveis
 
