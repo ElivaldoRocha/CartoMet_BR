@@ -3265,6 +3265,12 @@ class MainWindow(QMainWindow):
             return
 
         pl_data = self.canvas.visible_pl_layers()
+        # Camadas sinóticas visíveis (PNMM/espessura entram; centros H/L têm
+        # detecção regional e geram aviso dentro do compose).
+        synoptic = self.canvas.synoptic_data
+        synoptic_kinds = tuple(
+            k for k in ("pnmm", "thickness", "centers") if self.canvas.plot_options.get(k)
+        )
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             scene = compose_scene(
@@ -3274,12 +3280,27 @@ class MainWindow(QMainWindow):
                 cycle=self.settings_panel.get_cycle(),
                 cycle_date=self.settings_panel.get_cycle_date(),
                 technique=self.field_panel.get_technique(),
+                synoptic=synoptic,
+                synoptic_kinds=synoptic_kinds,
             )
         finally:
             QApplication.restoreOverrideCursor()
 
+        # Traçado do usuário (simbologias/caneta/formas/anotações) — os
+        # records são os mesmos do .cmbr; emojis dependem do pixmap Qt do
+        # canvas e ficam fora do globo com aviso honesto.
+        drawings = self.canvas.export_drawings_state()
+        if any(rec.get("type") == "emoji" for rec in drawings):
+            scene.warnings.append("emojis do traçado ficam fora do globo (v1)")
+
         # Carimbo honesto: produto(s), validade e modelo de cada camada.
         stamp = ["CartoMet BR — Vista de Globo"]
+        if scene.synoptic is not None:
+            s = scene.synoptic
+            modelo = "ECMWF AIFS (IA)" if s.source == "aifs" else "ECMWF IFS"
+            rotulo = {"pnmm": "PNMM", "thickness": "Espessura 1000-500"}
+            partes = "/".join(rotulo[k] for k in scene.synoptic_kinds)
+            stamp.append(f"{partes} — válido: {s.valid_time} — {modelo}")
         for layer in (*scene.filled_layers, *scene.contour_layers)[:3]:
             d = layer.data
             nome = layer.var_info.get("nome", d.variable)
@@ -3287,7 +3308,7 @@ class MainWindow(QMainWindow):
             modelo = "ECMWF AIFS (IA)" if d.source == "aifs" else "ECMWF IFS"
             stamp.append(f"{nome}{nivel} — válido: {d.valid_time} — {modelo}")
         sat_data = getattr(self.canvas, "_sat_data", None)
-        if scene.texture is None and sat_data is None:
+        if not scene.has_fields() and sat_data is None:
             stamp.append("sem campos ativos — pele de relevo natural")
 
         e = self.config.extent
@@ -3300,6 +3321,7 @@ class MainWindow(QMainWindow):
             center=center,
             satellite=sat_data,
             stamp_lines=stamp,
+            drawings=drawings,
             output_dir=self.config.charts_dir,
         )
         win.closed.connect(lambda: setattr(self, "_globe_window", None))

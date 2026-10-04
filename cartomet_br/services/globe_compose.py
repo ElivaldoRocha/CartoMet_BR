@@ -56,6 +56,16 @@ class GlobeScene:
     filled_layers: list[GlobeLayer] = field(default_factory=list)
     contour_layers: list[GlobeLayer] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Camadas sinóticas (PNMM/espessura — isolinhas vetoriais no repouso).
+    # Centros H/L são detecção regional (máscara orográfica + persistência) e
+    # ficam fora do globo com aviso.
+    synoptic: Any = None  # SynopticData global (ou recorte no fallback) | None
+    synoptic_kinds: tuple[str, ...] = ()
+    synoptic_global: bool = True
+
+    def has_fields(self) -> bool:
+        """True se há QUALQUER conteúdo de dado do dia para a pele de campos."""
+        return self.texture is not None or bool(self.contour_layers) or self.synoptic is not None
 
 
 # ─── Cores de banda idênticas às do contourf ─────────────────────────────────
@@ -265,6 +275,50 @@ def reload_global(
     return gdata, True
 
 
+def reload_global_synoptic(
+    synoptic: Any,
+    *,
+    config: Any,
+    cycle: int | None,
+    cycle_date: str | None,
+) -> tuple[Any, bool]:
+    """Relê PNMM/espessura em extensão GLOBAL, só do cache — mesma rodada.
+
+    Mesmas regras de ``reload_global``: guarda de rodada (validade/base
+    divergente → recorte honesto), identidade do modelo preservada, zero rede.
+    """
+    from cartomet_br.data.ecmwf import CacheMissError, cache_only_mode, load_synoptic_data
+
+    try:
+        with cache_only_mode():
+            gsyn = load_synoptic_data(
+                extent=GLOBE_EXTENT,
+                step=int(synoptic.step),
+                cycle=cycle,
+                cycle_date=cycle_date,
+                data_dir=config.grib_dir,
+                smoothing_sigma=0.0,
+                model="aifs" if getattr(synoptic, "source", "ifs") == "aifs" else "ifs",
+            )
+    except CacheMissError:
+        return synoptic, False
+    except Exception as exc:  # noqa: BLE001 — fallback honesto, nunca rede
+        logger.warning("Releitura global do sinótico falhou (%s) — usando o recorte.", exc)
+        return synoptic, False
+
+    gsyn.source = synoptic.source
+    if (synoptic.valid_time and gsyn.valid_time != synoptic.valid_time) or (
+        synoptic.base_time and gsyn.base_time != synoptic.base_time
+    ):
+        logger.warning(
+            "Sinótico global veio de outra rodada (%s != %s) — usando o recorte.",
+            gsyn.base_time,
+            synoptic.base_time,
+        )
+        return synoptic, False
+    return gsyn, True
+
+
 # ─── Composição da cena ──────────────────────────────────────────────────────
 
 
@@ -277,6 +331,8 @@ def compose_scene(
     cycle_date: str | None,
     technique: str = "direct",
     shape: tuple[int, int] = TEXTURE_SHAPE,
+    synoptic: Any = None,
+    synoptic_kinds: tuple[str, ...] = (),
 ) -> GlobeScene:
     """Compõe a cena do globo a partir das camadas VISÍVEIS da carta.
 
@@ -284,9 +340,27 @@ def compose_scene(
     camadas ``plot_type=="contour"`` viram isolinhas vetoriais (render de
     repouso) e as demais escalares entram na textura única. A textura sai em
     uint8 (8 MB vs 33 MB em float — mitigação de memória do plano).
+    ``synoptic``/``synoptic_kinds``: as camadas sinóticas da carta (PNMM/
+    espessura entram como isolinhas; centros H/L ficam fora com aviso).
     """
     scene = GlobeScene(texture=None)
     acc: np.ndarray | None = None
+
+    if synoptic is not None and synoptic_kinds:
+        vis = tuple(k for k in synoptic_kinds if k in ("pnmm", "thickness"))
+        if vis:
+            gsyn, syn_ok = reload_global_synoptic(
+                synoptic, config=config, cycle=cycle, cycle_date=cycle_date
+            )
+            scene.synoptic = gsyn
+            scene.synoptic_kinds = vis
+            scene.synoptic_global = syn_ok
+            if not syn_ok:
+                scene.warnings.append(
+                    "PNMM/Espessura: sem cache global compatível — exibindo o recorte"
+                )
+        if "centers" in synoptic_kinds:
+            scene.warnings.append("Centros H/L ficam fora do globo (detecção regional)")
 
     for layer_id, data in pl_data.items():
         var_info = variable_registry.get(data.variable, {})

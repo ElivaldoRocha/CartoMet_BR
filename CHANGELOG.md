@@ -116,6 +116,16 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   a importar as fórmulas canônicas (vivia defasado: sem `theta_e_grad` e
   sem o clamp ≥ 0 dos índices — CAPE/K animados podiam ganhar níveis
   negativos que a carta nunca mostra).
+  **Teste de campo do usuário**: as **camadas sinóticas** (PNMM isolinhas e
+  Espessura 1000–500, com os MESMOS níveis/rótulos da carta — o GRIB
+  sinótico do cache também é global) e as **simbologias desenhadas**
+  (frentes com glifos OMM, símbolos, caneta, formas, anotações — mesma
+  fonte de construção da carta, `build_drawing_artist` extraída) agora
+  aparecem no globo; o traçado entra em TODAS as peles (como na carta
+  sobre satélite) e reprojeta de graça (o lado oculto do globo é recortado
+  pela projeção). Centros H/L (detecção regional com máscara orográfica) e
+  emojis (dependem do pixmap Qt do canvas) ficam fora com aviso honesto.
+  Só o sinótico carregado já ativa a pele de campos (antes caía no relevo).
 
 - **📐 Análise de Referência — o gabarito do professor sobre a carta do aluno (Onda 6 da v3.2).**
   Menu Arquivo → "Abrir Análise de Referência...": um segundo `.cmbr` (a

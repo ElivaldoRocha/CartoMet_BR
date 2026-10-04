@@ -319,3 +319,96 @@ class TestIntegracaoMainWindow:
         window._animation_controller = object()
         window._open_globe_view()
         assert avisos and window._globe_window is None
+
+
+class TestSinoticoEDesenhos:
+    def test_sinotico_e_tracado_aparecem_no_globo(self, qapp):
+        from cartomet_br.data.ecmwf import SynopticData
+        from cartomet_br.gui.globe_window import GlobeCanvas
+        from cartomet_br.services.globe_compose import GlobeScene
+
+        lats = np.linspace(20, -40, 7)
+        lons = np.linspace(-80, -20, 7)
+        lon2d, lat2d = np.meshgrid(lons, lats)
+        syn = SynopticData(
+            pnmm=1004.0 + lat2d * 0.5,
+            thickness=5400.0 + lat2d * 2.0,
+            lons=lons,
+            lats=lats,
+            lon2d=lon2d,
+            lat2d=lat2d,
+            valid_time="2026-10-04 00Z",
+            extent=[-80.0, -40.0, -20.0, 20.0],
+            base_time="00Z 04/10/2026",
+            step=0,
+        )
+        scene = GlobeScene(texture=None, synoptic=syn, synoptic_kinds=("pnmm", "thickness"))
+        recs = [
+            {
+                "type": "symbol_line",
+                "symbol_key": "1",
+                "points_x": [-60.0, -50.0],
+                "points_y": [-20.0, -25.0],
+                "flip": False,
+                "intensity": 1,
+            },
+            {"type": "annotation", "x": -45.0, "y": -10.0, "text": "frente fria", "color": "#fff"},
+            {"type": "emoji", "x": -40.0, "y": -5.0, "emoji": "CB", "fontsize": 28},
+        ]
+        c = GlobeCanvas(scene, center=(-55.0, -15.0), drawings=recs)
+        # Sinotico sozinho conta como "campos" (antes o globo caia no relevo).
+        assert c.available_skins()[0] == "Campos ativos"
+        c.render_full()
+        assert c._ax.collections, "isolinhas sinoticas ausentes"
+        assert c._ax.lines, "frente do tracado ausente"
+        assert any("frente fria" in t.get_text() for t in c._ax.texts)
+        c.shutdown()
+
+
+class TestSnapshotCompleto:
+    @pytest.fixture
+    def window(self, qapp, tmp_path):
+        from cartomet_br.gui.main_window import MainWindow
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        try:
+            return MainWindow(data_dir=data_dir)
+        except Exception as exc:  # noqa: BLE001 — ambiente sem render
+            pytest.skip(f"MainWindow nao pode ser criada offscreen: {exc}")
+
+    def test_sinotico_e_tracado_entram_no_snapshot(self, window, monkeypatch):
+        from cartomet_br.gui import globe_window as gw
+
+        monkeypatch.setattr(
+            gw.GlobeWindow, "show_fullscreen_on_screen", lambda self, screen=None: None
+        )
+        window.canvas.add_annotation(-40.0, -10.0, "cavado")
+        window.canvas.add_emoji(-45.0, -15.0, "CB", 28)
+        # SynopticData real (o reload cai em CacheMissError -> recorte honesto)
+        from cartomet_br.data.ecmwf import SynopticData
+
+        lats = np.linspace(5, -35, 5)
+        lons = np.linspace(-75, -35, 5)
+        lon2d, lat2d = np.meshgrid(lons, lats)
+        window.canvas.synoptic_data = SynopticData(
+            pnmm=np.full((5, 5), 1013.0),
+            thickness=np.full((5, 5), 5500.0),
+            lons=lons,
+            lats=lats,
+            lon2d=lon2d,
+            lat2d=lat2d,
+            valid_time="2026-10-04 00Z",
+            extent=[-75.0, -35.0, -35.0, 5.0],
+            base_time="00Z 04/10/2026",
+            step=0,
+        )
+        window._open_globe_view()
+        win = window._globe_window
+        assert win is not None
+        assert win.globe._scene.synoptic is not None
+        assert win.globe._scene.synoptic_kinds == ("pnmm", "thickness")
+        assert any("Centros H/L" in w for w in win.globe._scene.warnings)
+        assert any(r["type"] == "annotation" for r in win.globe._drawings)
+        assert any("emoji" in w for w in win.globe._scene.warnings)
+        win.close()

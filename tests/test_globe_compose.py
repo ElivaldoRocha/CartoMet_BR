@@ -16,6 +16,7 @@ from cartomet_br.services.globe_compose import (
     composite_over,
     rasterize_layer,
     reload_global,
+    reload_global_synoptic,
 )
 
 SHAPE_TESTE = (91, 180)  # 2° — rápido; a produção usa (721, 1440)
@@ -323,3 +324,67 @@ class TestComposeScene:
         )
         assert any("sem cache global" in w and "recorte" in w for w in scene.warnings)
         assert scene.filled_layers and not scene.filled_layers[0].is_global
+
+
+class TestSinoticoNoGlobo:
+    """PNMM/espessura entram no globo; centros H/L ficam fora com aviso."""
+
+    @staticmethod
+    def _syn(**kw):
+        from cartomet_br.data.ecmwf import SynopticData
+
+        lats = np.linspace(5, -35, 5)
+        lons = np.linspace(-75, -35, 5)
+        lon2d, lat2d = np.meshgrid(lons, lats)
+        base = {
+            "pnmm": np.full((5, 5), 1013.0),
+            "thickness": np.full((5, 5), 5500.0),
+            "lons": lons,
+            "lats": lats,
+            "lon2d": lon2d,
+            "lat2d": lat2d,
+            "valid_time": "2026-10-04 00Z",
+            "extent": [-75.0, -35.0, -35.0, 5.0],
+            "base_time": "00Z 04/10/2026",
+            "step": 0,
+        }
+        base.update(kw)
+        return SynopticData(**base)
+
+    def test_compose_inclui_sinotico_e_avisa_centros(self, tmp_path, monkeypatch):
+        import cartomet_br.services.globe_compose as gc
+
+        syn_global = self._syn()
+        monkeypatch.setattr(gc, "reload_global_synoptic", lambda s, **kw: (syn_global, True))
+        scene = gc.compose_scene(
+            {},
+            {},
+            config=_Cfg(tmp_path),
+            cycle=0,
+            cycle_date="20261004",
+            synoptic=self._syn(),
+            synoptic_kinds=("pnmm", "thickness", "centers"),
+        )
+        assert scene.synoptic is syn_global
+        assert scene.synoptic_kinds == ("pnmm", "thickness")
+        assert any("Centros H/L" in w for w in scene.warnings)
+        assert scene.has_fields()  # sinotico conta como campo (pele de campos)
+
+    def test_reload_sinotico_identidade_e_guarda_de_rodada(self, tmp_path, monkeypatch):
+        import cartomet_br.data.ecmwf as ec
+
+        regional = self._syn(source="aifs")
+        outra = self._syn(base_time="12Z 03/10/2026")
+        monkeypatch.setattr(ec, "load_synoptic_data", lambda **kw: outra)
+        out, ok = reload_global_synoptic(
+            regional, config=_Cfg(tmp_path), cycle=12, cycle_date="20261003"
+        )
+        assert not ok and out is regional  # rodada divergente -> recorte honesto
+
+        mesma = self._syn()
+        monkeypatch.setattr(ec, "load_synoptic_data", lambda **kw: mesma)
+        out2, ok2 = reload_global_synoptic(
+            regional, config=_Cfg(tmp_path), cycle=0, cycle_date="20261004"
+        )
+        assert ok2
+        assert out2.source == "aifs"  # identidade do modelo preservada

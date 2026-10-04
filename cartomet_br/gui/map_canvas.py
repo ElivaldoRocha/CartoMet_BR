@@ -121,6 +121,91 @@ CONTEXT_LINEWIDTHS: dict[str, tuple[float, float]] = {
 # linha larga de contraste por baixo + linha forte do tema por cima).
 CONTEXT_HALO_EXTRA: float = 1.8
 
+
+def build_drawing_artist(ax, cmd) -> object | None:
+    """Constrói o artista matplotlib de um comando de desenho em QUALQUER GeoAxes.
+
+    Fonte única da carta (*redo*, abrir projeto, análise de referência) e da
+    Vista de Globo: os comandos usam ``transform=PlateCarree()``, então o
+    mesmo traçado reprojeta de graça em Orthographic (o lado oculto do globo
+    é recortado pela própria projeção). Emojis NÃO passam por aqui — dependem
+    do pixmap Qt do MapCanvas (``_build_emoji_artist``). Devolve ``None``
+    para comandos desconhecidos. NÃO registra em lista nenhuma.
+    """
+    if isinstance(cmd, DrawCommand):
+        xi, yi = interpolar_pontos(cmd.points_x, cmd.points_y)
+        m = MODOS[cmd.symbol_key]
+        (line,) = ax.plot(
+            xi,
+            yi,
+            color=m["cor"],
+            linewidth=1.5,
+            path_effects=m["efeito"](flip=cmd.flip, intensity=getattr(cmd, "intensity", 1)),
+            transform=ccrs.PlateCarree(),
+            zorder=20,
+        )
+        return line
+    if isinstance(cmd, PointCommand):
+        m = MODOS[cmd.symbol_key]
+        if "draw_func" in m:
+            return m["draw_func"](ax, cmd.x, cmd.y, color=m["cor"])
+        return ax.text(
+            cmd.x,
+            cmd.y,
+            m.get("label", "?"),
+            fontsize=m.get("fontsize", 22),
+            fontweight="bold",
+            color=m["cor"],
+            ha="center",
+            va="center",
+            transform=ccrs.PlateCarree(),
+            zorder=25,
+            clip_on=True,
+            path_effects=[pe.withStroke(linewidth=3, foreground="white")],
+        )
+    if isinstance(cmd, PenCommand):
+        return create_pen_artist(
+            ax,
+            cmd.points_x,
+            cmd.points_y,
+            DrawStyle.from_dict(cmd.style),
+            transform=ccrs.PlateCarree(),
+        )
+    if isinstance(cmd, ShapeCommand):
+        return create_shape_artist(
+            ax,
+            cmd.tool,
+            cmd.points_x,
+            cmd.points_y,
+            DrawStyle.from_dict(cmd.style),
+            head_size_deg=cmd.head_size_deg,
+            rotation_deg=cmd.rotation_deg,
+            transform=ccrs.PlateCarree(),
+        )
+    if isinstance(cmd, AnnotationCommand):
+        return ax.text(
+            cmd.x,
+            cmd.y,
+            cmd.text,
+            fontsize=cmd.fontsize,
+            fontweight="bold",
+            color=cmd.color,
+            ha="center",
+            va="center",
+            transform=ccrs.PlateCarree(),
+            zorder=25,
+            clip_on=True,
+            bbox={
+                "boxstyle": "round,pad=0.3",
+                "facecolor": "black",
+                "alpha": 0.6,
+                "edgecolor": "none",
+            },
+            path_effects=[pe.withStroke(linewidth=2, foreground="black")],
+        )
+    return None
+
+
 # Camada "Hidrografia": o preenchimento dos lagos é geografia de base (fica SOB
 # o satélite, zorder 2, e sob os campos preenchidos, ≤14 — não oculta dado);
 # rios e contornos de lago ficam sobre os campos e sob estados (15) e
@@ -3681,88 +3766,17 @@ class MapCanvas(FigureCanvas):
         Fonte ÚNICA de reconstrução, usada pelo *redo* E pela carga de projeto
         (``import_drawings_state``). NÃO chama ``self.draw()`` — o chamador
         desenha uma vez ao final. Emojis não passam por aqui (ver ``add_emoji``).
+        A construção em si vive em ``build_drawing_artist`` (módulo) — a Vista
+        de Globo redesenha os mesmos comandos em projeção Orthographic.
         """
-        if isinstance(cmd, DrawCommand):
-            xi, yi = interpolar_pontos(cmd.points_x, cmd.points_y)
-            m = MODOS[cmd.symbol_key]
-            (line,) = self.ax.plot(
-                xi,
-                yi,
-                color=m["cor"],
-                linewidth=1.5,
-                path_effects=m["efeito"](flip=cmd.flip, intensity=getattr(cmd, "intensity", 1)),
-                transform=ccrs.PlateCarree(),
-                zorder=20,
-            )
-            cmd.artist = line
-            self.lines.append(line)
-        elif isinstance(cmd, PointCommand):
-            m = MODOS[cmd.symbol_key]
-            if "draw_func" in m:
-                artist = m["draw_func"](self.ax, cmd.x, cmd.y, color=m["cor"])
-            else:
-                artist = self.ax.text(
-                    cmd.x,
-                    cmd.y,
-                    m.get("label", "?"),
-                    fontsize=m.get("fontsize", 22),
-                    fontweight="bold",
-                    color=m["cor"],
-                    ha="center",
-                    va="center",
-                    transform=ccrs.PlateCarree(),
-                    zorder=25,
-                    clip_on=True,
-                    path_effects=[pe.withStroke(linewidth=3, foreground="white")],
-                )
-            cmd.artist = artist
+        artist = build_drawing_artist(self.ax, cmd)
+        if artist is None:
+            return
+        cmd.artist = artist
+        if isinstance(cmd, AnnotationCommand):
+            self._annotations.append(artist)
+        else:
             self.lines.append(artist)
-        elif isinstance(cmd, PenCommand):
-            artist = create_pen_artist(
-                self.ax,
-                cmd.points_x,
-                cmd.points_y,
-                DrawStyle.from_dict(cmd.style),
-                transform=ccrs.PlateCarree(),
-            )
-            cmd.artist = artist
-            self.lines.append(artist)
-        elif isinstance(cmd, ShapeCommand):
-            artist = create_shape_artist(
-                self.ax,
-                cmd.tool,
-                cmd.points_x,
-                cmd.points_y,
-                DrawStyle.from_dict(cmd.style),
-                head_size_deg=cmd.head_size_deg,
-                rotation_deg=cmd.rotation_deg,
-                transform=ccrs.PlateCarree(),
-            )
-            cmd.artist = artist
-            self.lines.append(artist)
-        elif isinstance(cmd, AnnotationCommand):
-            txt = self.ax.text(
-                cmd.x,
-                cmd.y,
-                cmd.text,
-                fontsize=cmd.fontsize,
-                fontweight="bold",
-                color=cmd.color,
-                ha="center",
-                va="center",
-                transform=ccrs.PlateCarree(),
-                zorder=25,
-                clip_on=True,
-                bbox={
-                    "boxstyle": "round,pad=0.3",
-                    "facecolor": "black",
-                    "alpha": 0.6,
-                    "edgecolor": "none",
-                },
-                path_effects=[pe.withStroke(linewidth=2, foreground="black")],
-            )
-            cmd.artist = txt
-            self._annotations.append(txt)
         # Redo/import com o grupo oculto: o artista reconstruído herda o toggle.
         kind = "annotations" if isinstance(cmd, AnnotationCommand) else "symbology"
         self._apply_drawing_visibility(kind, cmd.artist)

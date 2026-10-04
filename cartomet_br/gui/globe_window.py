@@ -19,6 +19,7 @@ from typing import Any, Literal, cast
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import matplotlib.patheffects as pe
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -60,6 +61,7 @@ class GlobeCanvas(FigureCanvas):
         center: tuple[float, float],
         satellite: Any = None,  # SatelliteData | None (full disk GOES)
         stamp_lines: list[str] | None = None,
+        drawings: list[dict] | None = None,  # records (.cmbr) do traçado do usuário
         parent: QWidget | None = None,
     ) -> None:
         self.fig = Figure(facecolor="black")
@@ -68,10 +70,16 @@ class GlobeCanvas(FigureCanvas):
         self._scene = scene
         self._satellite = satellite
         self._stamp_lines = stamp_lines or []
+        self._drawings = list(drawings or [])
         self._home = (float(center[0]), float(center[1]))
         self._center_lon, self._center_lat = self._home
         self._zoom = 1.0
-        self._skin = _PELE_CAMPOS if scene.texture is not None else _PELE_RELEVO
+        if scene.has_fields():
+            self._skin = _PELE_CAMPOS
+        elif satellite is not None:
+            self._skin = _PELE_GOES
+        else:
+            self._skin = _PELE_RELEVO
         self._quality = "Equilibrado"
         self._ax = None
         self._dragging = False
@@ -110,7 +118,7 @@ class GlobeCanvas(FigureCanvas):
 
     def available_skins(self) -> list[str]:
         skins = []
-        if self._scene.texture is not None:
+        if self._scene.has_fields():
             skins.append(_PELE_CAMPOS)
         if self._satellite is not None:
             skins.append(_PELE_GOES)
@@ -246,11 +254,106 @@ class GlobeCanvas(FigureCanvas):
 
         if self._skin == _PELE_CAMPOS:
             self._draw_contour_layers(ax)
+            self._draw_synoptic(ax)
             self._draw_colorbars()
+        # O traçado do usuário aparece em TODAS as peles (como na carta, que
+        # o desenha sobre campos E satélite) — zorder próprio (20/25) já o
+        # põe acima de qualquer pele.
+        self._draw_drawings(ax)
         self._draw_stamp()
 
         self._apply_zoom()
         self.draw_idle()
+
+    def _draw_synoptic(self, ax) -> None:
+        """PNMM/espessura com os MESMOS níveis da carta (LEVELS canônicos).
+
+        Valores e rótulos idênticos aos da carta 2D; só as cores de linha são
+        adaptadas ao fundo escuro do globo (PNMM clara; espessura mantém as
+        cores quente/fria da carta, que já são saturadas) e o halo dos
+        rótulos vira escuro. Centros H/L ficam fora (aviso na cena).
+        """
+        syn = self._scene.synoptic
+        if syn is None:
+            return
+        from cartomet_br.core.config import COLORS, LEVELS
+
+        halo = [pe.withStroke(linewidth=2, foreground="#060a14")]
+        try:
+            if "pnmm" in self._scene.synoptic_kinds:
+                niveis = np.arange(
+                    LEVELS["pnmm"]["min"], LEVELS["pnmm"]["max"], LEVELS["pnmm"]["step"]
+                )
+                cs = ax.contour(
+                    syn.lons,
+                    syn.lats,
+                    syn.pnmm,
+                    levels=niveis,
+                    colors="#e8edf5",
+                    linewidths=0.9,
+                    transform=ccrs.PlateCarree(),
+                    zorder=6,
+                )
+                for txt in ax.clabel(cs, inline=True, fontsize=7, fmt="%1.0f"):
+                    txt.set_path_effects(halo)
+            if "thickness" in self._scene.synoptic_kinds:
+                niveis = np.arange(
+                    LEVELS["thickness"]["min"],
+                    LEVELS["thickness"]["max"],
+                    LEVELS["thickness"]["step"],
+                )
+                sem_5400 = niveis[niveis != 5400]
+                cs = ax.contour(
+                    syn.lons,
+                    syn.lats,
+                    syn.thickness,
+                    levels=sem_5400,
+                    colors=[
+                        COLORS["thickness_cold"] if lv < 5400 else COLORS["thickness_warm"]
+                        for lv in sem_5400
+                    ],
+                    linestyles="dashed",
+                    linewidths=0.8,
+                    transform=ccrs.PlateCarree(),
+                    zorder=5,
+                )
+                for txt in ax.clabel(cs, inline=True, fontsize=7, fmt="%1.0f"):
+                    txt.set_path_effects(halo)
+                cs_5400 = ax.contour(
+                    syn.lons,
+                    syn.lats,
+                    syn.thickness,
+                    levels=[5400],
+                    colors=COLORS["thickness_5400"],
+                    linestyles="solid",
+                    linewidths=2.2,
+                    transform=ccrs.PlateCarree(),
+                    zorder=5,
+                )
+                for txt in ax.clabel(cs_5400, inline=True, fontsize=8, fmt="%1.0f"):
+                    txt.set_path_effects(halo)
+        except Exception as exc:  # noqa: BLE001 — sinótico é camada, não derruba o globo
+            logger.warning("Sinótico no globo falhou: %s", exc)
+
+    def _draw_drawings(self, ax) -> None:
+        """Redesenha o traçado do usuário (records .cmbr) sobre o globo.
+
+        Mesma fonte de construção da carta (``build_drawing_artist`` — os
+        comandos usam transform=PlateCarree e reprojetam de graça); emojis
+        dependem do pixmap Qt do MapCanvas e ficam fora (aviso na cena).
+        """
+        if not self._drawings:
+            return
+        from cartomet_br.gui.map_canvas import build_drawing_artist
+        from cartomet_br.gui.project_io import record_to_command
+
+        for rec in self._drawings:
+            if rec.get("type") == "emoji":
+                continue  # aviso único já entra na cena (MainWindow)
+            try:
+                build_drawing_artist(ax, record_to_command(rec))
+            except Exception as exc:  # noqa: BLE001 — um desenho ruim não derruba o globo
+                logger.warning("Desenho %s falhou no globo: %s", rec.get("type"), exc)
 
     def _draw_goes(self, ax) -> None:
         from cartomet_br.data.ecmwf import get_ir_colormap
@@ -469,6 +572,7 @@ class GlobeWindow(QMainWindow):
         center: tuple[float, float],
         satellite: Any = None,
         stamp_lines: list[str] | None = None,
+        drawings: list[dict] | None = None,
         output_dir: Any = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -480,7 +584,12 @@ class GlobeWindow(QMainWindow):
         self._output_dir = output_dir
 
         self.globe = GlobeCanvas(
-            scene, center=center, satellite=satellite, stamp_lines=stamp_lines, parent=self
+            scene,
+            center=center,
+            satellite=satellite,
+            stamp_lines=stamp_lines,
+            drawings=drawings,
+            parent=self,
         )
 
         barra = QWidget()
