@@ -62,10 +62,6 @@ class GlobeScene:
     synoptic: Any = None  # SynopticData global (ou recorte no fallback) | None
     synoptic_kinds: tuple[str, ...] = ()
     synoptic_global: bool = True
-    # True somente quando o forno NÃO conseguiu assar o relevo como base
-    # (raster do cartopy ausente) — a janela então desenha stock_img por
-    # frame como fallback.
-    underlay_relevo: bool = False
 
     def has_fields(self) -> bool:
         """True se há QUALQUER conteúdo de dado do dia para a pele de campos."""
@@ -323,60 +319,21 @@ def reload_global_synoptic(
     return gsyn, True
 
 
-# ─── Assadura das camadas vetoriais na textura ───────────────────────────────
-# Lição de campo (globo travando em máquina boa): o clabel GLOBAL custa
-# SEGUNDOS por render — centenas de rótulos com halo re-rasterizados a cada
-# giro/zoom. Assar isolinhas+rótulos UMA vez na pele (equiretangular) torna o
-# render de repouso um único imshow (~0,5 s), independente das camadas.
-# Rótulos giram com o globo, como num globo físico.
-
-# Fator de fonte/linha do forno: a textura 1× (1440 px de largura; o
-# hemisfério visível ocupa ~720 px dela e ~900 px de tela) sobe ~1,25× no
-# render — fontes ~1,3× preservam a leitura da carta. Medição ao vivo: assar
-# em 2× dobrava o lado da fonte da reprojeção e o repouso ia de ~0,7 s a
-# ~2,3 s — o forno fica na MESMA grade da textura.
-_BAKE_FONT_SCALE = 1.3
+# ─── Isolinhas vetoriais (sinótico + plot_type "contour") ───────────────────
+# Desenhadas pelo WORKER de frame da Vista de Globo (thread separada): a
+# lição de campo em dois atos — o clabel global por frame travava a GUI, e
+# assar na textura 1x serrilhava os rótulos. O caminho final é vetorial
+# nítido, renderizado FORA da thread da interface e trocado na tela pronto.
 
 
-def _stock_earth_rgba(shape: tuple[int, int]) -> np.ndarray | None:
-    """Relevo natural (o MESMO arquivo do ``stock_img``) como base equiretangular.
+def draw_synoptic_overlay(
+    ax, synoptic: Any, kinds: tuple[str, ...], *, scale: float = 1.0, transform: Any = None
+) -> None:
+    """Desenha PNMM/espessura com os MESMOS níveis/rótulos da carta.
 
-    Carregado direto do raster do cartopy e reamostrado (nearest) para a grade
-    da textura — o relevo entra ASSADO na pele e some do custo por frame
-    (``stock_img`` custava ~0,55 s por render). ``None`` se o raster não
-    estiver onde o cartopy o publica (caímos no stock_img por frame).
-    """
-    try:
-        from pathlib import Path
-
-        import matplotlib.image as mpimg
-        from cartopy import config as cartopy_config
-
-        raster = (
-            Path(cartopy_config["repo_data_dir"])
-            / "raster"
-            / "natural_earth"
-            / "50-natural-earth-1-downsampled.png"
-        )
-        img = np.asarray(mpimg.imread(str(raster)), dtype=np.float32)  # (H, W, 3) 0..1
-    except Exception as exc:  # noqa: BLE001 — base é cosmética; fallback honesto
-        logger.warning("Relevo do cartopy indisponível p/ o forno (%s).", exc)
-        return None
-    h, w = shape
-    iy = np.clip((np.arange(h) * img.shape[0] / h).astype(int), 0, img.shape[0] - 1)
-    ix = np.clip((np.arange(w) * img.shape[1] / w).astype(int), 0, img.shape[1] - 1)
-    base = np.ones((h, w, 4), dtype=np.float32)
-    base[..., :3] = img[np.ix_(iy, ix)][..., :3]
-    return base
-
-
-def draw_synoptic_overlay(ax, synoptic: Any, kinds: tuple[str, ...], *, scale: float = 1.0) -> None:
-    """Desenha PNMM/espessura num Axes equiretangular (dados em lon/lat crus).
-
-    MESMOS níveis/rótulos da carta (LEVELS/COLORS canônicos); cores claras e
-    halo escuro calibrados para o fundo do globo. Usada pelo forno da textura
-    (``bake_vector_overlay``) — sem cartopy: no equiretangular lon/lat são as
-    próprias coordenadas do eixo.
+    Cores claras e halo escuro calibrados para o fundo do globo. Num GeoAxes
+    passe ``transform=ccrs.PlateCarree()`` (worker da Vista de Globo); num
+    Axes equiretangular cru, deixe ``None`` — lon/lat já são as coordenadas.
     """
     import matplotlib.patheffects as pe
 
@@ -392,6 +349,7 @@ def draw_synoptic_overlay(ax, synoptic: Any, kinds: tuple[str, ...], *, scale: f
             levels=niveis,
             colors="#e8edf5",
             linewidths=0.9 * scale,
+            **({"transform": transform} if transform is not None else {}),
         )
         for txt in ax.clabel(cs, inline=True, fontsize=7 * scale, fmt="%1.0f"):
             txt.set_path_effects(halo)
@@ -411,6 +369,7 @@ def draw_synoptic_overlay(ax, synoptic: Any, kinds: tuple[str, ...], *, scale: f
             ],
             linestyles="dashed",
             linewidths=0.8 * scale,
+            **({"transform": transform} if transform is not None else {}),
         )
         for txt in ax.clabel(cs, inline=True, fontsize=7 * scale, fmt="%1.0f"):
             txt.set_path_effects(halo)
@@ -422,12 +381,15 @@ def draw_synoptic_overlay(ax, synoptic: Any, kinds: tuple[str, ...], *, scale: f
             colors=COLORS["thickness_5400"],
             linestyles="solid",
             linewidths=2.2 * scale,
+            **({"transform": transform} if transform is not None else {}),
         )
         for txt in ax.clabel(cs_5400, inline=True, fontsize=8 * scale, fmt="%1.0f"):
             txt.set_path_effects(halo)
 
 
-def draw_contour_overlay(ax, contour_layers: list[GlobeLayer], *, scale: float = 1.0) -> None:
+def draw_contour_overlay(
+    ax, contour_layers: list[GlobeLayer], *, scale: float = 1.0, transform: Any = None
+) -> None:
     """Isolinhas das camadas ``plot_type=="contour"`` (gh500...) — níveis da carta."""
     import matplotlib.patheffects as pe
 
@@ -443,58 +405,12 @@ def draw_contour_overlay(ax, contour_layers: list[GlobeLayer], *, scale: float =
                 levels=np.asarray(layer.style.levels, dtype=float),
                 colors="#f2f5fa",
                 linewidths=0.8 * scale,
+                **({"transform": transform} if transform is not None else {}),
             )
             for txt in ax.clabel(cs, inline=True, fontsize=7 * scale, fmt="%1.0f"):
                 txt.set_path_effects(halo)
         except Exception as exc:  # noqa: BLE001 — isolinha é adorno, não derruba o forno
             logger.warning("Isolinhas de %s falharam no forno: %s", layer.layer_id, exc)
-
-
-def bake_vector_overlay(scene: GlobeScene, shape: tuple[int, int] = TEXTURE_SHAPE) -> None:
-    """Assa sinótico + isolinhas NA textura da cena (uma única vez, offscreen).
-
-    Renderiza num Agg equiretangular NA grade da textura e compõe "over" a
-    textura dos campos; sem campo preenchido, a base vira o relevo natural
-    (também assado — some o stock_img por frame). Depois disto a janela não
-    desenha nenhum vetor pesado por frame: o repouso é um único imshow.
-    """
-    if scene.synoptic is None and not scene.contour_layers:
-        return
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
-
-    h, w = shape
-    fig = Figure(figsize=(w / 100.0, h / 100.0), dpi=100)
-    fig.patch.set_alpha(0.0)
-    ax = fig.add_axes((0.0, 0.0, 1.0, 1.0))
-    ax.set_xlim(-180.0, 180.0)
-    ax.set_ylim(-90.0, 90.0)
-    ax.set_axis_off()
-    ax.patch.set_alpha(0.0)
-
-    if scene.synoptic is not None:
-        draw_synoptic_overlay(ax, scene.synoptic, scene.synoptic_kinds, scale=_BAKE_FONT_SCALE)
-    draw_contour_overlay(ax, scene.contour_layers, scale=_BAKE_FONT_SCALE)
-
-    canvas = FigureCanvasAgg(fig)
-    canvas.draw()
-    overlay = np.asarray(canvas.buffer_rgba(), dtype=np.float32) / 255.0  # linha 0 = +90°
-    if overlay.shape[:2] != (h, w):  # DPI scaling defensivo
-        iy = np.clip((np.arange(h) * overlay.shape[0] / h).astype(int), 0, overlay.shape[0] - 1)
-        ix = np.clip((np.arange(w) * overlay.shape[1] / w).astype(int), 0, overlay.shape[1] - 1)
-        overlay = overlay[np.ix_(iy, ix)]
-
-    if scene.texture is not None:
-        base = scene.texture.astype(np.float32) / 255.0
-    else:
-        relevo = _stock_earth_rgba(shape)
-        if relevo is None:
-            base = np.zeros((h, w, 4), dtype=np.float32)
-            scene.underlay_relevo = True  # fallback: stock_img por frame
-        else:
-            base = relevo
-    final = composite_over(base, overlay)
-    scene.texture = (np.clip(final, 0.0, 1.0) * 255).astype(np.uint8)
 
 
 # ─── Composição da cena ──────────────────────────────────────────────────────
@@ -593,9 +509,6 @@ def compose_scene(
         flat[..., :3] = np.where(a > 0.0, flat[..., :3], 0.0)
         scene.texture = (np.clip(flat, 0.0, 1.0) * 255).astype(np.uint8)
 
-    # Isolinhas (sinótico + plot_type "contour") entram ASSADAS na textura:
-    # o clabel global por frame era o que travava o globo (lição de campo).
-    bake_vector_overlay(scene, shape)
     return scene
 
 

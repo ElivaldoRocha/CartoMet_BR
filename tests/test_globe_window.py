@@ -1,4 +1,9 @@
-"""Vista de Globo — janela, gestos e integração com o MainWindow (offscreen)."""
+"""Vista de Globo — frame assíncrono, gestos e integração (offscreen).
+
+O render nítido roda num ``GlobeFrameWorker`` (QThread) e a GUI só troca a
+imagem pronta. Nos testes o worker vira SÍNCRONO (fixture ``sync_worker``)
+e o CONTEÚDO do frame é inspecionado via ``compose_globe_frame`` direto.
+"""
 
 import os
 from types import SimpleNamespace
@@ -13,6 +18,15 @@ pytest.importorskip("PyQt6")
 from cartomet_br.data.ecmwf import PLFieldData
 from cartomet_br.services.field_style import derive_scalar_style
 from cartomet_br.services.globe_compose import GlobeLayer, GlobeScene
+
+
+@pytest.fixture(autouse=True)
+def sync_worker(monkeypatch):
+    """Worker de frame roda SÍNCRONO nos testes (sem threads de verdade)."""
+    from cartomet_br.gui import globe_window as gw
+
+    monkeypatch.setattr(gw.GlobeFrameWorker, "start", lambda self: self.run())
+    yield
 
 
 def _scene(with_texture=True, warnings=()):
@@ -36,6 +50,27 @@ def _scene(with_texture=True, warnings=()):
     return GlobeScene(texture=tex, filled_layers=layers, warnings=list(warnings))
 
 
+def _stars():
+    rng = np.random.default_rng(1)
+    return (rng.random(30), rng.random(30), rng.random(30) + 0.5)
+
+
+def _frame_kwargs(scene, **kw):
+    base = {
+        "scene": scene,
+        "satellite": None,
+        "skin": "Campos ativos",
+        "quality": "Rascunho",
+        "center": (-55.0, -15.0),
+        "zoom": 1.0,
+        "stars": _stars(),
+        "stamp_lines": ["CartoMet BR — Vista de Globo"],
+        "drawings": [],
+    }
+    base.update(kw)
+    return base
+
+
 @pytest.fixture
 def canvas_globo(qapp):
     from cartomet_br.gui.globe_window import GlobeCanvas
@@ -51,21 +86,135 @@ def _evt(**kw):
     return SimpleNamespace(**base)
 
 
-class TestRender:
-    def test_render_full_poe_textura_costa_e_carimbo(self, qapp):
+class TestComposeFrame:
+    """Conteúdo do frame nítido (função pura executada pelo worker)."""
+
+    def test_textura_costa_carimbo_e_avisos(self):
+        from matplotlib.figure import Figure
+
+        from cartomet_br.gui.globe_window import compose_globe_frame
+
+        fig = Figure(figsize=(6, 4), dpi=100)
+        scene = _scene(warnings=["t: sem cache global compatível — exibindo o recorte"])
+        info = compose_globe_frame(
+            fig,
+            **_frame_kwargs(
+                scene,
+                stamp_lines=["CartoMet BR — Vista de Globo", "Temperatura 850 hPa"],
+            ),
+        )
+        assert info["ax"].get_images(), "textura (imshow) ausente"
+        textos = [t.get_text() for t in fig.texts]
+        assert any("Vista de Globo" in t for t in textos)
+        assert any("recorte" in t for t in textos)  # aviso honesto no frame
+
+    def test_colorbar_diz_o_que_a_textura_mostra(self):
+        # Achado da revisão: BoundaryNorm(levels, cmap.N) distribui as bandas
+        # uniformemente pelo cmap — para níveis IRREGULARES (precipitação) a
+        # legenda divergia da textura. A colorbar usa as cores REAIS das
+        # bandas (band_colors), achatadas sobre branco como a textura.
+        from matplotlib.figure import Figure
+
+        from cartomet_br.gui.globe_window import compose_globe_frame
+        from cartomet_br.services.globe_compose import band_colors
+
+        data = PLFieldData(
+            values=np.full((3, 4), 12.0),
+            lons=np.array([-60.0, -55.0, -50.0, -45.0]),
+            lats=np.array([-10.0, -15.0, -20.0]),
+            variable="precip",
+            unit="mm/3h",
+        )
+        style = derive_scalar_style("precip", "mm/3h", data.values, {"cmap": "precip_classic"})
+        layer = GlobeLayer("precip", data, {"nome": "Precipitação"}, style, True)
+        tex = np.zeros((10, 20, 4), dtype=np.uint8)
+        scene = GlobeScene(texture=tex, filled_layers=[layer])
+
+        fig = Figure(figsize=(6, 4), dpi=100)
+        info = compose_globe_frame(fig, **_frame_kwargs(scene))
+        assert info["colorbars"], "colorbar não construída"
+        interior, _under, _over = band_colors(style)
+        cores_cbar = np.asarray(info["colorbars"][0].cmap.colors)
+        esperadas = np.asarray([(*(np.asarray(k[:3]) * 0.85 + 0.15), 1.0) for k in interior])
+        assert cores_cbar.shape == esperadas.shape
+        assert np.allclose(cores_cbar, esperadas, atol=1e-6)
+
+    def test_sinotico_vetorial_e_tracado_com_descarte_do_lado_oculto(self):
+        from matplotlib.figure import Figure
+
+        from cartomet_br.data.ecmwf import SynopticData
+        from cartomet_br.gui.globe_window import compose_globe_frame
+
+        lats = np.linspace(20, -40, 7)
+        lons = np.linspace(-80, -20, 7)
+        lon2d, lat2d = np.meshgrid(lons, lats)
+        syn = SynopticData(
+            pnmm=1004.0 + lat2d * 0.5,
+            thickness=5400.0 + lat2d * 2.0,
+            lons=lons,
+            lats=lats,
+            lon2d=lon2d,
+            lat2d=lat2d,
+            valid_time="2026-10-04 00Z",
+            extent=[-80.0, -40.0, -20.0, 20.0],
+            base_time="00Z 04/10/2026",
+            step=0,
+        )
+        scene = GlobeScene(texture=None, synoptic=syn, synoptic_kinds=("pnmm", "thickness"))
+        recs = [
+            {
+                "type": "symbol_line",
+                "symbol_key": "1",
+                "points_x": [-60.0, -50.0],
+                "points_y": [-20.0, -25.0],
+                "flip": False,
+                "intensity": 1,
+            },
+            {"type": "annotation", "x": -45.0, "y": -10.0, "text": "frente fria", "color": "#fff"},
+            # Anotação na ANTÍPODA (lado oculto) — descartada, não vira lixo visual.
+            {"type": "annotation", "x": 125.0, "y": 15.0, "text": "oculta", "color": "#fff"},
+            {"type": "emoji", "x": -40.0, "y": -5.0, "emoji": "CB", "fontsize": 28},
+        ]
+        fig = Figure(figsize=(6, 4), dpi=100)
+        info = compose_globe_frame(fig, **_frame_kwargs(scene, drawings=recs))
+        ax = info["ax"]
+        assert ax.collections, "isolinhas sinoticas (vetoriais) ausentes"
+        assert ax.lines, "frente do tracado ausente"
+        textos_ax = [t.get_text() for t in ax.texts]
+        assert any("frente fria" in t for t in textos_ax)
+        assert not any("oculta" in t for t in textos_ax)  # lado oculto descartado
+
+    def test_simbolo_pontual_dimensionado_em_graus_no_globo(self):
+        # Bug de campo: _symbol_size usava xlim (METROS na ortográfica) e o
+        # símbolo de baixa pressão virava uma mancha do tamanho do globo.
+        from cartomet_br.symbols.point_symbols import _symbol_size
+
+        ax_orto = SimpleNamespace(get_xlim=lambda: (-6.4e6, 6.4e6))
+        ax_carta = SimpleNamespace(get_xlim=lambda: (-75.0, -35.0))
+        assert _symbol_size(ax_carta) == pytest.approx(40.0 * 0.035)
+        tam_globo = _symbol_size(ax_orto)
+        assert 2.0 < tam_globo < 6.0  # ~115° de disco → ~4° de símbolo
+
+
+class TestFrameAssincrono:
+    def test_render_full_troca_a_tela_pelo_frame(self, canvas_globo):
+        c = canvas_globo
+        estados = []
+        c.render_state.connect(estados.append)
+        c.render_full()  # worker síncrono na fixture
+        assert c._last_frame is not None
+        assert c._last_frame.ndim == 3 and c._last_frame.shape[2] == 4
+        assert c._image_ax is not None and c._image_ax.get_images()
+        assert "Renderizando" in estados[0]
+        assert estados[-1] == ""  # pronto → status limpo
+
+    def test_frame_obsoleto_e_descartado(self, qapp):
         from cartomet_br.gui.globe_window import GlobeCanvas
 
-        c = GlobeCanvas(
-            _scene(warnings=["t: sem cache global — exibindo o recorte regional"]),
-            center=(-55.0, -15.0),
-            stamp_lines=["CartoMet BR — Vista de Globo", "Temperatura 850 hPa"],
-        )
-        c.render_full()
-        assert c._ax is not None
-        assert c._ax.get_images(), "textura (imshow) ausente"
-        textos = [t.get_text() for t in c.fig.texts]
-        assert any("Vista de Globo" in t for t in textos)
-        assert any("recorte regional" in t for t in textos)  # aviso honesto no PNG
+        c = GlobeCanvas(_scene(), center=(-55.0, -15.0))
+        c._frame_gen = 7
+        c._on_frame_ready(3, np.zeros((4, 4, 4), dtype=np.uint8))  # geração velha
+        assert c._last_frame is None
         c.shutdown()
 
     def test_sem_campos_pele_relevo(self, qapp):
@@ -73,8 +222,8 @@ class TestRender:
 
         c = GlobeCanvas(_scene(with_texture=False), center=(0.0, 0.0))
         assert c.available_skins() == ["Relevo natural"]
-        c.render_full()  # stock_img — não pode levantar
-        assert c._ax is not None
+        c.render_full()  # stock_img no worker — não pode levantar
+        assert c._last_frame is not None
         c.shutdown()
 
     def test_render_draft_e_barato_sem_textura(self, canvas_globo):
@@ -95,7 +244,7 @@ class TestGestos:
         assert lon1 < lon0  # superfície segue a mão → centro vai p/ oeste
         c._on_release(_evt())
         assert not c._dragging
-        assert c._settle_timer.isActive()  # render completo agendado
+        assert c._settle_timer.isActive()  # frame nítido agendado
 
     def test_clamp_de_latitude_e_wrap_de_longitude(self, canvas_globo):
         c = canvas_globo
@@ -107,7 +256,7 @@ class TestGestos:
 
     def test_scroll_zoom_com_limites(self, canvas_globo):
         c = canvas_globo
-        c.render_full()
+        c.render_draft()
         for _ in range(20):
             c._on_scroll(_evt(button="up"))
         assert c._zoom == pytest.approx(8.0)
@@ -115,12 +264,36 @@ class TestGestos:
             c._on_scroll(_evt(button="down"))
         assert c._zoom == pytest.approx(1.0)
 
+    def test_scroll_recorta_o_frame_pronto(self, canvas_globo):
+        c = canvas_globo
+        c.render_full()
+        assert c._image_ax is not None
+        xlim0 = c._image_ax.get_xlim()
+        c._on_scroll(_evt(button="up"))
+        xlim1 = c._image_ax.get_xlim()
+        assert (xlim1[1] - xlim1[0]) < (xlim0[1] - xlim0[0])  # recorte = zoom
+
     def test_duplo_clique_fora_do_disco_e_noop(self, canvas_globo):
         c = canvas_globo
         c.render_full()
         antes = c.center
-        c._on_press(_evt(dblclick=True, xdata=None, inaxes=c._ax))
+        c._on_press(_evt(dblclick=True, x=1.0, y=1.0))  # canto: fora do disco
         assert c.center == antes
+
+    def test_px_to_lonlat_no_centro_do_canvas(self, qapp):
+        from cartomet_br.gui.globe_window import _AX_RECT, GlobeCanvas
+
+        c = GlobeCanvas(_scene(), center=(0.0, 0.0))
+        c.render_draft()
+        w = float(c.fig.bbox.width)
+        h = float(c.fig.bbox.height)
+        cx = (_AX_RECT[0] + _AX_RECT[2] / 2.0) * w
+        cy = (_AX_RECT[1] + _AX_RECT[3] / 2.0) * h
+        lonlat = c._px_to_lonlat(cx, cy)
+        assert lonlat is not None
+        assert lonlat[0] == pytest.approx(0.0, abs=1.0)
+        assert lonlat[1] == pytest.approx(0.0, abs=1.0)
+        c.shutdown()
 
     def test_apresentacao_gira_e_gesto_pausa(self, canvas_globo):
         c = canvas_globo
@@ -131,6 +304,22 @@ class TestGestos:
         assert c.center[0] != lon0
         c._on_press(_evt())  # qualquer press pausa o giro
         assert not c.spinning
+
+
+class TestCarimboPorPele:
+    def test_carimbo_acompanha_a_pele(self):
+        from cartomet_br.gui.globe_window import _stamp_for_skin
+
+        sat = SimpleNamespace(time_str="03/10/2026 23:50 UTC")
+        linhas = ["CartoMet BR — Vista de Globo", "Temperatura 850 hPa — ECMWF IFS"]
+        scene = _scene()
+        goes = _stamp_for_skin(scene, "Satélite GOES", sat, linhas)
+        assert any("GOES-East" in t and "23:50" in t for t in goes)
+        assert not any("Temperatura" in t for t in goes)  # step do modelo não assina a imagem
+        relevo = _stamp_for_skin(scene, "Relevo natural", None, linhas)
+        assert any("relevo natural" in t for t in relevo)
+        campos = _stamp_for_skin(scene, "Campos ativos", None, linhas)
+        assert campos == linhas
 
 
 class TestJanela:
@@ -154,7 +343,6 @@ class TestJanela:
         from cartomet_br.gui.globe_window import GlobeWindow
 
         win = GlobeWindow(_scene(), center=(-55.0, -15.0))
-        win.globe.render_full()
         ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Left, Qt.KeyboardModifier.NoModifier)
         win.keyPressEvent(ev)
         assert win.globe.center[0] == pytest.approx(-65.0)
@@ -164,71 +352,7 @@ class TestJanela:
         assert win.globe.center == (-55.0, -15.0)
         win.close()
 
-    def test_colorbar_diz_o_que_a_textura_mostra(self, qapp):
-        # Achado da revisão: BoundaryNorm(levels, cmap.N) distribui as bandas
-        # uniformemente pelo cmap — para níveis IRREGULARES (precipitação) a
-        # legenda divergia da textura em várias categorias. A colorbar agora
-        # usa as cores REAIS das bandas (band_colors), achatadas sobre branco.
-        import numpy as np
-
-        from cartomet_br.gui.globe_window import GlobeCanvas
-        from cartomet_br.services.field_style import derive_scalar_style
-        from cartomet_br.services.globe_compose import GlobeLayer, GlobeScene, band_colors
-
-        data = PLFieldData(
-            values=np.full((3, 4), 12.0),
-            lons=np.array([-60.0, -55.0, -50.0, -45.0]),
-            lats=np.array([-10.0, -15.0, -20.0]),
-            variable="precip",
-            unit="mm/3h",
-        )
-        style = derive_scalar_style(
-            "precip", "mm/3h", data.values, {"cmap": "precip_classic"}
-        )  # níveis irregulares de verdade
-        layer = GlobeLayer("precip", data, {"nome": "Precipitação"}, style, True)
-        tex = np.zeros((10, 20, 4), dtype=np.uint8)
-        scene = GlobeScene(texture=tex, filled_layers=[layer])
-        c = GlobeCanvas(scene, center=(-55.0, -15.0))
-        c.render_full()
-        assert c._colorbars, "colorbar não construída"
-        interior, _under, _over = band_colors(style)
-        cores_cbar = np.asarray(c._colorbars[0].cmap.colors)
-        esperadas = np.asarray([(*(np.asarray(k[:3]) * 0.85 + 0.15), 1.0) for k in interior])
-        assert cores_cbar.shape == esperadas.shape
-        assert np.allclose(cores_cbar, esperadas, atol=1e-6)
-        c.shutdown()
-
-    def test_carimbo_acompanha_a_pele(self, qapp):
-        from cartomet_br.gui.globe_window import GlobeCanvas
-
-        sat = SimpleNamespace(
-            data=np.zeros((4, 4)),
-            x=np.array([-5e6, 0.0, 5e6, 5.5e6]),
-            y=np.array([5e6, 0.0, -5e6, -5.5e6]),
-            sat_lon=-75.0,
-            sat_h=35786023.0,
-            sat_sweep="x",
-            time_str="03/10/2026 23:50 UTC",
-        )
-        c = GlobeCanvas(
-            _scene(),
-            center=(-55.0, -15.0),
-            satellite=sat,
-            stamp_lines=["CartoMet BR — Vista de Globo", "Temperatura 850 hPa — ECMWF IFS"],
-        )
-        c.set_skin("Satélite GOES")
-        textos = " | ".join(t.get_text() for t in c.fig.texts)
-        assert "GOES-East" in textos and "23:50" in textos
-        assert "Temperatura" not in textos  # o step do modelo não assina a imagem
-        c.set_skin("Relevo natural")
-        textos = " | ".join(t.get_text() for t in c.fig.texts)
-        assert "relevo natural" in textos and "Temperatura" not in textos
-        c.set_skin("Campos ativos")
-        textos = " | ".join(t.get_text() for t in c.fig.texts)
-        assert "Temperatura 850 hPa" in textos
-        c.shutdown()
-
-    def test_salvar_png(self, qapp, tmp_path):
+    def test_salvar_png_usa_o_frame_pronto(self, qapp, tmp_path):
         from cartomet_br.gui.globe_window import GlobeWindow
 
         win = GlobeWindow(_scene(), center=(-55.0, -15.0), output_dir=tmp_path)
@@ -269,7 +393,6 @@ class TestIntegracaoMainWindow:
         assert list(vis) == ["t_850"]
 
     def test_abrir_globo_sem_campos_usa_relevo(self, window, monkeypatch):
-        # Sem rede e sem showFullScreen de verdade no offscreen.
         aberto = {}
         from cartomet_br.gui import globe_window as gw
 
@@ -286,9 +409,7 @@ class TestIntegracaoMainWindow:
 
     def test_ciclo_abrir_fechar_nao_vaza_a_janela(self, window, monkeypatch):
         # Achado da revisão: com parent Qt, a posse C++ era do MainWindow e
-        # cada ciclo abrir/fechar acumulava uma GlobeWindow viva (textura +
-        # campos globais + canvas fullscreen). Sem parent, fechar + soltar a
-        # referência destrói de verdade.
+        # cada ciclo abrir/fechar acumulava uma GlobeWindow viva.
         import gc
         import weakref
 
@@ -319,57 +440,6 @@ class TestIntegracaoMainWindow:
         window._animation_controller = object()
         window._open_globe_view()
         assert avisos and window._globe_window is None
-
-
-class TestSinoticoEDesenhos:
-    def test_sinotico_e_tracado_aparecem_no_globo(self, qapp):
-        from cartomet_br.data.ecmwf import SynopticData
-        from cartomet_br.gui.globe_window import GlobeCanvas
-        from cartomet_br.services.globe_compose import GlobeScene
-
-        lats = np.linspace(20, -40, 7)
-        lons = np.linspace(-80, -20, 7)
-        lon2d, lat2d = np.meshgrid(lons, lats)
-        syn = SynopticData(
-            pnmm=1004.0 + lat2d * 0.5,
-            thickness=5400.0 + lat2d * 2.0,
-            lons=lons,
-            lats=lats,
-            lon2d=lon2d,
-            lat2d=lat2d,
-            valid_time="2026-10-04 00Z",
-            extent=[-80.0, -40.0, -20.0, 20.0],
-            base_time="00Z 04/10/2026",
-            step=0,
-        )
-        scene = GlobeScene(texture=None, synoptic=syn, synoptic_kinds=("pnmm", "thickness"))
-        # O forno assa isolinhas + relevo NA textura (clabel global por frame
-        # era o que travava o globo — lição do teste de campo do usuário).
-        from cartomet_br.services.globe_compose import bake_vector_overlay
-
-        bake_vector_overlay(scene, (91, 180))
-        assert scene.texture is not None
-        assert scene.texture.shape == (91, 180, 4)  # forno na MESMA grade (1x)
-        recs = [
-            {
-                "type": "symbol_line",
-                "symbol_key": "1",
-                "points_x": [-60.0, -50.0],
-                "points_y": [-20.0, -25.0],
-                "flip": False,
-                "intensity": 1,
-            },
-            {"type": "annotation", "x": -45.0, "y": -10.0, "text": "frente fria", "color": "#fff"},
-            {"type": "emoji", "x": -40.0, "y": -5.0, "emoji": "CB", "fontsize": 28},
-        ]
-        c = GlobeCanvas(scene, center=(-55.0, -15.0), drawings=recs)
-        # Sinotico sozinho conta como "campos" (antes o globo caia no relevo).
-        assert c.available_skins()[0] == "Campos ativos"
-        c.render_full()
-        assert c._ax.get_images(), "textura assada (imshow) ausente"
-        assert c._ax.lines, "frente do tracado ausente"
-        assert any("frente fria" in t.get_text() for t in c._ax.texts)
-        c.shutdown()
 
 
 class TestSnapshotCompleto:

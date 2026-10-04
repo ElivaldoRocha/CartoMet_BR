@@ -126,17 +126,25 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   pela projeção). Centros H/L (detecção regional com máscara orográfica) e
   emojis (dependem do pixmap Qt do canvas) ficam fora com aviso honesto.
   Só o sinótico carregado já ativa a pele de campos (antes caía no relevo).
-  **Desempenho (teste de campo: globo "travando" com a carta sinótica
-  mesmo em máquina boa)**: o vilão era o caminho vetorial — centenas de
-  rótulos de isolinha (`clabel` global com halo) re-rasterizados A CADA
-  giro/zoom, custo que o seletor de qualidade nem tocava. As isolinhas
-  (sinótico + gh500) e o relevo agora são **assados na textura** uma única
-  vez ao abrir (~0,6 s) e cada render de repouso vira um único `imshow`
-  reprojetado; os rótulos giram com o globo, como num globo físico. A
-  costa 50m (~0,95 s/frame medido na ortográfica) ficou exclusiva da
-  qualidade Alta (110m nas demais), e o scroll passou a coalescer ticks
-  (`draw_idle`). Resultado medido: repouso de ~3,2 s → **~0,7 s** no
-  Equilibrado, arraste segue ~150 ms/quadro.
+  **Desempenho e nitidez (teste de campo em dois atos)**: o globo
+  "travava" porque o render vetorial completo (centenas de `clabel`
+  globais com halo + costa 50m, ~3,2 s medidos) rodava NA THREAD DA
+  INTERFACE a cada giro/zoom; a primeira correção (assar as isolinhas na
+  textura) destravou mas **serrilhou** rótulos e linhas (textura 1× sobe
+  ~1,3× na tela; 2× quadruplicava o custo da reprojeção). Arquitetura
+  final: o frame completo é **vetorial** (nitidez idêntica à carta) mas
+  renderizado por um **worker em thread separada** (Agg offscreen) e
+  trocado na tela pronto (~50 ms) — arrastar nunca trava, o rascunho
+  responde a ~150 ms/quadro e o frame nítido chega ~2,5 s depois do
+  gesto, sem congelar nada (qualquer novo gesto descarta o frame
+  obsoleto). Zoom por scroll dá resposta instantânea recortando o frame
+  pronto; costa 50m (~0,95 s medidos) fica na qualidade Alta; o PNG salva
+  o frame nítido em resolução de tela. Dois bugs de simbologia no globo
+  corrigidos juntos: `_symbol_size` lia o xlim da ortográfica em METROS e
+  o símbolo de baixa pressão virava uma mancha do tamanho do planeta
+  (agora converte para graus de círculo máximo), e símbolos/anotações do
+  **lado oculto** do globo eram reprojetados como lixo visual (agora são
+  descartados por visibilidade de hemisfério).
 
 - **📐 Análise de Referência — o gabarito do professor sobre a carta do aluno (Onda 6 da v3.2).**
   Menu Arquivo → "Abrir Análise de Referência...": um segundo `.cmbr` (a

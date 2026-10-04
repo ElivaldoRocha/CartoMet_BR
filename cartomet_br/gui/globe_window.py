@@ -1,19 +1,23 @@
 """Vista de Globo em tela cheia — a Terra vista do espaço com os campos ativos.
 
 Janela independente (snapshot da sessão): projeção ``ccrs.Orthographic`` sobre
-fundo estrelado, com a superfície substituída pela textura composta dos campos
-ativos da carta (``services/globe_compose.py`` — mesma escala de cores, sem
-rede), pela imagem GOES full disk (se carregada) ou pelo relevo natural.
+fundo estrelado, com a superfície substituída pelos campos ativos da carta
+(``services/globe_compose.py`` — mesma escala de cores, sem rede), pela imagem
+GOES full disk (se carregada) ou pelo relevo natural.
 
-Interação no padrão gesto-leve/repouso-caro do MapCanvas: arrastar gira o
-globo em modo rascunho (~6 fps — costa + grade), e 180 ms após soltar o render
-completo entra (textura + isolinhas + colorbars + carimbo). Scroll aproxima
-(sem recriar a projeção), duplo-clique centraliza, setas giram, Esc fecha.
+Arquitetura de render (3º ato da lição de campo): o frame completo é VETORIAL
+(nitidez da carta — isolinhas, rótulos, colorbars) mas renderizado num
+``GlobeFrameWorker`` (QThread) sobre um Agg offscreen; a GUI só troca a imagem
+pronta. Arrastar mostra o rascunho (~150 ms) e NUNCA trava — o 1º ato (vetor
+na thread da GUI) travava a interface, e o 2º (assar na textura 1×)
+serrilhava os rótulos. Scroll aproxima por recorte do frame, duplo-clique
+centraliza, setas giram, Esc fecha.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime
 from typing import Any, Literal, cast
 
@@ -23,7 +27,7 @@ import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.patches import Circle
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QCursor, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -35,22 +39,300 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from cartomet_br.services.globe_compose import GlobeScene
+from cartomet_br.services.globe_compose import (
+    GlobeScene,
+    draw_contour_overlay,
+    draw_synoptic_overlay,
+)
 
 logger = logging.getLogger(__name__)
 
 # Raio do disco Orthographic em metros de projeção (≈ raio da Terra).
 _ORTHO_HALF = 6.4e6
-# Qualidade → regrid_shape do imshow reprojetado (medido: 600 ≈ 0,5 s/frame).
+# Qualidade → regrid_shape do imshow reprojetado (textura de campos/GOES).
 _QUALITY_REGRID = {"Rascunho": 400, "Equilibrado": 600, "Alta": 900}
+# Retângulo do eixo do globo na figura — compartilhado pelo rascunho, pelo
+# worker e pela inversão pixel→lon/lat do duplo-clique.
+_AX_RECT = (0.06, 0.05, 0.88, 0.90)
 
 _PELE_CAMPOS = "Campos ativos"
 _PELE_GOES = "Satélite GOES"
 _PELE_RELEVO = "Relevo natural"
 
+# Workers vivos: a referência Python precisa sobreviver até o finished (QThread
+# destruída com C++ rodando = crash); o slot descarta resultados obsoletos.
+_LIVE_WORKERS: set[GlobeFrameWorker] = set()
+
+
+def _visible_from(lon: float, lat: float, center: tuple[float, float]) -> bool:
+    """True se (lon, lat) está no hemisfério visível do globo centrado em center.
+
+    Símbolos pontuais do lado OCULTO não podem ser desenhados: a reprojeção
+    dos seus polígonos vira lixo visual (bug pego em teste de campo).
+    """
+    lam1, phi1 = math.radians(center[0]), math.radians(center[1])
+    lam2, phi2 = math.radians(lon), math.radians(lat)
+    cosd = math.sin(phi1) * math.sin(phi2) + math.cos(phi1) * math.cos(phi2) * math.cos(lam2 - lam1)
+    return cosd > 0.03
+
+
+def _paint_background(fig, stars) -> None:
+    """Espaço: preto + estrelas fixas + halo atmosférico azulado."""
+    bg = fig.add_axes((0.0, 0.0, 1.0, 1.0), zorder=-10)
+    bg.set_axis_off()
+    bg.set_xlim(0, 1)
+    bg.set_ylim(0, 1)
+    xs, ys, sizes = stars
+    bg.scatter(xs, ys, s=sizes, c="white", alpha=0.75, linewidths=0)
+    # Halo: anéis concêntricos com alpha decrescente ao redor do disco.
+    for r, a in ((0.462, 0.20), (0.472, 0.12), (0.484, 0.06), (0.498, 0.03)):
+        bg.add_patch(
+            Circle((0.5, 0.5), r, facecolor="none", edgecolor="#4da3ff", linewidth=6, alpha=a)
+        )
+
+
+def _paint_goes(ax, satellite, regrid: int) -> None:
+    from cartomet_br.data.ecmwf import get_ir_colormap
+
+    geos = ccrs.Geostationary(
+        central_longitude=satellite.sat_lon,
+        satellite_height=satellite.sat_h,
+        sweep_axis=satellite.sat_sweep,
+    )
+    ax.imshow(
+        satellite.data,
+        origin="upper",
+        extent=(satellite.x.min(), satellite.x.max(), satellite.y.min(), satellite.y.max()),
+        transform=geos,
+        cmap=get_ir_colormap(),
+        vmin=-103.0,
+        vmax=84.0,
+        zorder=2,
+        interpolation="nearest",
+        regrid_shape=regrid,
+    )
+
+
+def _paint_colorbars(fig, scene: GlobeScene) -> list:
+    """Colorbars que dizem EXATAMENTE o que a textura mostra.
+
+    Armadilha pega em revisão: ``BoundaryNorm(levels, cmap.N)`` distribui as
+    bandas UNIFORMEMENTE pelo colormap, mas o contourf da carta (e a textura,
+    via ``band_colors``) colore pelo ponto MÉDIO normalizado — para níveis
+    irregulares (precipitação!) as duas regras divergem em várias categorias.
+    A colorbar é montada com as cores REAIS das bandas, achatadas sobre
+    branco como a textura.
+    """
+    from matplotlib.cm import ScalarMappable
+    from matplotlib.colors import BoundaryNorm, ListedColormap
+
+    from cartomet_br.services.globe_compose import band_colors
+
+    def achatada(cor) -> tuple[float, float, float, float]:
+        arr = np.asarray(cor, dtype=float)
+        return (*(arr[:3] * 0.85 + 0.15), 1.0)  # 0.85·cor + 0.15·branco
+
+    colorbars: list = []
+    layers = scene.filled_layers[:2]  # no máximo duas — legibilidade
+    for i, layer in enumerate(layers):
+        levels = np.asarray(layer.style.levels, dtype=float)
+        interior, under, over = band_colors(layer.style)
+        lcmap = ListedColormap([achatada(c) for c in interior])
+        if under is not None:
+            lcmap.set_under(achatada(under))
+        if over is not None:
+            lcmap.set_over(achatada(over))
+        norm = BoundaryNorm(levels, ncolors=lcmap.N)  # banda i → cor i, exata
+        extend = cast('Literal["neither", "both", "min", "max"]', layer.style.extend)
+        cax = fig.add_axes((0.14 + i * 0.40, 0.035, 0.30, 0.016))
+        cbar = fig.colorbar(
+            ScalarMappable(norm=norm, cmap=lcmap),
+            cax=cax,
+            orientation="horizontal",
+            extend=extend,
+        )
+        nome = layer.var_info.get("nome", layer.data.variable)
+        unidade = layer.data.unit
+        sufixo = "" if layer.is_global else " (recorte regional)"
+        cbar.set_label(f"{nome} ({unidade}){sufixo}", color="#dfe6f0", fontsize=8)
+        cbar.ax.tick_params(labelsize=6.5, colors="#b9c3d4")
+        cbar.outline.set_edgecolor("#55657f")
+        colorbars.append(cbar)
+    return colorbars
+
+
+def _paint_drawings(ax, drawings: list[dict], center: tuple[float, float]) -> None:
+    """Traçado do usuário (records .cmbr) sobre o globo, em todas as peles.
+
+    Mesma fonte de construção da carta (``build_drawing_artist``); emojis
+    dependem do pixmap Qt do MapCanvas e ficam fora (aviso na cena). Símbolos
+    pontuais e anotações do lado OCULTO são descartados (``_visible_from``).
+    """
+    if not drawings:
+        return
+    from cartomet_br.gui.map_canvas import build_drawing_artist
+    from cartomet_br.gui.project_io import record_to_command
+
+    for rec in drawings:
+        kind = rec.get("type")
+        if kind == "emoji":
+            continue  # aviso único já entra na cena (MainWindow)
+        if kind in ("symbol_point", "annotation") and not _visible_from(
+            float(rec.get("x", 0.0)), float(rec.get("y", 0.0)), center
+        ):
+            continue  # lado oculto do globo
+        try:
+            build_drawing_artist(ax, record_to_command(rec))
+        except Exception as exc:  # noqa: BLE001 — um desenho ruim não derruba o globo
+            logger.warning("Desenho %s falhou no globo: %s", kind, exc)
+
+
+def _stamp_for_skin(scene: GlobeScene, skin: str, satellite, stamp_lines: list[str]) -> list[str]:
+    """Linhas do carimbo HONESTAS para a pele em exibição.
+
+    Com a pele GOES o que se vê é a IMAGEM DE SATÉLITE (horário próprio, não
+    o step do modelo); com o relevo não há dado do dia nenhum — o carimbo dos
+    campos só vale na pele de campos.
+    """
+    titulo = stamp_lines[:1] or ["CartoMet BR — Vista de Globo"]
+    if skin == _PELE_GOES and satellite is not None:
+        quando = getattr(satellite, "time_str", "")
+        return [*titulo, f"Satélite GOES-East — Banda 13 — {quando}"]
+    if skin == _PELE_CAMPOS:
+        return stamp_lines
+    return [*titulo, "pele: relevo natural (imagem de referência, não é dado do dia)"]
+
+
+def _paint_stamp(fig, scene: GlobeScene, skin: str, satellite, stamp_lines: list[str]) -> None:
+    """Carimbo honesto no canto superior esquerdo + avisos no rodapé."""
+    y = 0.975
+    for i, linha in enumerate(_stamp_for_skin(scene, skin, satellite, stamp_lines)):
+        fig.text(
+            0.015,
+            y - i * 0.028,
+            linha,
+            color="#dfe6f0" if i == 0 else "#aab6c8",
+            fontsize=10 if i == 0 else 8,
+            ha="left",
+            va="top",
+        )
+    if skin != _PELE_CAMPOS:
+        return  # avisos de camadas só fazem sentido na pele de campos
+    for j, aviso in enumerate(scene.warnings[:3]):
+        fig.text(
+            0.985,
+            0.025 + j * 0.024,
+            aviso,
+            color="#f0b45a",
+            fontsize=7.5,
+            ha="right",
+            va="bottom",
+        )
+
+
+def compose_globe_frame(
+    fig,
+    *,
+    scene: GlobeScene,
+    satellite: Any,
+    skin: str,
+    quality: str,
+    center: tuple[float, float],
+    zoom: float,
+    stars,
+    stamp_lines: list[str],
+    drawings: list[dict],
+) -> dict:
+    """Compõe UM frame completo do globo numa Figure (GUI ou Agg offscreen).
+
+    Fonte única do render de repouso: o ``GlobeFrameWorker`` a executa numa
+    thread separada e os testes a executam síncrona. Vetorial de ponta a
+    ponta (nitidez da carta); devolve ``{"ax", "colorbars"}`` p/ inspeção.
+    """
+    fig.clf()
+    _paint_background(fig, stars)
+    ax = fig.add_axes(_AX_RECT, projection=ccrs.Orthographic(center[0], center[1]))
+    ax.set_global()
+    ax.patch.set_facecolor("#060a14")  # oceano noturno sob campos translúcidos
+    ax.spines["geo"].set_edgecolor("#2a3b5c")
+    regrid = _QUALITY_REGRID[quality]
+    pc = ccrs.PlateCarree()
+
+    if skin == _PELE_CAMPOS:
+        if scene.texture is not None:
+            ax.imshow(
+                scene.texture,
+                extent=[-180, 180, -90, 90],
+                transform=pc,
+                origin="upper",
+                regrid_shape=regrid,
+                zorder=2,
+                interpolation="nearest",
+            )
+        else:
+            ax.stock_img()  # só isolinhas: carta sinótica clássica sobre o relevo
+        if scene.synoptic is not None:
+            draw_synoptic_overlay(ax, scene.synoptic, scene.synoptic_kinds, transform=pc)
+        draw_contour_overlay(ax, scene.contour_layers, transform=pc)
+    elif skin == _PELE_GOES and satellite is not None:
+        _paint_goes(ax, satellite, regrid)
+    else:
+        ax.stock_img()
+
+    # Costa 50m custa ~0,95 s/frame na ortográfica (medido) — fora da thread
+    # da GUI isso não trava nada, mas 110m segue o padrão fora da Alta.
+    escala_costa = "50m" if quality == "Alta" else "110m"
+    ax.add_feature(cfeature.COASTLINE.with_scale(escala_costa), linewidth=0.45, edgecolor="#e8edf5")
+    ax.gridlines(color="#55657f", linewidth=0.25, alpha=0.7)
+
+    colorbars = _paint_colorbars(fig, scene) if skin == _PELE_CAMPOS else []
+    # O traçado do usuário aparece em TODAS as peles (como na carta, que o
+    # desenha sobre campos E satélite).
+    _paint_drawings(ax, drawings, center)
+    _paint_stamp(fig, scene, skin, satellite, stamp_lines)
+
+    half = _ORTHO_HALF / zoom
+    ax.set_xlim(-half, half)
+    ax.set_ylim(-half, half)
+    return {"ax": ax, "colorbars": colorbars}
+
+
+class GlobeFrameWorker(QThread):
+    """Renderiza um frame completo do globo num Agg offscreen (fora da GUI).
+
+    A Figure/canvas nascem e morrem DENTRO do ``run()`` (thread-safe no Agg).
+    O resultado chega por sinal com a geração do pedido — o slot descarta
+    frames obsoletos (o usuário pode ter girado de novo nesse meio tempo).
+    """
+
+    frame_ready = pyqtSignal(int, object)  # (geração, np.ndarray RGBA | None)
+
+    def __init__(self, gen: int, size_px: tuple[int, int], params: dict, parent=None) -> None:
+        super().__init__(parent)
+        self._gen = gen
+        self._size_px = size_px
+        self._params = params
+
+    def run(self) -> None:  # noqa: D102 — contrato da QThread
+        try:
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+            w, h = self._size_px
+            fig = Figure(figsize=(max(w, 2) / 100.0, max(h, 2) / 100.0), dpi=100, facecolor="black")
+            canvas = FigureCanvasAgg(fig)
+            compose_globe_frame(fig, **self._params)
+            canvas.draw()
+            frame = np.asarray(canvas.buffer_rgba()).copy()
+        except Exception as exc:  # noqa: BLE001 — frame com erro não derruba a janela
+            logger.warning("Frame do globo falhou no worker: %s", exc)
+            frame = None
+        self.frame_ready.emit(self._gen, frame)
+
 
 class GlobeCanvas(FigureCanvas):
-    """Motor matplotlib do globo: projeção, texturas, gestos e timers."""
+    """Motor do globo na GUI: rascunho dos gestos + troca de frames do worker."""
+
+    render_state = pyqtSignal(str)  # feedback p/ a barra de status da janela
 
     def __init__(
         self,
@@ -79,16 +361,25 @@ class GlobeCanvas(FigureCanvas):
         else:
             self._skin = _PELE_RELEVO
         self._quality = "Equilibrado"
-        self._ax = None
+        self._ax: Any = None  # GeoAxes do RASCUNHO (frames prontos são imagem crua)
         self._dragging = False
         self._drag_px: tuple[float, float] = (0.0, 0.0)
         self._drag_center0: tuple[float, float] = self._home
         self._draft_busy = False
+        self._closed = False
+        # Frames assíncronos: geração corrente, worker vivo, pedido pendente,
+        # último frame pronto e a vista (centro/zoom) a que ele corresponde.
+        self._frame_gen = 0
+        self._worker: GlobeFrameWorker | None = None
+        self._pending_request = False
+        self._last_frame: np.ndarray | None = None
+        self._frame_view: tuple[tuple[float, float], float] = (self._home, 1.0)
+        self._image_ax: Any = None
         # Estrelas determinísticas (semente fixa = sem cintilação entre frames)
         rng = np.random.default_rng(42)
         self._stars = (rng.random(900), rng.random(900), rng.power(3.0, 900) * 2.2 + 0.2)
 
-        # Repouso: 180 ms após o último gesto, o render completo entra
+        # Repouso: 180 ms após o último gesto, pede o frame nítido ao worker
         # (espelho do _view_settle_timer do MapCanvas).
         self._settle_timer = QTimer(self)
         self._settle_timer.setSingleShot(True)
@@ -147,20 +438,25 @@ class GlobeCanvas(FigureCanvas):
 
     def rotate_by(self, dlon: float, dlat: float) -> None:
         self._set_center(self._center_lon + dlon, self._center_lat + dlat)
-        self.render_full()
+        self.render_draft()
+        self._settle_timer.start()
 
     def go_home(self) -> None:
         self._set_center(*self._home)
         self._zoom = 1.0
-        self.render_full()
+        self.render_draft()
+        self._settle_timer.start()
 
     def shutdown(self) -> None:
         """Para timers, desconecta eventos e SOLTA a cena (chamado no close).
 
         A cena global (textura + campos 0.25° inteiros + full disk GOES) é o
-        grosso da memória — liberá-la aqui garante que mesmo um wrapper Qt
-        que demore a morrer não segure dezenas de MB.
+        grosso da memória. O worker em voo não é esperado: a geração avança e
+        o resultado dele é descartado no slot (referência viva em
+        ``_LIVE_WORKERS`` até o finished — QThread não pode morrer rodando).
         """
+        self._closed = True
+        self._frame_gen += 1  # qualquer frame em voo fica obsoleto
         self._settle_timer.stop()
         self._spin_timer.stop()
         for cid in self._cids:
@@ -168,47 +464,15 @@ class GlobeCanvas(FigureCanvas):
         self.fig.clf()
         self._scene = GlobeScene(texture=None)
         self._satellite = None
+        self._last_frame = None
         self._ax = None
+        self._image_ax = None
 
     def _set_center(self, lon: float, lat: float) -> None:
         self._center_lon = ((lon + 180.0) % 360.0) - 180.0
         self._center_lat = float(np.clip(lat, -89.0, 89.0))
 
-    # ─── Renders ─────────────────────────────────────────────────────────────
-
-    def _new_globe_axes(self):
-        self.fig.clf()
-        self._draw_background()
-        ax = self.fig.add_axes(
-            [0.06, 0.05, 0.88, 0.90],
-            projection=ccrs.Orthographic(self._center_lon, self._center_lat),
-        )
-        ax.set_global()
-        ax.patch.set_facecolor("#060a14")  # oceano noturno sob campos translúcidos
-        ax.spines["geo"].set_edgecolor("#2a3b5c")
-        self._ax = ax
-        return ax
-
-    def _draw_background(self) -> None:
-        """Espaço: preto + estrelas fixas + halo atmosférico azulado."""
-        bg = self.fig.add_axes((0.0, 0.0, 1.0, 1.0), zorder=-10)
-        bg.set_axis_off()
-        bg.set_xlim(0, 1)
-        bg.set_ylim(0, 1)
-        xs, ys, sizes = self._stars
-        bg.scatter(xs, ys, s=sizes, c="white", alpha=0.75, linewidths=0)
-        # Halo: anéis concêntricos com alpha decrescente ao redor do disco.
-        for r, a in ((0.462, 0.20), (0.472, 0.12), (0.484, 0.06), (0.498, 0.03)):
-            bg.add_patch(
-                Circle((0.5, 0.5), r, facecolor="none", edgecolor="#4da3ff", linewidth=6, alpha=a)
-            )
-
-    def _apply_zoom(self) -> None:
-        if self._ax is None:
-            return
-        half = _ORTHO_HALF / self._zoom
-        self._ax.set_xlim(-half, half)
-        self._ax.set_ylim(-half, half)
+    # ─── Rascunho (GUI, síncrono e barato) ───────────────────────────────────
 
     def render_draft(self) -> None:
         """Frame leve do gesto (~150 ms): costa + grade, sem textura."""
@@ -216,194 +480,119 @@ class GlobeCanvas(FigureCanvas):
             return
         self._draft_busy = True
         try:
-            ax = self._new_globe_axes()
+            self.fig.clf()
+            self._image_ax = None
+            _paint_background(self.fig, self._stars)
+            ax: Any = self.fig.add_axes(
+                _AX_RECT, projection=ccrs.Orthographic(self._center_lon, self._center_lat)
+            )
+            ax.set_global()
+            ax.patch.set_facecolor("#060a14")
+            ax.spines["geo"].set_edgecolor("#2a3b5c")
             ax.add_feature(
                 cfeature.COASTLINE.with_scale("110m"), linewidth=0.5, edgecolor="#cfd8e3"
             )
             ax.gridlines(color="#3a4a66", linewidth=0.3)
-            self._apply_zoom()
+            half = _ORTHO_HALF / self._zoom
+            ax.set_xlim(-half, half)
+            ax.set_ylim(-half, half)
+            self._ax = ax
             self.draw()
         finally:
             self._draft_busy = False
 
+    # ─── Frame nítido (worker assíncrono) ────────────────────────────────────
+
     def render_full(self) -> None:
-        """Render completo do repouso: pele + isolinhas + colorbars + carimbo."""
-        self._colorbars: list = []  # inspecionável em teste (fidelidade de cor)
-        ax = self._new_globe_axes()
-        regrid = _QUALITY_REGRID[self._quality]
+        """Pede ao worker o frame vetorial nítido da vista atual (não bloqueia)."""
+        if self._closed:
+            return
+        self._frame_gen += 1
+        if self._worker is not None:
+            self._pending_request = True  # o worker atual termina; pedimos de novo
+            return
+        self._start_worker()
 
-        if self._skin == _PELE_CAMPOS and self._scene.texture is not None:
-            # Isolinhas (sinótico + gh500) e, no caso só-isolinhas, o próprio
-            # relevo já vêm ASSADOS nesta textura — nenhum vetor pesado nem
-            # stock_img por frame (era o que travava o globo). O fallback por
-            # frame só acende se o forno não achou o raster do cartopy.
-            if self._scene.underlay_relevo:
-                ax.stock_img()
-            ax.imshow(
-                self._scene.texture,
-                extent=[-180, 180, -90, 90],
-                transform=ccrs.PlateCarree(),
-                origin="upper",
-                regrid_shape=regrid,
-                zorder=2,
-                # bilinear: a textura 1x sobe ~1,25x na tela — nearest
-                # deixaria os rótulos assados serrilhados.
-                interpolation="bilinear",
-            )
-        elif self._skin == _PELE_GOES and self._satellite is not None:
-            self._draw_goes(ax)
-        else:
-            ax.stock_img()
+    def _start_worker(self) -> None:
+        self._pending_request = False
+        w = max(2, int(self.fig.bbox.width))
+        h = max(2, int(self.fig.bbox.height))
+        params = {
+            "scene": self._scene,
+            "satellite": self._satellite,
+            "skin": self._skin,
+            "quality": self._quality,
+            "center": (self._center_lon, self._center_lat),
+            "zoom": self._zoom,
+            "stars": self._stars,
+            "stamp_lines": self._stamp_lines,
+            "drawings": self._drawings,
+        }
+        worker = GlobeFrameWorker(self._frame_gen, (w, h), params)
+        worker.frame_ready.connect(self._on_frame_ready)
+        worker.finished.connect(lambda wk=worker: self._on_worker_finished(wk))
+        _LIVE_WORKERS.add(worker)
+        self._worker = worker
+        self.render_state.emit("Renderizando em alta qualidade...")
+        worker.start()
 
-        # Costa 50m custa ~0,95 s/frame na ortográfica (medido) — reprojetar a
-        # geometria do planeta inteiro é caro. 110m (0,13 s) cobre Rascunho/
-        # Equilibrado; a 50m fica para quem pediu Alta explicitamente.
-        escala_costa = "50m" if self._quality == "Alta" else "110m"
-        ax.add_feature(
-            cfeature.COASTLINE.with_scale(escala_costa), linewidth=0.45, edgecolor="#e8edf5"
-        )
-        ax.gridlines(color="#55657f", linewidth=0.25, alpha=0.7)
+    def _on_worker_finished(self, worker: GlobeFrameWorker) -> None:
+        _LIVE_WORKERS.discard(worker)
+        if self._worker is worker:
+            self._worker = None
+        if self._pending_request and not self._closed:
+            self._start_worker()
 
-        if self._skin == _PELE_CAMPOS:
-            self._draw_colorbars()
-        # O traçado do usuário aparece em TODAS as peles (como na carta, que
-        # o desenha sobre campos E satélite) — zorder próprio (20/25) já o
-        # põe acima de qualquer pele.
-        self._draw_drawings(ax)
-        self._draw_stamp()
+    def _on_frame_ready(self, gen: int, frame) -> None:
+        if self._closed or gen != self._frame_gen:
+            return  # obsoleto: o usuário girou de novo (ou a janela fechou)
+        if frame is None:
+            self.render_state.emit("Falha no render — veja o log")
+            return
+        self._last_frame = frame
+        self._frame_view = ((self._center_lon, self._center_lat), self._zoom)
+        self._show_frame(frame)
+        self.render_state.emit("")
 
-        self._apply_zoom()
+    def _show_frame(self, frame: np.ndarray) -> None:
+        """Troca a tela pelo frame pronto (imagem crua 1:1 — ~50 ms)."""
+        self.fig.clf()
+        self._ax = None
+        ax = self.fig.add_axes((0.0, 0.0, 1.0, 1.0))
+        ax.set_axis_off()
+        ax.imshow(frame, interpolation="nearest")
+        self._image_ax = ax
         self.draw_idle()
 
-    def _draw_drawings(self, ax) -> None:
-        """Redesenha o traçado do usuário (records .cmbr) sobre o globo.
-
-        Mesma fonte de construção da carta (``build_drawing_artist`` — os
-        comandos usam transform=PlateCarree e reprojetam de graça); emojis
-        dependem do pixmap Qt do MapCanvas e ficam fora (aviso na cena).
-        """
-        if not self._drawings:
-            return
-        from cartomet_br.gui.map_canvas import build_drawing_artist
-        from cartomet_br.gui.project_io import record_to_command
-
-        for rec in self._drawings:
-            if rec.get("type") == "emoji":
-                continue  # aviso único já entra na cena (MainWindow)
-            try:
-                build_drawing_artist(ax, record_to_command(rec))
-            except Exception as exc:  # noqa: BLE001 — um desenho ruim não derruba o globo
-                logger.warning("Desenho %s falhou no globo: %s", rec.get("type"), exc)
-
-    def _draw_goes(self, ax) -> None:
-        from cartomet_br.data.ecmwf import get_ir_colormap
-
-        sat = self._satellite
-        geos = ccrs.Geostationary(
-            central_longitude=sat.sat_lon,
-            satellite_height=sat.sat_h,
-            sweep_axis=sat.sat_sweep,
-        )
-        ax.imshow(
-            sat.data,
-            origin="upper",
-            extent=(sat.x.min(), sat.x.max(), sat.y.min(), sat.y.max()),
-            transform=geos,
-            cmap=get_ir_colormap(),
-            vmin=-103.0,
-            vmax=84.0,
-            zorder=2,
-            interpolation="nearest",
-            regrid_shape=_QUALITY_REGRID[self._quality],
-        )
-
-    def _draw_colorbars(self) -> None:
-        """Colorbars que dizem EXATAMENTE o que a textura mostra.
-
-        Armadilha pega em revisão: ``BoundaryNorm(levels, cmap.N)`` distribui
-        as bandas UNIFORMEMENTE pelo colormap, mas o contourf da carta (e a
-        textura, via ``band_colors``) colore pelo ponto MÉDIO normalizado —
-        para níveis irregulares (precipitação!) as duas regras divergem em
-        várias categorias. Aqui a colorbar é montada com as cores REAIS das
-        bandas (``band_colors``), achatadas sobre branco como a textura.
-        """
-        from matplotlib.cm import ScalarMappable
-        from matplotlib.colors import BoundaryNorm, ListedColormap
-
-        from cartomet_br.services.globe_compose import band_colors
-
-        def achatada(cor) -> tuple[float, float, float, float]:
-            arr = np.asarray(cor, dtype=float)
-            return (*(arr[:3] * 0.85 + 0.15), 1.0)  # 0.85·cor + 0.15·branco
-
-        layers = self._scene.filled_layers[:2]  # no máximo duas — legibilidade
-        for i, layer in enumerate(layers):
-            levels = np.asarray(layer.style.levels, dtype=float)
-            interior, under, over = band_colors(layer.style)
-            lcmap = ListedColormap([achatada(c) for c in interior])
-            if under is not None:
-                lcmap.set_under(achatada(under))
-            if over is not None:
-                lcmap.set_over(achatada(over))
-            norm = BoundaryNorm(levels, ncolors=lcmap.N)  # banda i → cor i, exata
-            extend = cast('Literal["neither", "both", "min", "max"]', layer.style.extend)
-            cax = self.fig.add_axes((0.14 + i * 0.40, 0.035, 0.30, 0.016))
-            cbar = self.fig.colorbar(
-                ScalarMappable(norm=norm, cmap=lcmap),
-                cax=cax,
-                orientation="horizontal",
-                extend=extend,
-            )
-            nome = layer.var_info.get("nome", layer.data.variable)
-            unidade = layer.data.unit
-            sufixo = "" if layer.is_global else " (recorte regional)"
-            cbar.set_label(f"{nome} ({unidade}){sufixo}", color="#dfe6f0", fontsize=8)
-            cbar.ax.tick_params(labelsize=6.5, colors="#b9c3d4")
-            cbar.outline.set_edgecolor("#55657f")  # type: ignore[operator] # Spine no stub
-            self._colorbars.append(cbar)
-
-    def _stamp_for_skin(self) -> list[str]:
-        """Linhas do carimbo HONESTAS para a pele em exibição.
-
-        Com a pele GOES o que se vê é a IMAGEM DE SATÉLITE (horário próprio,
-        não o step do modelo); com o relevo não há dado do dia nenhum — o
-        carimbo dos campos só vale na pele de campos.
-        """
-        titulo = self._stamp_lines[:1] or ["CartoMet BR — Vista de Globo"]
-        if self._skin == _PELE_GOES and self._satellite is not None:
-            quando = getattr(self._satellite, "time_str", "")
-            return [*titulo, f"Satélite GOES-East — Banda 13 — {quando}"]
-        if self._skin == _PELE_CAMPOS:
-            return self._stamp_lines
-        return [*titulo, "pele: relevo natural (imagem de referência, não é dado do dia)"]
-
-    def _draw_stamp(self) -> None:
-        """Carimbo honesto no canto superior esquerdo + avisos no rodapé."""
-        y = 0.975
-        for i, linha in enumerate(self._stamp_for_skin()):
-            self.fig.text(
-                0.015,
-                y - i * 0.028,
-                linha,
-                color="#dfe6f0" if i == 0 else "#aab6c8",
-                fontsize=10 if i == 0 else 8,
-                ha="left",
-                va="top",
-            )
-        if self._skin != _PELE_CAMPOS:
-            return  # avisos de camadas só fazem sentido na pele de campos
-        for j, aviso in enumerate(self._scene.warnings[:3]):
-            self.fig.text(
-                0.985,
-                0.025 + j * 0.024,
-                aviso,
-                color="#f0b45a",
-                fontsize=7.5,
-                ha="right",
-                va="bottom",
-            )
-
     # ─── Gestos ──────────────────────────────────────────────────────────────
+
+    def _px_to_lonlat(self, x: float, y: float) -> tuple[float, float] | None:
+        """Pixel do canvas → lon/lat, válido no rascunho E no frame pronto.
+
+        Usa a VISTA DO QUE ESTÁ NA TELA (frame pronto pode ser de instantes
+        atrás): inverte o retângulo ``_AX_RECT`` manualmente — não dependemos
+        de um GeoAxes vivo (o frame é imagem crua).
+        """
+        if self._image_ax is not None:
+            (center, zoom) = self._frame_view
+        else:
+            center, zoom = (self._center_lon, self._center_lat), self._zoom
+        wf = float(self.fig.bbox.width)
+        hf = float(self.fig.bbox.height)
+        if wf < 2 or hf < 2:
+            return None
+        fx = (x / wf - _AX_RECT[0]) / _AX_RECT[2]
+        fy = (y / hf - _AX_RECT[1]) / _AX_RECT[3]
+        if not (0.0 <= fx <= 1.0 and 0.0 <= fy <= 1.0):
+            return None
+        half = _ORTHO_HALF / zoom
+        data_x = (fx - 0.5) * 2.0 * half
+        data_y = (fy - 0.5) * 2.0 * half
+        proj = ccrs.Orthographic(center[0], center[1])
+        lon, lat = ccrs.PlateCarree().transform_point(data_x, data_y, proj)
+        if not (np.isfinite(lon) and np.isfinite(lat)):
+            return None  # fora do disco
+        return float(lon), float(lat)
 
     def _on_press(self, event) -> None:
         if event.button != 1:
@@ -411,7 +600,11 @@ class GlobeCanvas(FigureCanvas):
         if self._spin_timer.isActive():
             self._spin_timer.stop()
         if getattr(event, "dblclick", False):
-            self._recenter_at(event)
+            alvo = self._px_to_lonlat(float(event.x), float(event.y))
+            if alvo is not None:
+                self._set_center(*alvo)
+                self.render_draft()
+                self._settle_timer.start()
             return
         self._dragging = True
         self._drag_px = (float(event.x), float(event.y))
@@ -447,24 +640,46 @@ class GlobeCanvas(FigureCanvas):
     def _on_scroll(self, event) -> None:
         fator = 1.25 if event.button == "up" else 0.8
         self._zoom = float(np.clip(self._zoom * fator, 1.0, 8.0))
-        self._apply_zoom()
-        # draw_idle coalesce ticks consecutivos da rodinha (o draw síncrono
-        # re-rasterizava a cena inteira A CADA tick — parte do "travando").
+        if self._image_ax is not None:
+            self._crop_zoom_image()
+        elif self._ax is not None:
+            half = _ORTHO_HALF / self._zoom
+            self._ax.set_xlim(-half, half)
+            self._ax.set_ylim(-half, half)
+        # draw_idle coalesce ticks consecutivos da rodinha.
         self.draw_idle()
         self._settle_timer.start()
 
-    def _recenter_at(self, event) -> None:
-        if self._ax is None or event.inaxes is not self._ax or event.xdata is None:
+    def _crop_zoom_image(self) -> None:
+        """Zoom instantâneo por RECORTE do frame pronto (nítido chega no repouso)."""
+        if self._image_ax is None or self._last_frame is None:
             return
-        lonlat = ccrs.PlateCarree().transform_point(event.xdata, event.ydata, self._ax.projection)
-        if not (np.isfinite(lonlat[0]) and np.isfinite(lonlat[1])):
-            return  # clique fora do disco
-        self._set_center(float(lonlat[0]), float(lonlat[1]))
-        self.render_full()
+        h, w = self._last_frame.shape[:2]
+        rel = self._zoom / max(self._frame_view[1], 1e-6)
+        half_w = w / 2.0 / rel
+        half_h = h / 2.0 / rel
+        self._image_ax.set_xlim(w / 2.0 - half_w, w / 2.0 + half_w)
+        self._image_ax.set_ylim(h / 2.0 + half_h, h / 2.0 - half_h)  # origem no topo
 
     def _spin_tick(self) -> None:
         self._set_center(self._center_lon - 1.2, self._center_lat)
         self.render_draft()
+
+    # ─── Exportação ──────────────────────────────────────────────────────────
+
+    def save_png(self, destino) -> bool:
+        """Salva o ÚLTIMO frame nítido (ou a figura atual como fallback)."""
+        try:
+            if self._last_frame is not None:
+                import matplotlib.image as mpimg
+
+                mpimg.imsave(str(destino), self._last_frame)
+            else:
+                self.fig.savefig(destino, dpi=150, facecolor="black")
+            return True
+        except OSError as exc:
+            logger.warning("PNG do globo falhou: %s", exc)
+            return False
 
 
 class GlobeWindow(QMainWindow):
@@ -481,6 +696,8 @@ class GlobeWindow(QMainWindow):
     """
 
     closed = pyqtSignal()
+
+    _DICA = "Arraste para girar · scroll aproxima · duplo clique centraliza"
 
     def __init__(
         self,
@@ -508,6 +725,7 @@ class GlobeWindow(QMainWindow):
             drawings=drawings,
             parent=self,
         )
+        self.globe.render_state.connect(self._on_render_state)
 
         barra = QWidget()
         lay = QHBoxLayout(barra)
@@ -547,7 +765,7 @@ class GlobeWindow(QMainWindow):
         png_btn.clicked.connect(self._save_png)
         lay.addWidget(png_btn)
 
-        self.status = QLabel("Arraste para girar · scroll aproxima · duplo clique centraliza")
+        self.status = QLabel(self._DICA)
         self.status.setStyleSheet("color: #95A5A6; font-size: 11px;")
         lay.addWidget(self.status, stretch=1)
 
@@ -563,11 +781,18 @@ class GlobeWindow(QMainWindow):
         esc = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
         esc.activated.connect(self.close)
 
+    def _on_render_state(self, msg: str) -> None:
+        self.status.setText(msg or self._DICA)
+
     def show_fullscreen_on_screen(self, screen=None) -> None:
-        """Tela cheia no monitor dado (o do MainWindow — multi-monitor correto)."""
+        """Tela cheia no monitor dado (o do MainWindow — multi-monitor correto).
+
+        Rascunho IMEDIATO (nada de tela preta) + frame nítido chega do worker.
+        """
         if screen is not None:
             self.setGeometry(screen.geometry())
         self.showFullScreen()
+        self.globe.render_draft()
         self.globe.render_full()
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 — override Qt
@@ -595,12 +820,10 @@ class GlobeWindow(QMainWindow):
         out_dir = Path(self._output_dir) if self._output_dir else Path.cwd()
         out_dir.mkdir(parents=True, exist_ok=True)
         destino = out_dir / f"globo_{datetime.now():%Y%m%d_%H%M%S}.png"
-        try:
-            self.globe.fig.savefig(destino, dpi=150, facecolor="black")
-        except OSError as exc:
-            self.status.setText(f"Erro ao salvar PNG: {exc}")
-            return
-        self.status.setText(f"Globo salvo: {destino}")
+        if self.globe.save_png(destino):
+            self.status.setText(f"Globo salvo: {destino}")
+        else:
+            self.status.setText("Erro ao salvar PNG — veja o log")
 
     def closeEvent(self, event) -> None:  # noqa: N802 — override Qt
         self.globe.shutdown()

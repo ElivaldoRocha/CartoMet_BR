@@ -36,9 +36,20 @@ class _CompoundArtist:
 
 
 def _symbol_size(ax, frac: float = 0.035) -> float:
-    """Calcula tamanho do símbolo baseado na extensão horizontal do mapa."""
+    """Calcula tamanho do símbolo baseado na extensão horizontal do mapa.
+
+    Os vértices dos símbolos são sempre LON/LAT (transform PlateCarree), mas
+    o ``xlim`` do eixo só é graus em projeções retangulares. Na Vista de
+    Globo (Orthographic) o xlim vem em METROS de projeção — sem conversão, o
+    símbolo nascia com raio de ~450 000 "graus" e virava uma mancha sobre o
+    globo inteiro (bug pego em teste de campo). Nenhum extent em graus passa
+    de 360; acima disso, converte metros → graus de círculo máximo.
+    """
     xlim = ax.get_xlim()
-    return float(abs(xlim[1] - xlim[0]) * frac)
+    span = float(abs(xlim[1] - xlim[0]))
+    if span > 1000.0:  # metros de projeção (globo), não graus
+        span = np.degrees(span / 6.371e6)
+    return span * frac
 
 
 def _make_circle_path(cx: float, cy: float, radius: float, n_pts: int = 24) -> Path:
