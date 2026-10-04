@@ -102,6 +102,20 @@ class TestRasterize:
         rgba = rasterize_layer(data, style, SHAPE_TESTE)
         assert rgba[..., 3].max() == 0.0  # seca total → globo transparente
 
+    def test_borda_superior_inclui_o_nivel_maximo(self):
+        # contourf inclui v == levels[-1] na ÚLTIMA banda; digitize cru o
+        # jogaria em "acima" (cor de extend) — ex.: prob ENS de exatos 100%.
+        data = _global_field(fill=2.0)
+        style = derive_scalar_style(
+            "t", "°C", data.values, {"cmap": "viridis"}, fixed_levels=[0.0, 1.0, 2.0]
+        )
+        interior, _under, over = band_colors(style)
+        rgba = rasterize_layer(data, style, SHAPE_TESTE)
+        assert np.allclose(rgba[45, 90, :3], interior[-1][:3], atol=1 / 255)
+        assert not np.allclose(interior[-1][:3], np.asarray(over)[:3], atol=1 / 255), (
+            "teste inconclusivo: última banda e extend têm a mesma cor"
+        )
+
     def test_continuidade_em_180(self):
         data = _global_field()  # campo zonal contínuo
         style = derive_scalar_style("t", "°C", data.values, {"cmap": "viridis"})
@@ -198,6 +212,31 @@ class TestComposeScene:
         assert [ly.layer_id for ly in scene.filled_layers] == ["t_850"]
         assert [ly.layer_id for ly in scene.contour_layers] == ["gh_500"]
         assert scene.warnings == []
+
+    def test_textura_achatada_sobre_branco_como_a_carta(self, tmp_path, monkeypatch):
+        # A carta compõe alpha 0.85 sobre fundo CLARO — a textura final achata
+        # a pilha sobre branco (cor idêntica à vista na carta) e deixa a área
+        # sem dado transparente (o oceano noturno do globo aparece lá).
+        import cartomet_br.services.globe_compose as gc
+
+        monkeypatch.setattr(gc, "reload_global", lambda d, **kw: (d, True))
+        data = _global_field()
+        data.values[0, 0] = np.nan  # um furo sem dado
+        style = derive_scalar_style("t", "°C", data.values, self.REGISTRY["t"])
+        raw = gc.rasterize_layer(data, style, SHAPE_TESTE)
+        scene = gc.compose_scene(
+            {"t_850": data},
+            self.REGISTRY,
+            config=_Cfg(tmp_path),
+            cycle=0,
+            cycle_date="20261003",
+            shape=SHAPE_TESTE,
+        )
+        tex = scene.texture
+        assert tex[0, 0, 3] == 0  # furo continua transparente
+        assert tex[45, 90, 3] == 255  # dado vira opaco (já composto)
+        esperado = raw[45, 90, :3] * 0.85 + 0.15  # 0.85·cor + 0.15·branco
+        assert np.allclose(tex[45, 90, :3] / 255.0, esperado, atol=2 / 255)
 
     def test_vento_fica_de_fora_com_aviso(self, tmp_path, monkeypatch):
         import cartomet_br.services.globe_compose as gc

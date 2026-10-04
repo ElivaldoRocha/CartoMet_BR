@@ -140,6 +140,9 @@ def rasterize_layer(
     rgba = np.zeros((h, w, 4), dtype=np.float32)
     band = np.digitize(grid, levels)  # 0 = abaixo; 1..n = bandas; n+1 = acima
     finite = np.isfinite(grid)
+    # Borda superior: o contourf INCLUI v == levels[-1] na última banda
+    # (digitize o jogaria em "acima" — ex.: prob ENS de exatos 100%).
+    band[finite & (grid == levels[-1])] = len(levels) - 1
 
     inside = (band >= 1) & (band <= len(levels) - 1) & finite
     if inside.any():
@@ -295,7 +298,16 @@ def compose_scene(
         scene.filled_layers.append(layer)
 
     if acc is not None:
-        scene.texture = (np.clip(acc, 0.0, 1.0) * 255).astype(np.uint8)
+        # Fidelidade de cor à carta: lá o alpha 0.85 compõe SOBRE FUNDO CLARO
+        # (papel/relevo). Achatar a pilha sobre branco reproduz exatamente a
+        # cor vista na carta (o "over" é associativo), em vez de escurecê-la
+        # sobre o oceano noturno do globo; área sem dado segue transparente.
+        a = acc[..., 3:4]
+        flat = np.empty_like(acc)
+        flat[..., :3] = acc[..., :3] * a + (1.0 - a)
+        flat[..., 3:4] = np.where(a > 0.0, 1.0, 0.0)
+        flat[..., :3] = np.where(a > 0.0, flat[..., :3], 0.0)
+        scene.texture = (np.clip(flat, 0.0, 1.0) * 255).astype(np.uint8)
     return scene
 
 
