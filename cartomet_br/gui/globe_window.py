@@ -19,7 +19,6 @@ from typing import Any, Literal, cast
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-import matplotlib.patheffects as pe
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -36,7 +35,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from cartomet_br.services.field_style import mask_low_signal
 from cartomet_br.services.globe_compose import GlobeScene
 
 logger = logging.getLogger(__name__)
@@ -235,6 +233,12 @@ class GlobeCanvas(FigureCanvas):
         regrid = _QUALITY_REGRID[self._quality]
 
         if self._skin == _PELE_CAMPOS and self._scene.texture is not None:
+            # Isolinhas (sinótico + gh500) e, no caso só-isolinhas, o próprio
+            # relevo já vêm ASSADOS nesta textura — nenhum vetor pesado nem
+            # stock_img por frame (era o que travava o globo). O fallback por
+            # frame só acende se o forno não achou o raster do cartopy.
+            if self._scene.underlay_relevo:
+                ax.stock_img()
             ax.imshow(
                 self._scene.texture,
                 extent=[-180, 180, -90, 90],
@@ -242,19 +246,25 @@ class GlobeCanvas(FigureCanvas):
                 origin="upper",
                 regrid_shape=regrid,
                 zorder=2,
-                interpolation="nearest",
+                # bilinear: a textura 1x sobe ~1,25x na tela — nearest
+                # deixaria os rótulos assados serrilhados.
+                interpolation="bilinear",
             )
         elif self._skin == _PELE_GOES and self._satellite is not None:
             self._draw_goes(ax)
         else:
             ax.stock_img()
 
-        ax.add_feature(cfeature.COASTLINE.with_scale("50m"), linewidth=0.45, edgecolor="#e8edf5")
+        # Costa 50m custa ~0,95 s/frame na ortográfica (medido) — reprojetar a
+        # geometria do planeta inteiro é caro. 110m (0,13 s) cobre Rascunho/
+        # Equilibrado; a 50m fica para quem pediu Alta explicitamente.
+        escala_costa = "50m" if self._quality == "Alta" else "110m"
+        ax.add_feature(
+            cfeature.COASTLINE.with_scale(escala_costa), linewidth=0.45, edgecolor="#e8edf5"
+        )
         ax.gridlines(color="#55657f", linewidth=0.25, alpha=0.7)
 
         if self._skin == _PELE_CAMPOS:
-            self._draw_contour_layers(ax)
-            self._draw_synoptic(ax)
             self._draw_colorbars()
         # O traçado do usuário aparece em TODAS as peles (como na carta, que
         # o desenha sobre campos E satélite) — zorder próprio (20/25) já o
@@ -264,76 +274,6 @@ class GlobeCanvas(FigureCanvas):
 
         self._apply_zoom()
         self.draw_idle()
-
-    def _draw_synoptic(self, ax) -> None:
-        """PNMM/espessura com os MESMOS níveis da carta (LEVELS canônicos).
-
-        Valores e rótulos idênticos aos da carta 2D; só as cores de linha são
-        adaptadas ao fundo escuro do globo (PNMM clara; espessura mantém as
-        cores quente/fria da carta, que já são saturadas) e o halo dos
-        rótulos vira escuro. Centros H/L ficam fora (aviso na cena).
-        """
-        syn = self._scene.synoptic
-        if syn is None:
-            return
-        from cartomet_br.core.config import COLORS, LEVELS
-
-        halo = [pe.withStroke(linewidth=2, foreground="#060a14")]
-        try:
-            if "pnmm" in self._scene.synoptic_kinds:
-                niveis = np.arange(
-                    LEVELS["pnmm"]["min"], LEVELS["pnmm"]["max"], LEVELS["pnmm"]["step"]
-                )
-                cs = ax.contour(
-                    syn.lons,
-                    syn.lats,
-                    syn.pnmm,
-                    levels=niveis,
-                    colors="#e8edf5",
-                    linewidths=0.9,
-                    transform=ccrs.PlateCarree(),
-                    zorder=6,
-                )
-                for txt in ax.clabel(cs, inline=True, fontsize=7, fmt="%1.0f"):
-                    txt.set_path_effects(halo)
-            if "thickness" in self._scene.synoptic_kinds:
-                niveis = np.arange(
-                    LEVELS["thickness"]["min"],
-                    LEVELS["thickness"]["max"],
-                    LEVELS["thickness"]["step"],
-                )
-                sem_5400 = niveis[niveis != 5400]
-                cs = ax.contour(
-                    syn.lons,
-                    syn.lats,
-                    syn.thickness,
-                    levels=sem_5400,
-                    colors=[
-                        COLORS["thickness_cold"] if lv < 5400 else COLORS["thickness_warm"]
-                        for lv in sem_5400
-                    ],
-                    linestyles="dashed",
-                    linewidths=0.8,
-                    transform=ccrs.PlateCarree(),
-                    zorder=5,
-                )
-                for txt in ax.clabel(cs, inline=True, fontsize=7, fmt="%1.0f"):
-                    txt.set_path_effects(halo)
-                cs_5400 = ax.contour(
-                    syn.lons,
-                    syn.lats,
-                    syn.thickness,
-                    levels=[5400],
-                    colors=COLORS["thickness_5400"],
-                    linestyles="solid",
-                    linewidths=2.2,
-                    transform=ccrs.PlateCarree(),
-                    zorder=5,
-                )
-                for txt in ax.clabel(cs_5400, inline=True, fontsize=8, fmt="%1.0f"):
-                    txt.set_path_effects(halo)
-        except Exception as exc:  # noqa: BLE001 — sinótico é camada, não derruba o globo
-            logger.warning("Sinótico no globo falhou: %s", exc)
 
     def _draw_drawings(self, ax) -> None:
         """Redesenha o traçado do usuário (records .cmbr) sobre o globo.
@@ -376,31 +316,6 @@ class GlobeCanvas(FigureCanvas):
             interpolation="nearest",
             regrid_shape=_QUALITY_REGRID[self._quality],
         )
-
-    def _draw_contour_layers(self, ax) -> None:
-        """Isolinhas vetoriais (plot_type=="contour", ex.: gh500) — só no repouso.
-
-        Os níveis vêm da MESMA derivação de isolinhas da carta (passo inteiro,
-        ``derive_contour_levels`` sobre o recorte regional): valores e rótulos
-        idênticos aos da carta 2D — só a cor muda (claro sobre o globo escuro).
-        """
-        for layer in self._scene.contour_layers:
-            data = layer.data
-            values = mask_low_signal(data.variable, data.unit, data.values)
-            try:
-                cs = ax.contour(
-                    data.lons,
-                    data.lats,
-                    values,
-                    levels=np.asarray(layer.style.levels, dtype=float),
-                    colors="#f2f5fa",
-                    linewidths=0.8,
-                    transform=ccrs.PlateCarree(),
-                    zorder=6,
-                )
-                ax.clabel(cs, inline=True, fontsize=7, fmt="%1.0f")
-            except Exception as exc:  # noqa: BLE001 — isolinha é adorno, não derruba o globo
-                logger.warning("Isolinhas de %s falharam no globo: %s", layer.layer_id, exc)
 
     def _draw_colorbars(self) -> None:
         """Colorbars que dizem EXATAMENTE o que a textura mostra.
@@ -533,7 +448,9 @@ class GlobeCanvas(FigureCanvas):
         fator = 1.25 if event.button == "up" else 0.8
         self._zoom = float(np.clip(self._zoom * fator, 1.0, 8.0))
         self._apply_zoom()
-        self.draw()
+        # draw_idle coalesce ticks consecutivos da rodinha (o draw síncrono
+        # re-rasterizava a cena inteira A CADA tick — parte do "travando").
+        self.draw_idle()
         self._settle_timer.start()
 
     def _recenter_at(self, event) -> None:

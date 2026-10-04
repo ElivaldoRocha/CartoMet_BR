@@ -343,6 +343,13 @@ class TestSinoticoEDesenhos:
             step=0,
         )
         scene = GlobeScene(texture=None, synoptic=syn, synoptic_kinds=("pnmm", "thickness"))
+        # O forno assa isolinhas + relevo NA textura (clabel global por frame
+        # era o que travava o globo — lição do teste de campo do usuário).
+        from cartomet_br.services.globe_compose import bake_vector_overlay
+
+        bake_vector_overlay(scene, (91, 180))
+        assert scene.texture is not None
+        assert scene.texture.shape == (91, 180, 4)  # forno na MESMA grade (1x)
         recs = [
             {
                 "type": "symbol_line",
@@ -359,7 +366,7 @@ class TestSinoticoEDesenhos:
         # Sinotico sozinho conta como "campos" (antes o globo caia no relevo).
         assert c.available_skins()[0] == "Campos ativos"
         c.render_full()
-        assert c._ax.collections, "isolinhas sinoticas ausentes"
+        assert c._ax.get_images(), "textura assada (imshow) ausente"
         assert c._ax.lines, "frente do tracado ausente"
         assert any("frente fria" in t.get_text() for t in c._ax.texts)
         c.shutdown()

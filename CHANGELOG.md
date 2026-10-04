@@ -126,6 +126,17 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   pela projeção). Centros H/L (detecção regional com máscara orográfica) e
   emojis (dependem do pixmap Qt do canvas) ficam fora com aviso honesto.
   Só o sinótico carregado já ativa a pele de campos (antes caía no relevo).
+  **Desempenho (teste de campo: globo "travando" com a carta sinótica
+  mesmo em máquina boa)**: o vilão era o caminho vetorial — centenas de
+  rótulos de isolinha (`clabel` global com halo) re-rasterizados A CADA
+  giro/zoom, custo que o seletor de qualidade nem tocava. As isolinhas
+  (sinótico + gh500) e o relevo agora são **assados na textura** uma única
+  vez ao abrir (~0,6 s) e cada render de repouso vira um único `imshow`
+  reprojetado; os rótulos giram com o globo, como num globo físico. A
+  costa 50m (~0,95 s/frame medido na ortográfica) ficou exclusiva da
+  qualidade Alta (110m nas demais), e o scroll passou a coalescer ticks
+  (`draw_idle`). Resultado medido: repouso de ~3,2 s → **~0,7 s** no
+  Equilibrado, arraste segue ~150 ms/quadro.
 
 - **📐 Análise de Referência — o gabarito do professor sobre a carta do aluno (Onda 6 da v3.2).**
   Menu Arquivo → "Abrir Análise de Referência...": um segundo `.cmbr` (a
