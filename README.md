@@ -67,6 +67,14 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 
 ## Novidades da v3.2 (em desenvolvimento)
 
+### 🌍 Vista de Globo — a Terra vista do espaço, vestida com os seus campos
+
+- Botão **🌍 Globo** na toolbar (ou *Exibir → Vista de Globo*, Ctrl+G): tela cheia com o planeta sobre fundo estrelado — e a superfície são os **campos ativos da sua carta**, relidos do mesmo cache em extensão **global** (os GRIBs do ECMWF são o mundo inteiro; nada é baixado)
+- **Gire com a mãozinha**: arraste (rascunho fluido no gesto, render nítido ao soltar), scroll aproxima, duplo-clique centraliza, setas giram, Home volta à sua região, Esc sai
+- **Modo apresentação** faz o globo girar sozinho — perfeito para projetar em aula; **mesma escala de cores da carta** nas colorbars (derivação compartilhada, por construção)
+- **Três peles**: campos ativos, **satélite GOES full disk** (o disco real do GOES-East, que já está no seu cache) ou **relevo natural**; 💾 salva a vista em PNG com o fundo estrelado
+- Honestidade total: carimbo com produto/validade/modelo; camada sem cache global (ENS/ERA5/Δ rodadas) aparece como recorte com aviso explícito
+
 ### 📐 Análise de Referência — o gabarito do professor sobre a carta do aluno
 
 - Menu *Arquivo → "Abrir Análise de Referência..."*: um segundo `.cmbr` (a análise do professor, ou uma análise antiga sua) entra como **overlay cinza e translúcido por baixo do seu traçado** — frentes com os glifos recoloridos, símbolos, caneta, formas e anotações

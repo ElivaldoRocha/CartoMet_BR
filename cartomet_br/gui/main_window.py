@@ -173,6 +173,7 @@ class MainWindow(QMainWindow):
         self._last_loczcit_result = None
         self._animation_controller = None  # orquestrador da animação de steps
         self._animation_dialog = None
+        self._globe_window = None  # Vista de Globo (janela fullscreen única)
         # Autoria leve do projeto aberto/salvo (fluxo A→B): autor original +
         # trilha de revisões ({"name","saved_at"}). Zera em "Limpar mapa".
         self._project_authorship: dict = {"author": None, "revisions": []}
@@ -439,6 +440,13 @@ class MainWindow(QMainWindow):
         import_action.triggered.connect(self._import_local_file)
         data_menu.addAction(import_action)
 
+        # Exibir
+        view_menu = menubar.addMenu("Exibir")
+        globe_action = QAction("Vista de Globo (tela cheia)...", self)
+        globe_action.setShortcut(QKeySequence("Ctrl+G"))
+        globe_action.triggered.connect(self._open_globe_view)
+        view_menu.addAction(globe_action)
+
         # Ajuda
         help_menu = menubar.addMenu("Ajuda")
 
@@ -528,6 +536,15 @@ class MainWindow(QMainWindow):
         """)
         self.edit_mode_btn.clicked.connect(self._toggle_edit_mode)
         toolbar.addWidget(self.edit_mode_btn)
+
+        globe_btn = QPushButton("🌍 Globo")
+        globe_btn.setToolTip(
+            "Vista de Globo em tela cheia: a Terra vista do espaço com os\n"
+            "campos ativos como superfície (Ctrl+G). Arraste para girar."
+        )
+        globe_btn.setStyleSheet("background-color: #34495E; padding: 6px 14px; font-size: 11px;")
+        globe_btn.clicked.connect(self._open_globe_view)
+        toolbar.addWidget(globe_btn)
 
         self.annotate_btn = QPushButton("Aa Anotar")
         self.annotate_btn.setCheckable(True)
@@ -3220,6 +3237,74 @@ class MainWindow(QMainWindow):
             return
         new_color, new_density = dlg.get_style()
         self.canvas.restyle_wind_layer(layer_id, new_color, new_density)
+
+    # ─── Vista de Globo (tela cheia) ─────────────────────────────────────────
+
+    def _open_globe_view(self):
+        """Abre a Vista de Globo: snapshot da carta atual sobre um globo 3D.
+
+        Sem rede: os campos ativos são relidos do MESMO cache em extensão
+        global (services/globe_compose.py); sem campos, a pele é o relevo
+        natural. A janela é independente — fechar não toca a carta.
+        """
+        from cartomet_br.data.ecmwf import VARIABLE_REGISTRY as _registry
+        from cartomet_br.gui.globe_window import GlobeWindow
+        from cartomet_br.services.globe_compose import compose_scene
+
+        if getattr(self, "_globe_window", None) is not None:
+            self._globe_window.activateWindow()
+            return
+        if getattr(self, "_animation_controller", None) is not None:
+            QMessageBox.information(
+                self,
+                "Aguarde",
+                "Uma animação está sendo gerada — a animação troca os campos\n"
+                "da carta quadro a quadro e o globo capturaria um quadro\n"
+                "arbitrário. Aguarde a animação concluir.",
+            )
+            return
+
+        pl_data = self.canvas.visible_pl_layers()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            scene = compose_scene(
+                pl_data,
+                _registry,
+                config=self.config,
+                cycle=self.settings_panel.get_cycle(),
+                cycle_date=self.settings_panel.get_cycle_date(),
+                technique=self.field_panel.get_technique(),
+            )
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        # Carimbo honesto: produto(s), validade e modelo de cada camada.
+        stamp = ["CartoMet BR — Vista de Globo"]
+        for layer in (*scene.filled_layers, *scene.contour_layers)[:3]:
+            d = layer.data
+            nome = layer.var_info.get("nome", d.variable)
+            nivel = f" {d.level} hPa" if getattr(d, "level", 0) else ""
+            modelo = "ECMWF AIFS (IA)" if d.source == "aifs" else "ECMWF IFS"
+            stamp.append(f"{nome}{nivel} — válido: {d.valid_time} — {modelo}")
+        sat_data = getattr(self.canvas, "_sat_data", None)
+        if scene.texture is None and sat_data is None:
+            stamp.append("sem campos ativos — pele de relevo natural")
+
+        e = self.config.extent
+        center = ((e[0] + e[2]) / 2.0, (e[1] + e[3]) / 2.0)
+        win = GlobeWindow(
+            scene,
+            center=center,
+            satellite=sat_data,
+            stamp_lines=stamp,
+            output_dir=self.config.charts_dir,
+            parent=self,
+        )
+        win.closed.connect(lambda: setattr(self, "_globe_window", None))
+        self._globe_window = win
+        win.show_fullscreen_on_parent_screen()
+        self.status_label.setText("● Vista de Globo aberta — Esc volta à carta")
+        self.status_label.setStyleSheet("color: #9B59B6;")
 
     # ═══════════════════════════════════════════════════════════════════════
     #  PRESETS DE ANÁLISE

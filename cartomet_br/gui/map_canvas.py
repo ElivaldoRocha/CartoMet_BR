@@ -3780,6 +3780,19 @@ class MapCanvas(FigureCanvas):
         records.extend(command_to_record(e) for e in self._emoji_records)
         return records
 
+    def visible_pl_layers(self) -> dict[str, PLFieldData]:
+        """Camadas PL ativas E VISÍVEIS, na ordem de empilhamento da carta.
+
+        Camada ocultada pelo toggle fica com ``_pl_artists[id] == []`` — fora
+        do snapshot (a Vista de Globo mostra o que está NA carta, não o que
+        está apenas carregado).
+        """
+        return {
+            layer_id: data
+            for layer_id, data in self._pl_data.items()
+            if self._pl_artists.get(layer_id)
+        }
+
     def export_layers_state(self) -> list[dict]:
         """Manifesto das camadas de campo ATIVAS — base p/ restaurá-las do cache.
 

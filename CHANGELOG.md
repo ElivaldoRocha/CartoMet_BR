@@ -73,6 +73,32 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **🌍 Vista de Globo em tela cheia — a Terra vista do espaço com os campos ativos.**
+  Botão "🌍 Globo" na toolbar (menu Exibir, Ctrl+G): abre uma janela em tela
+  cheia com o planeta em projeção ortográfica sobre fundo estrelado e halo
+  atmosférico — e a superfície são os **campos meteorológicos ativos** da
+  carta. Os GRIBs do ECMWF em cache são globais (o recorte regional acontece
+  só na leitura), então o globo **relê o MESMO cache em extensão mundial, sem
+  baixar nada** — e usa a **mesma escala de cores da carta** (a derivação de
+  níveis/colormap foi extraída para função compartilhada; as cores de banda
+  reproduzem as do `contourf` por teste-verdade contra um ContourSet real).
+  **Interação**: arraste com a mãozinha para girar (modo rascunho fluido
+  durante o gesto; render completo nítido ~0,5 s após soltar — padrão
+  gesto-leve/repouso-caro do pan 2D), scroll aproxima, duplo-clique
+  centraliza, setas giram, Home volta à sua região, Esc fecha. **Modo
+  apresentação** gira o globo sozinho (aula/projeção; qualquer gesto pausa).
+  **Peles**: campos ativos (compostos numa textura única na ordem de
+  empilhamento da carta; isolinhas como gh500 entram vetoriais no repouso),
+  **satélite GOES full disk** (o arquivo em cache já é o disco completo do
+  GOES-East) ou **relevo natural** (sem campos ativos — a Terra azul).
+  Botão 💾 salva a vista em PNG (fundo estrelado incluso) na pasta de
+  cartas. **Honestidade**: carimbo com produto/validade/modelo, colorbars
+  idênticas às da carta, e camada sem cache global (ENS/ERA5/Δ rodadas —
+  fontes regionais por natureza) entra como recorte com aviso explícito;
+  vento e eixos ficam fora do v1 com aviso. Snapshot independente: fechar
+  não toca a carta; bloqueado durante a geração de animação (que troca os
+  campos quadro a quadro). Nunca dispara rede.
+
 - **📐 Análise de Referência — o gabarito do professor sobre a carta do aluno (Onda 6 da v3.2).**
   Menu Arquivo → "Abrir Análise de Referência...": um segundo `.cmbr` (a
   análise do professor, ou uma análise antiga sua) entra como **overlay
