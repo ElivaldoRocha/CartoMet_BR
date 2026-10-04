@@ -98,6 +98,24 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   vento e eixos ficam fora do v1 com aviso. Snapshot independente: fechar
   não toca a carta; bloqueado durante a geração de animação (que troca os
   campos quadro a quadro). Nunca dispara rede.
+  **Blindagens da revisão adversária** (12 achados confirmados em prova
+  numérica/pixel, todos corrigidos): a **colorbar do globo** agora é montada
+  com as cores REAIS das bandas (o `BoundaryNorm` distribuía as bandas
+  uniformemente pelo colormap — para níveis irregulares como precipitação a
+  legenda divergia da textura em várias categorias) e achatada sobre branco
+  como a textura; a releitura global **preserva a identidade da camada**
+  (campo AIFS era re-carimbado "ECMWF IFS") e ganhou **guarda de rodada**
+  (validade/base divergente do painel → recorte honesto, nunca dado de
+  outra rodada); **isolinhas** (gh500) usam a derivação própria de isolinhas
+  da carta (passo inteiro — valores e rótulos idênticos aos da carta 2D),
+  agora extraída e canônica; o **carimbo acompanha a pele** (na pele GOES
+  assina a imagem de satélite com o horário DELA, não o step do modelo);
+  o ciclo abrir/fechar **não vaza mais a janela** (com parent Qt cada ciclo
+  acumulava ~15–30 MB — a janela agora é posse exclusiva do Python e o
+  fechar do app a fecha junto); e o espelho de níveis da **animação** passou
+  a importar as fórmulas canônicas (vivia defasado: sem `theta_e_grad` e
+  sem o clamp ≥ 0 dos índices — CAPE/K animados podiam ganhar níveis
+  negativos que a carta nunca mostra).
 
 - **📐 Análise de Referência — o gabarito do professor sobre a carta do aluno (Onda 6 da v3.2).**
   Menu Arquivo → "Abrir Análise de Referência...": um segundo `.cmbr` (a

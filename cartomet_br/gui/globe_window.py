@@ -149,12 +149,20 @@ class GlobeCanvas(FigureCanvas):
         self.render_full()
 
     def shutdown(self) -> None:
-        """Para timers e desconecta eventos (chamado no closeEvent)."""
+        """Para timers, desconecta eventos e SOLTA a cena (chamado no close).
+
+        A cena global (textura + campos 0.25° inteiros + full disk GOES) é o
+        grosso da memória — liberá-la aqui garante que mesmo um wrapper Qt
+        que demore a morrer não segure dezenas de MB.
+        """
         self._settle_timer.stop()
         self._spin_timer.stop()
         for cid in self._cids:
             self.mpl_disconnect(cid)
         self.fig.clf()
+        self._scene = GlobeScene(texture=None)
+        self._satellite = None
+        self._ax = None
 
     def _set_center(self, lon: float, lat: float) -> None:
         self._center_lon = ((lon + 180.0) % 360.0) - 180.0
@@ -214,6 +222,7 @@ class GlobeCanvas(FigureCanvas):
 
     def render_full(self) -> None:
         """Render completo do repouso: pele + isolinhas + colorbars + carimbo."""
+        self._colorbars: list = []  # inspecionável em teste (fidelidade de cor)
         ax = self._new_globe_axes()
         regrid = _QUALITY_REGRID[self._quality]
 
@@ -266,7 +275,12 @@ class GlobeCanvas(FigureCanvas):
         )
 
     def _draw_contour_layers(self, ax) -> None:
-        """Isolinhas vetoriais (plot_type=="contour", ex.: gh500) — só no repouso."""
+        """Isolinhas vetoriais (plot_type=="contour", ex.: gh500) — só no repouso.
+
+        Os níveis vêm da MESMA derivação de isolinhas da carta (passo inteiro,
+        ``derive_contour_levels`` sobre o recorte regional): valores e rótulos
+        idênticos aos da carta 2D — só a cor muda (claro sobre o globo escuro).
+        """
         for layer in self._scene.contour_layers:
             data = layer.data
             values = mask_low_signal(data.variable, data.unit, data.values)
@@ -275,33 +289,52 @@ class GlobeCanvas(FigureCanvas):
                     data.lons,
                     data.lats,
                     values,
-                    levels=np.asarray(layer.style.levels)[::2],
+                    levels=np.asarray(layer.style.levels, dtype=float),
                     colors="#f2f5fa",
-                    linewidths=0.7,
+                    linewidths=0.8,
                     transform=ccrs.PlateCarree(),
                     zorder=6,
                 )
-                ax.clabel(cs, inline=True, fontsize=6, fmt="%1.0f")
+                ax.clabel(cs, inline=True, fontsize=7, fmt="%1.0f")
             except Exception as exc:  # noqa: BLE001 — isolinha é adorno, não derruba o globo
                 logger.warning("Isolinhas de %s falharam no globo: %s", layer.layer_id, exc)
 
     def _draw_colorbars(self) -> None:
-        """Colorbars compactas (mesma escala da carta) na base da figura."""
-        import matplotlib as mpl
+        """Colorbars que dizem EXATAMENTE o que a textura mostra.
+
+        Armadilha pega em revisão: ``BoundaryNorm(levels, cmap.N)`` distribui
+        as bandas UNIFORMEMENTE pelo colormap, mas o contourf da carta (e a
+        textura, via ``band_colors``) colore pelo ponto MÉDIO normalizado —
+        para níveis irregulares (precipitação!) as duas regras divergem em
+        várias categorias. Aqui a colorbar é montada com as cores REAIS das
+        bandas (``band_colors``), achatadas sobre branco como a textura.
+        """
         from matplotlib.cm import ScalarMappable
-        from matplotlib.colors import BoundaryNorm
+        from matplotlib.colors import BoundaryNorm, ListedColormap
+
+        from cartomet_br.services.globe_compose import band_colors
+
+        def achatada(cor) -> tuple[float, float, float, float]:
+            arr = np.asarray(cor, dtype=float)
+            return (*(arr[:3] * 0.85 + 0.15), 1.0)  # 0.85·cor + 0.15·branco
 
         layers = self._scene.filled_layers[:2]  # no máximo duas — legibilidade
         for i, layer in enumerate(layers):
             levels = np.asarray(layer.style.levels, dtype=float)
-            cmap = layer.style.cmap
-            if isinstance(cmap, str):
-                cmap = mpl.colormaps[cmap]
+            interior, under, over = band_colors(layer.style)
+            lcmap = ListedColormap([achatada(c) for c in interior])
+            if under is not None:
+                lcmap.set_under(achatada(under))
+            if over is not None:
+                lcmap.set_over(achatada(over))
+            norm = BoundaryNorm(levels, ncolors=lcmap.N)  # banda i → cor i, exata
             extend = cast('Literal["neither", "both", "min", "max"]', layer.style.extend)
-            norm = BoundaryNorm(levels, ncolors=cmap.N, extend=extend)
             cax = self.fig.add_axes((0.14 + i * 0.40, 0.035, 0.30, 0.016))
             cbar = self.fig.colorbar(
-                ScalarMappable(norm=norm, cmap=cmap), cax=cax, orientation="horizontal"
+                ScalarMappable(norm=norm, cmap=lcmap),
+                cax=cax,
+                orientation="horizontal",
+                extend=extend,
             )
             nome = layer.var_info.get("nome", layer.data.variable)
             unidade = layer.data.unit
@@ -309,11 +342,27 @@ class GlobeCanvas(FigureCanvas):
             cbar.set_label(f"{nome} ({unidade}){sufixo}", color="#dfe6f0", fontsize=8)
             cbar.ax.tick_params(labelsize=6.5, colors="#b9c3d4")
             cbar.outline.set_edgecolor("#55657f")  # type: ignore[operator] # Spine no stub
+            self._colorbars.append(cbar)
+
+    def _stamp_for_skin(self) -> list[str]:
+        """Linhas do carimbo HONESTAS para a pele em exibição.
+
+        Com a pele GOES o que se vê é a IMAGEM DE SATÉLITE (horário próprio,
+        não o step do modelo); com o relevo não há dado do dia nenhum — o
+        carimbo dos campos só vale na pele de campos.
+        """
+        titulo = self._stamp_lines[:1] or ["CartoMet BR — Vista de Globo"]
+        if self._skin == _PELE_GOES and self._satellite is not None:
+            quando = getattr(self._satellite, "time_str", "")
+            return [*titulo, f"Satélite GOES-East — Banda 13 — {quando}"]
+        if self._skin == _PELE_CAMPOS:
+            return self._stamp_lines
+        return [*titulo, "pele: relevo natural (imagem de referência, não é dado do dia)"]
 
     def _draw_stamp(self) -> None:
         """Carimbo honesto no canto superior esquerdo + avisos no rodapé."""
         y = 0.975
-        for i, linha in enumerate(self._stamp_lines):
+        for i, linha in enumerate(self._stamp_for_skin()):
             self.fig.text(
                 0.015,
                 y - i * 0.028,
@@ -323,6 +372,8 @@ class GlobeCanvas(FigureCanvas):
                 ha="left",
                 va="top",
             )
+        if self._skin != _PELE_CAMPOS:
+            return  # avisos de camadas só fazem sentido na pele de campos
         for j, aviso in enumerate(self._scene.warnings[:3]):
             self.fig.text(
                 0.985,
@@ -402,7 +453,11 @@ class GlobeWindow(QMainWindow):
     SEM ``WA_DeleteOnClose``: o Qt deletaria o C++ do FigureCanvas com os
     wrappers matplotlib ainda vivos e o GC do Python estouraria num access
     violation depois (visto em teste). Fechar esconde + ``closed`` avisa o
-    dono, que solta a referência — o Python destrói na ordem certa.
+    dono, que solta a referência — o Python destrói na ordem certa. Para
+    isso funcionar a janela precisa nascer SEM parent Qt (revisão pegou o
+    vazamento: com parent, a posse C++ é do MainWindow e soltar a referência
+    Python não destrói nada — cada ciclo abrir/fechar acumulava uma janela).
+    A tela do fullscreen vem por parâmetro em ``show_fullscreen_on_screen``.
     """
 
     closed = pyqtSignal()
@@ -482,10 +537,8 @@ class GlobeWindow(QMainWindow):
         esc = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
         esc.activated.connect(self.close)
 
-    def show_fullscreen_on_parent_screen(self) -> None:
-        """Tela cheia no monitor do MainWindow (multi-monitor correto)."""
-        parent = self.parentWidget()
-        screen = parent.screen() if parent is not None else None
+    def show_fullscreen_on_screen(self, screen=None) -> None:
+        """Tela cheia no monitor dado (o do MainWindow — multi-monitor correto)."""
         if screen is not None:
             self.setGeometry(screen.geometry())
         self.showFullScreen()

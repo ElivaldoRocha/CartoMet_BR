@@ -53,9 +53,17 @@ GIF_MAX_COLORS = 255
 # Variáveis cuja escala já é fixa no canvas (olr/precip) — não congelar.
 _FIXED_SCALE_VARS = ("olr", "precip")
 
-# Espelho da lista de clamp ≥ 0 de MapCanvas._plot_scalar_contourf.
-_CLAMP_ZERO_VARS = ("r", "q", "wind_speed", "temp_grad", "tcwv", "sst_grad")
-
+# Lista de clamp ≥ 0 e fórmulas de níveis: fonte única em
+# services/field_style.py (o espelho local vivia DEFASADO — sem theta_e_grad
+# e sem a família ens/era5; a deriva foi pega em revisão adversarial).
+from cartomet_br.services.field_style import (  # noqa: E402
+    CLAMP_ZERO_VARIABLES as _CLAMP_ZERO_VARS,
+)
+from cartomet_br.services.field_style import (  # noqa: E402
+    contour_levels_from_range,
+    percentile_levels,
+    symmetric_levels,
+)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  STEPS: grade válida × alcance por rodada
@@ -274,33 +282,18 @@ class FrameScaleTracker:
         var_info: dict = st["var_info"]
         variable: str = st["variable"]
 
-        # Espelho de _plot_scalar_contour (linhas apenas, ex.: gh).
+        # Fórmulas canônicas de field_style sobre os AGREGADOS do intervalo
+        # (a carta/globo as aplicam ao quadro corrente; aqui, ao conjunto).
         if var_info.get("plot_type") == "contour":
-            vmin, vmax = st["p2"], st["p98"]
-            if abs(vmax - vmin) < 1e-10:
-                return None
-            step = max(1, int((vmax - vmin) / 20))
-            levels = np.arange(int(vmin), int(vmax) + step, step)
-            return levels if len(levels) >= 2 else None
+            return contour_levels_from_range(st["p2"], st["p98"])
 
-        # Espelho de _plot_scalar_contourf, caso simétrico (ω, div, vort).
         if var_info.get("symmetric", False):
-            vmax = max(abs(st["vmin"]), abs(st["vmax"])) * 0.9
-            if vmax < 1e-10:
-                vmax = 1.0
-            return np.linspace(-vmax, vmax, 21)
+            return symmetric_levels(max(abs(st["vmin"]), abs(st["vmax"])))
 
-        # Espelho de _plot_scalar_contourf, caso geral (percentis 2–98).
-        vmin, vmax = st["p2"], st["p98"]
-        margin = (vmax - vmin) * 0.05
-        lv_min = vmin - margin
-        lv_max = vmax + margin
-        if var_info.get("category") == "wind_speed" or variable in _CLAMP_ZERO_VARS:
-            lv_min = max(0, lv_min)
-        if abs(lv_max - lv_min) < 1e-10:
-            lv_min -= 1.0
-            lv_max += 1.0
-        return np.linspace(lv_min, lv_max, 21)
+        # Mesma condição da carta (o espelho antigo esquecia "index" — CAPE/K
+        # animados podiam ganhar níveis negativos que a carta nunca mostra).
+        clamp = var_info.get("category") in ("wind_speed", "index") or variable in _CLAMP_ZERO_VARS
+        return percentile_levels(st["p2"], st["p98"], clamp_zero=clamp)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

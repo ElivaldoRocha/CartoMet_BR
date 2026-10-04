@@ -3292,19 +3292,27 @@ class MainWindow(QMainWindow):
 
         e = self.config.extent
         center = ((e[0] + e[2]) / 2.0, (e[1] + e[3]) / 2.0)
+        # SEM parent Qt (deliberado): com parent, a posse C++ seria do
+        # MainWindow e cada ciclo abrir/fechar acumularia uma janela viva
+        # (vazamento pego em revisão). A referência Python é a única dona.
         win = GlobeWindow(
             scene,
             center=center,
             satellite=sat_data,
             stamp_lines=stamp,
             output_dir=self.config.charts_dir,
-            parent=self,
         )
         win.closed.connect(lambda: setattr(self, "_globe_window", None))
         self._globe_window = win
-        win.show_fullscreen_on_parent_screen()
+        win.show_fullscreen_on_screen(self.screen())
         self.status_label.setText("● Vista de Globo aberta — Esc volta à carta")
         self.status_label.setStyleSheet("color: #9B59B6;")
+
+    def closeEvent(self, event) -> None:  # noqa: N802 — override Qt
+        """Fechar o app fecha a Vista de Globo junto (janela sem parent Qt)."""
+        if getattr(self, "_globe_window", None) is not None:
+            self._globe_window.close()
+        super().closeEvent(event)
 
     # ═══════════════════════════════════════════════════════════════════════
     #  PRESETS DE ANÁLISE

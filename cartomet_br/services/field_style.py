@@ -111,8 +111,10 @@ SST_COLORS = [
 ]
 
 # Variáveis cuja escala de percentis não desce abaixo de zero (mesmo conjunto
-# que vivia inline no _plot_scalar_contourf — contrato da carta).
-_CLAMP_ZERO_VARIABLES = (
+# que vivia inline no _plot_scalar_contourf — contrato da carta). PÚBLICO: o
+# FrameScaleTracker da animação usa a MESMA lista (antes mantinha um espelho
+# defasado — sem theta_e_grad e sem toda a família ens/era5).
+CLAMP_ZERO_VARIABLES = (
     "r",
     "q",
     "wind_speed",
@@ -134,6 +136,54 @@ _CLAMP_ZERO_VARIABLES = (
     "era5_totalx",
     "era5_gust",
 )
+
+
+# ─── Fórmulas de níveis compartilhadas (carta, globo E animação) ─────────────
+# A animação agrega extremos/percentis de TODOS os quadros e aplica as mesmas
+# fórmulas — compartilhá-las aqui mata a deriva entre os espelhos.
+
+
+def symmetric_levels(abs_max: float) -> np.ndarray:
+    """Níveis simétricos ±0.9·|extremo| em 21 passos (ω, div, vort...)."""
+    vmax = abs_max * 0.9
+    if vmax < 1e-10:
+        vmax = 1.0
+    return np.linspace(-vmax, vmax, 21)
+
+
+def percentile_levels(p2: float, p98: float, *, clamp_zero: bool) -> np.ndarray:
+    """Níveis do caso geral: percentis 2–98 + 5% de margem, 21 passos."""
+    margin = (p98 - p2) * 0.05
+    lv_min = p2 - margin
+    lv_max = p98 + margin
+    if clamp_zero:
+        lv_min = max(0, lv_min)
+    # Evita levels constantes (min == max → matplotlib crash)
+    if abs(lv_max - lv_min) < 1e-10:
+        lv_min = lv_min - 1.0
+        lv_max = lv_max + 1.0
+    return np.linspace(lv_min, lv_max, 21)
+
+
+def contour_levels_from_range(vmin: float, vmax: float) -> np.ndarray | None:
+    """Níveis de ISOLINHAS (passo inteiro) como o _plot_scalar_contour da carta.
+
+    ``None`` = campo constante (nada a plotar); também quando sobra < 2 níveis.
+    """
+    if abs(vmax - vmin) < 1e-10:
+        return None
+    step = max(1, int((vmax - vmin) / 20))
+    levels = np.arange(int(vmin), int(vmax) + step, step)
+    return levels if len(levels) >= 2 else None
+
+
+def derive_contour_levels(values: np.ndarray, fixed_levels=None) -> np.ndarray | None:
+    """Níveis de isolinhas de um campo (percentis 2–98 do próprio quadro)."""
+    if fixed_levels is not None:
+        arr = np.asarray(fixed_levels, dtype=float)
+        return arr if len(arr) >= 2 else None
+    vmin, vmax = np.nanpercentile(values, [2, 98])
+    return contour_levels_from_range(float(vmin), float(vmax))
 
 
 @dataclass(frozen=True)
@@ -201,26 +251,13 @@ def derive_scalar_style(
         floor = precip_dry_floor(unit)
         levels = [floor, *[lv for lv in PRECIP_LEVELS if lv > floor]]
     elif symmetric:
-        vmax = max(abs(np.nanmin(values)), abs(np.nanmax(values)))
-        vmax = vmax * 0.9
-        if vmax < 1e-10:
-            vmax = 1.0
-        levels = np.linspace(-vmax, vmax, 21)
+        levels = symmetric_levels(max(abs(np.nanmin(values)), abs(np.nanmax(values))))
     else:
-        vmin, vmax = np.nanpercentile(values, [2, 98])
-        margin = (vmax - vmin) * 0.05
-        lv_min = vmin - margin
-        lv_max = vmax + margin
-
-        if var_info.get("category") in ("wind_speed", "index") or variable in _CLAMP_ZERO_VARIABLES:
-            lv_min = max(0, lv_min)
-
-        # Evita levels constantes (min == max → matplotlib crash)
-        if abs(lv_max - lv_min) < 1e-10:
-            lv_min = lv_min - 1.0
-            lv_max = lv_max + 1.0
-
-        levels = np.linspace(lv_min, lv_max, 21)
+        p2, p98 = np.nanpercentile(values, [2, 98])
+        clamp = (
+            var_info.get("category") in ("wind_speed", "index") or variable in CLAMP_ZERO_VARIABLES
+        )
+        levels = percentile_levels(float(p2), float(p98), clamp_zero=clamp)
 
     return ScalarStyle(
         levels=levels,

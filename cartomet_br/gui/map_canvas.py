@@ -6218,14 +6218,13 @@ class MapCanvas(FigureCanvas):
 
         if fixed_levels is not None:
             levels = fixed_levels
+            if len(levels) < 2:
+                return artists
         else:
-            vmin, vmax = np.nanpercentile(values, [2, 98])
-            if abs(vmax - vmin) < 1e-10:
+            # Derivação canônica compartilhada (carta, globo e animação).
+            levels = field_style.derive_contour_levels(values)
+            if levels is None:
                 return artists  # Campo constante, nada a plotar
-            step = max(1, int((vmax - vmin) / 20))
-            levels = np.arange(int(vmin), int(vmax) + step, step)
-        if len(levels) < 2:
-            return artists
 
         cs = self.ax.contour(
             data.lons,

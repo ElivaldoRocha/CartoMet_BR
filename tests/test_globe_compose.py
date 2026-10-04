@@ -171,6 +171,37 @@ class TestReloadGlobal:
         out, ok = reload_global(data, config=_Cfg(tmp_path), cycle=0, cycle_date="20261003")
         assert not ok and out is data
 
+    def test_identidade_e_guarda_de_rodada(self, tmp_path, monkeypatch):
+        # Achados da revisão: (1) o loader cru não preenche .source — um campo
+        # AIFS relido globalmente era carimbado "ECMWF IFS"; (2) cycle/
+        # cycle_date vêm do PAINEL — se o usuário trocou a rodada depois de
+        # carregar a camada, o globo mostraria OUTRA rodada sem aviso.
+        import cartomet_br.data.ecmwf as ec
+
+        regional = _field(
+            np.zeros((3, 3)),
+            [-50, -45, -40],
+            [0, -5, -10],
+            source="aifs",
+            valid_time="2026-10-03 12Z",
+            base_time="00Z 03/10/2026",
+        )
+
+        mesma_rodada = _global_field()
+        mesma_rodada.valid_time = regional.valid_time
+        mesma_rodada.base_time = regional.base_time
+        monkeypatch.setattr(ec, "load_pl_variable", lambda **kw: mesma_rodada)
+        out, ok = reload_global(regional, config=_Cfg(tmp_path), cycle=0, cycle_date="20261003")
+        assert ok
+        assert out.source == "aifs"  # o carimbo rotula o modelo CERTO
+
+        outra_rodada = _global_field()
+        outra_rodada.valid_time = regional.valid_time
+        outra_rodada.base_time = "12Z 02/10/2026"
+        monkeypatch.setattr(ec, "load_pl_variable", lambda **kw: outra_rodada)
+        out2, ok2 = reload_global(regional, config=_Cfg(tmp_path), cycle=12, cycle_date="20261002")
+        assert not ok2 and out2 is regional  # rodada divergente → recorte honesto
+
     def test_fontes_regionais_nao_tentam(self, tmp_path, monkeypatch):
         import cartomet_br.data.ecmwf as ec
 
@@ -256,6 +287,28 @@ class TestComposeScene:
         assert scene.texture is None
         assert any("vento" in w for w in scene.warnings)
 
+    def test_isolinhas_usam_a_derivacao_de_contour_da_carta(self, tmp_path, monkeypatch):
+        # Achado da revisão: as isolinhas do globo usavam a derivação ESCALAR
+        # (21 níveis fracionários) — a carta usa passo INTEIRO próprio
+        # (_plot_scalar_contour). Agora é a mesma função canônica.
+        import cartomet_br.services.globe_compose as gc
+        from cartomet_br.services.field_style import derive_contour_levels
+
+        monkeypatch.setattr(gc, "reload_global", lambda d, **kw: (d, True))
+        gh = _global_field(variable="gh", unit="dam")
+        scene = gc.compose_scene(
+            {"gh_500": gh},
+            self.REGISTRY,
+            config=_Cfg(tmp_path),
+            cycle=0,
+            cycle_date="20261003",
+            shape=SHAPE_TESTE,
+        )
+        esperado = derive_contour_levels(gh.values)
+        niveis = np.asarray(scene.contour_layers[0].style.levels)
+        assert np.array_equal(niveis, esperado)
+        assert np.allclose(np.diff(niveis), np.round(np.diff(niveis)))  # passo inteiro
+
     def test_fallback_regional_gera_aviso_honesto(self, tmp_path, monkeypatch):
         import cartomet_br.services.globe_compose as gc
 
@@ -268,5 +321,5 @@ class TestComposeScene:
             cycle_date="20261003",
             shape=SHAPE_TESTE,
         )
-        assert any("recorte regional" in w for w in scene.warnings)
+        assert any("sem cache global" in w and "recorte" in w for w in scene.warnings)
         assert scene.filled_layers and not scene.filled_layers[0].is_global

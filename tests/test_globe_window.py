@@ -164,6 +164,70 @@ class TestJanela:
         assert win.globe.center == (-55.0, -15.0)
         win.close()
 
+    def test_colorbar_diz_o_que_a_textura_mostra(self, qapp):
+        # Achado da revisão: BoundaryNorm(levels, cmap.N) distribui as bandas
+        # uniformemente pelo cmap — para níveis IRREGULARES (precipitação) a
+        # legenda divergia da textura em várias categorias. A colorbar agora
+        # usa as cores REAIS das bandas (band_colors), achatadas sobre branco.
+        import numpy as np
+
+        from cartomet_br.gui.globe_window import GlobeCanvas
+        from cartomet_br.services.field_style import derive_scalar_style
+        from cartomet_br.services.globe_compose import GlobeLayer, GlobeScene, band_colors
+
+        data = PLFieldData(
+            values=np.full((3, 4), 12.0),
+            lons=np.array([-60.0, -55.0, -50.0, -45.0]),
+            lats=np.array([-10.0, -15.0, -20.0]),
+            variable="precip",
+            unit="mm/3h",
+        )
+        style = derive_scalar_style(
+            "precip", "mm/3h", data.values, {"cmap": "precip_classic"}
+        )  # níveis irregulares de verdade
+        layer = GlobeLayer("precip", data, {"nome": "Precipitação"}, style, True)
+        tex = np.zeros((10, 20, 4), dtype=np.uint8)
+        scene = GlobeScene(texture=tex, filled_layers=[layer])
+        c = GlobeCanvas(scene, center=(-55.0, -15.0))
+        c.render_full()
+        assert c._colorbars, "colorbar não construída"
+        interior, _under, _over = band_colors(style)
+        cores_cbar = np.asarray(c._colorbars[0].cmap.colors)
+        esperadas = np.asarray([(*(np.asarray(k[:3]) * 0.85 + 0.15), 1.0) for k in interior])
+        assert cores_cbar.shape == esperadas.shape
+        assert np.allclose(cores_cbar, esperadas, atol=1e-6)
+        c.shutdown()
+
+    def test_carimbo_acompanha_a_pele(self, qapp):
+        from cartomet_br.gui.globe_window import GlobeCanvas
+
+        sat = SimpleNamespace(
+            data=np.zeros((4, 4)),
+            x=np.array([-5e6, 0.0, 5e6, 5.5e6]),
+            y=np.array([5e6, 0.0, -5e6, -5.5e6]),
+            sat_lon=-75.0,
+            sat_h=35786023.0,
+            sat_sweep="x",
+            time_str="03/10/2026 23:50 UTC",
+        )
+        c = GlobeCanvas(
+            _scene(),
+            center=(-55.0, -15.0),
+            satellite=sat,
+            stamp_lines=["CartoMet BR — Vista de Globo", "Temperatura 850 hPa — ECMWF IFS"],
+        )
+        c.set_skin("Satélite GOES")
+        textos = " | ".join(t.get_text() for t in c.fig.texts)
+        assert "GOES-East" in textos and "23:50" in textos
+        assert "Temperatura" not in textos  # o step do modelo não assina a imagem
+        c.set_skin("Relevo natural")
+        textos = " | ".join(t.get_text() for t in c.fig.texts)
+        assert "relevo natural" in textos and "Temperatura" not in textos
+        c.set_skin("Campos ativos")
+        textos = " | ".join(t.get_text() for t in c.fig.texts)
+        assert "Temperatura 850 hPa" in textos
+        c.shutdown()
+
     def test_salvar_png(self, qapp, tmp_path):
         from cartomet_br.gui.globe_window import GlobeWindow
 
@@ -211,14 +275,39 @@ class TestIntegracaoMainWindow:
 
         monkeypatch.setattr(
             gw.GlobeWindow,
-            "show_fullscreen_on_parent_screen",
-            lambda self: aberto.setdefault("ok", True),
+            "show_fullscreen_on_screen",
+            lambda self, screen=None: aberto.setdefault("ok", True),
         )
         window._open_globe_view()
         assert aberto.get("ok")
         assert window._globe_window is not None
         assert window._globe_window.globe.available_skins() == ["Relevo natural"]
         window._globe_window.close()
+
+    def test_ciclo_abrir_fechar_nao_vaza_a_janela(self, window, monkeypatch):
+        # Achado da revisão: com parent Qt, a posse C++ era do MainWindow e
+        # cada ciclo abrir/fechar acumulava uma GlobeWindow viva (textura +
+        # campos globais + canvas fullscreen). Sem parent, fechar + soltar a
+        # referência destrói de verdade.
+        import gc
+        import weakref
+
+        from cartomet_br.gui import globe_window as gw
+
+        monkeypatch.setattr(
+            gw.GlobeWindow, "show_fullscreen_on_screen", lambda self, screen=None: None
+        )
+        window._open_globe_view()
+        win = window._globe_window
+        assert win is not None
+        assert win.parent() is None  # posse 100% do Python
+        assert all(not isinstance(ch, gw.GlobeWindow) for ch in window.children())
+        ref = weakref.ref(win)
+        win.close()
+        assert window._globe_window is None  # sinal closed soltou a referência
+        del win
+        gc.collect()
+        assert ref() is None, "GlobeWindow fechada continua viva (vazamento)"
 
     def test_globo_bloqueado_durante_animacao(self, window, monkeypatch):
         from PyQt6.QtWidgets import QMessageBox

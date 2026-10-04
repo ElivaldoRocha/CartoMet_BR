@@ -23,6 +23,7 @@ import numpy as np
 
 from cartomet_br.services.field_style import (
     ScalarStyle,
+    derive_contour_levels,
     derive_scalar_style,
     mask_low_signal,
 )
@@ -221,27 +222,47 @@ def reload_global(
     try:
         with cache_only_mode():
             if var == "olr":
-                return load_olr(technique=technique, **common), True
-            if var == "precip":
-                return load_precip(technique=technique, **common), True
-            if var == "tcwv":
-                return load_tcwv(**common), True
-            if var == "sst_model":
-                return load_model_sst(**common), True
-            if var == "sst_grad":
-                return load_sst_gradient(**common), True
-            if var in ("tmax2m", "tmin2m"):
-                return load_t2_extreme(var, **common), True
-            model = "aifs" if data.source == "aifs" else "ifs"
-            return (
-                load_pl_variable(variable_key=var, level=int(data.level), model=model, **common),
-                True,
-            )
+                gdata = load_olr(technique=technique, **common)
+            elif var == "precip":
+                gdata = load_precip(technique=technique, **common)
+            elif var == "tcwv":
+                gdata = load_tcwv(**common)
+            elif var == "sst_model":
+                gdata = load_model_sst(**common)
+            elif var == "sst_grad":
+                gdata = load_sst_gradient(**common)
+            elif var in ("tmax2m", "tmin2m"):
+                gdata = load_t2_extreme(var, **common)
+            else:
+                model = "aifs" if data.source == "aifs" else "ifs"
+                gdata = load_pl_variable(
+                    variable_key=var, level=int(data.level), model=model, **common
+                )
     except CacheMissError:
         return data, False
     except Exception as exc:  # noqa: BLE001 — fallback honesto, nunca rede
         logger.warning("Releitura global de %s falhou (%s) — usando o recorte.", var, exc)
         return data, False
+
+    # Identidade da camada: o loader cru não preenche .source (quem o faz é o
+    # DataService) — sem isto o carimbo rotularia um campo AIFS como "IFS".
+    gdata.source = data.source
+    # Guarda de rodada: cycle/cycle_date vêm do PAINEL — se o usuário trocou a
+    # rodada depois de carregar a camada, a releitura seria de OUTRA rodada.
+    # Validade/base divergente → recorte regional honesto (nunca dado trocado).
+    # Limite conhecido: a técnica de desacumulação não fica nos metadados da
+    # camada — divergência de técnica (olr/precip) não é detectável aqui.
+    if (data.valid_time and gdata.valid_time != data.valid_time) or (
+        data.base_time and gdata.base_time != data.base_time
+    ):
+        logger.warning(
+            "Releitura global de %s veio de outra rodada (%s != %s) — usando o recorte.",
+            var,
+            gdata.base_time,
+            data.base_time,
+        )
+        return data, False
+    return gdata, True
 
 
 # ─── Composição da cena ──────────────────────────────────────────────────────
@@ -279,17 +300,28 @@ def compose_scene(
             continue
 
         # Estilo derivado do RECORTE REGIONAL — a mesma escala da carta aberta.
+        # Isolinhas (plot_type "contour", ex.: gh500) usam a derivação PRÓPRIA
+        # de isolinhas da carta (passo inteiro), não a de contourf — valores e
+        # rótulos idênticos aos que o usuário vê na carta 2D.
         reg_values = mask_low_signal(data.variable, data.unit, data.values)
-        style = derive_scalar_style(data.variable, data.unit, reg_values, var_info)
+        is_contour = var_info.get("plot_type") == "contour"
+        if is_contour:
+            niveis = derive_contour_levels(reg_values)
+            if niveis is None:
+                scene.warnings.append(f"{nome}: campo constante — sem isolinhas no globo")
+                continue
+            style = ScalarStyle(levels=niveis, cmap="binary", extend="neither")
+        else:
+            style = derive_scalar_style(data.variable, data.unit, reg_values, var_info)
 
         gdata, is_global = reload_global(
             data, config=config, cycle=cycle, cycle_date=cycle_date, technique=technique
         )
         if not is_global:
-            scene.warnings.append(f"{nome}: sem cache global — exibindo o recorte regional")
+            scene.warnings.append(f"{nome}: sem cache global compatível — exibindo o recorte")
 
         layer = GlobeLayer(layer_id, gdata, var_info, style, is_global)
-        if var_info.get("plot_type") == "contour":
+        if is_contour:
             scene.contour_layers.append(layer)
             continue
 
