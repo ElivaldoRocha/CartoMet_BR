@@ -5,7 +5,7 @@ Todas as mudanças notáveis do **CartoMet BR** são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [3.2.0] — 2026-10-05
 
 ### Corrigido
 
