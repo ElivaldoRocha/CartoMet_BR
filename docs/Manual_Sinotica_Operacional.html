@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual de Sinótica Operacional — leitura de campos & traçado OMM (CartoMet BR)</title>
+<style>
+  :root{
+    --azul:#2166ac; --azul-claro:#d7e6f5;
+    --verm:#b2182b; --verm-claro:#f7dcdc;
+    --tinta:#1c2733; --cinza:#5a6b7b; --linha:#d7dee6;
+    --bg:#f6f8fa; --card:#ffffff;
+    --def:#1565c0; --trap:#c62828; --tip:#2e7d32; --cart:#6a1b9a; --deep:#00695c;
+    --max:980px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--tinta);
+    font:16px/1.62 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{display:flex;gap:28px;max-width:1320px;margin:0 auto;padding:0 18px}
+  /* ── Sidebar / TOC ── */
+  nav.toc{position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto;
+    width:280px;min-width:280px;padding:22px 14px 60px;font-size:13.5px;border-right:1px solid var(--linha)}
+  nav.toc h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--cinza);margin:18px 0 6px}
+  nav.toc a{display:block;color:var(--cinza);text-decoration:none;padding:3px 8px;border-radius:6px;border-left:3px solid transparent}
+  nav.toc a:hover{background:#eef3f8;color:var(--tinta)}
+  nav.toc a.active{background:#e8f0fb;color:var(--def);border-left-color:var(--def);font-weight:600}
+  nav.toc a.sub{padding-left:20px;font-size:12.8px}
+  /* ── Main ── */
+  main{flex:1;min-width:0;max-width:var(--max);padding:26px 4px 120px}
+  header.hero{background:linear-gradient(135deg,#0d3b66,#1b6ca8);color:#fff;border-radius:16px;padding:26px 30px;margin-bottom:8px}
+  header.hero h1{margin:.1em 0;font-size:25px;line-height:1.25}
+  header.hero p{margin:.3em 0;opacity:.95;font-size:14.5px}
+  header.hero .meta{font-size:12.5px;opacity:.8;margin-top:10px}
+  h2.part{margin:46px 0 6px;padding-top:14px;font-size:23px;border-top:3px solid var(--linha)}
+  h3{margin:30px 0 6px;font-size:18.5px;color:#0d3b66}
+  h4{margin:20px 0 4px;font-size:15.5px;color:#1b4f72}
+  p,li{font-size:15.3px}
+  code{background:#eef2f6;padding:1px 6px;border-radius:5px;font-size:.9em;font-family:Consolas,Menlo,monospace}
+  .lead{font-size:16px;color:#33485c}
+  /* ── Tables ── */
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px;background:var(--card)}
+  th,td{border:1px solid var(--linha);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:#eef3f8;font-weight:700}
+  td.c,th.c{text-align:center;white-space:nowrap}
+  tbody tr:nth-child(even){background:#fafcfe}
+  .sw{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid #0003;vertical-align:-2px;margin-right:5px}
+  .sw.r{background:var(--verm)} .sw.b{background:var(--azul)}
+  .sw.g{background:#2E8B57}.sw.y{background:#FFD700}.sw.dr{background:#8B0000}.sw.mag{background:#c71585}
+  .key{display:inline-block;min-width:20px;text-align:center;background:#1c2733;color:#fff;border-radius:5px;
+    padding:1px 7px;font-family:Consolas,monospace;font-weight:700;font-size:.85em}
+  /* ── Callouts ── */
+  .box{border-left:5px solid;border-radius:0 10px 10px 0;padding:12px 16px;margin:14px 0;background:var(--card)}
+  .box b.tag{display:block;font-size:12.5px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:3px}
+  .def{border-color:var(--def)} .def .tag{color:var(--def)}
+  .trap{border-color:var(--trap);background:#fdf3f3} .trap .tag{color:var(--trap)}
+  .tip{border-color:var(--tip);background:#f2f9f3} .tip .tag{color:var(--tip)}
+  .cart{border-color:var(--cart);background:#f8f3fb} .cart .tag{color:var(--cart)}
+  details.deep{border-left:5px solid var(--deep);background:#f0f7f6;border-radius:0 10px 10px 0;padding:8px 16px;margin:14px 0}
+  details.deep summary{cursor:pointer;font-weight:700;color:var(--deep);font-size:14px}
+  details.deep[open] summary{margin-bottom:8px}
+  figure{margin:18px 0;text-align:center}
+  figure svg{max-width:100%;height:auto;background:var(--card);border:1px solid var(--linha);border-radius:10px;padding:8px}
+  figcaption{font-size:13px;color:var(--cinza);margin-top:6px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .pill{display:inline-block;background:#eef3f8;border:1px solid var(--linha);border-radius:20px;padding:1px 10px;font-size:12.5px;margin:2px}
+  hr{border:0;border-top:1px solid var(--linha);margin:30px 0}
+  .q{font-weight:600;color:#0d3b66}
+  @media(max-width:860px){.wrap{flex-direction:column}nav.toc{position:static;height:auto;width:auto;min-width:0;border-right:0;border-bottom:1px solid var(--linha)}.grid2{grid-template-columns:1fr}}
+  @media print{
+    nav.toc{display:none}.wrap{display:block}main{max-width:none;padding:0}
+    header.hero{background:#0d3b66 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .box,details.deep,table,figure svg,.sw{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    h2.part{page-break-before:always;break-before:page}
+    details.deep{border:1px solid #ccc}details.deep[open] summary,details.deep summary{}
+    details.deep:not([open])>*:not(summary){display:revert}
+    a{color:inherit;text-decoration:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="toc" id="toc">
+  <h2>Manual</h2>
+  <a href="#p0">Parte 0 · Cheat-sheet de plantão</a>
+  <h2>Básico</h2>
+  <a href="#p1">Parte 1 · Fundamentos</a>
+  <a class="sub" href="#p1-1">1.1 Os níveis que importam</a>
+  <a class="sub" href="#p1-2">1.2 Hemisfério Sul (a chave)</a>
+  <a class="sub" href="#p1-2b">1.2.1 Buys-Ballot & barbelas</a>
+  <a class="sub" href="#p1-3">1.3 Regra de ouro</a>
+  <h2>Intermediário</h2>
+  <a href="#p2">Parte 2 · Campo a campo</a>
+  <a class="sub" href="#p2-0">2.0 Mapa de cores dos campos</a>
+  <a class="sub" href="#p2-1">2.1 PNMM + espessura</a>
+  <a class="sub" href="#p2-2">2.2 Geopotencial 500</a>
+  <a class="sub" href="#p2-3">2.3 Vorticidade (vo)</a>
+  <a class="sub" href="#p2-4">2.4 Divergência (d)</a>
+  <a class="sub" href="#p2-5">2.5 ω · vel. vertical</a>
+  <a class="sub" href="#p2-6">2.6 Jato 250/200</a>
+  <a class="sub" href="#p2-7">2.7 850/925 · T e vento</a>
+  <a class="sub" href="#p2-8">2.8 Umidade · OLR · TSM</a>
+  <a class="sub" href="#p2-9">2.9 Instabilidade</a>
+  <a class="sub" href="#p2-10">2.10 Derivados</a>
+  <h2>Aplicado</h2>
+  <a href="#p3">Parte 3 · Reconhecer sistemas</a>
+  <a href="#p4">Parte 4 · Workflow de plantão</a>
+  <h2>Avançado</h2>
+  <a href="#p5">Parte 5 · Dinâmica avançada</a>
+  <a href="#p6">Parte 6 · Treino + caso resolvido</a>
+  <a href="#p7">Parte 7 · Referências</a>
+</nav>
+
+<main>
+<header class="hero">
+  <h1>Manual de Sinótica Operacional</h1>
+  <p><b>Ler os campos · reconhecer os sistemas · traçar a simbologia OMM certa.</b></p>
+  <p>Do básico ao avançado — ancorado nos campos e símbolos reais do <b>CartoMet BR</b>.</p>
+  <p class="meta">Material de estudo oficial do CartoMet BR · PT-BR · atualizado em 05/10/2026 (v3.2)</p>
+</header>
+
+<p class="lead">Quem retoma a análise sinótica depois de um tempo longe costuma tropeçar em <b>três coisas
+pequenas e muito específicas</b>: (1) usar a convenção do Hemisfério Norte aqui embaixo; (2) confundir
+<i>rotação</i> com <i>convergência</i> com <i>movimento vertical</i>; (3) ler o campo pela cor de
+instinto em vez de pelo <b>sinal físico</b>. Este manual ataca exatamente isso e devolve uma
+rotina de plantão. Leia a Parte 0 primeiro; volte às Partes 2–4 no plantão.</p>
+
+<!-- ════════════════════════════ PARTE 0 ════════════════════════════ -->
+<h2 class="part" id="p0">Parte 0 · Cheat-sheet de plantão</h2>
+<p>Imprima esta página (Ctrl+P) e cole na mesa. Tudo o que vem depois é para <i>entender</i> esta tabela.</p>
+
+<div class="box trap"><b class="tag">⚠️ A regra que resolve 80% da sua confusão</b>
+A <b>cor é só o colormap</b> escolhido para o campo — ela muda de campo para campo. A <b>física mora no SINAL</b>.
+Decore o sinal → significado; depois confira qual cor aquele sinal tem na <b>barra de cores</b> do mapa que está aberto.</p>
+
+<table>
+<thead><tr><th>Campo</th><th class="c">Sinal</th><th class="c">Cor no CartoMet</th><th>O que significa (Hemisfério Sul)</th><th>Caça-se isto para…</th></tr></thead>
+<tbody>
+<tr><td rowspan="2"><b>Vorticidade <code>vo</code></b><br><span style="font-size:12px;color:#5a6b7b">cmap <code>RdBu_r</code></span></td>
+  <td class="c">+</td><td class="c"><span class="sw r"></span>vermelho</td><td>giro <b>anti-horário</b> = <b>ANTICICLÔNICO</b> (alta / crista)</td><td>altas, cristas, dorsais</td></tr>
+<tr><td class="c">−</td><td class="c"><span class="sw b"></span>azul</td><td>giro <b>horário</b> = <b>CICLÔNICO</b> (baixa, cavado, <b>VCAN</b>)</td><td>cavados, ciclones, <b>VCAN</b></td></tr>
+<tr><td rowspan="2"><b>Divergência <code>d</code></b><br><span style="font-size:12px;color:#5a6b7b">cmap <code>RdBu_r</code></span></td>
+  <td class="c">+</td><td class="c"><span class="sw r"></span>vermelho</td><td><b>divergência</b> — em 200 hPa <b>puxa ascensão</b> por baixo</td><td>suporte de altos níveis p/ tempo</td></tr>
+<tr><td class="c">−</td><td class="c"><span class="sw b"></span>azul</td><td><b>convergência</b> — em 200 hPa força <b>subsidência</b></td><td>áreas de tempo firme/seco</td></tr>
+<tr><td rowspan="2"><b>ω vel. vertical <code>w</code></b><br><span style="font-size:12px;color:#5a6b7b">cmap <code>RdBu</code> (invertido!)</span></td>
+  <td class="c">−</td><td class="c"><span class="sw r"></span>vermelho</td><td><b>ASCENSÃO</b> (ar sobe → nuvem, chuva)</td><td>onde está chovendo/vai chover</td></tr>
+<tr><td class="c">+</td><td class="c"><span class="sw b"></span>azul</td><td><b>SUBSIDÊNCIA</b> (ar desce → céu limpo, seco)</td><td>inversão, tempo bom</td></tr>
+</tbody>
+</table>
+
+<div class="box def"><b class="tag">📐 Note o detalhe traiçoeiro</b>
+Em <code>vo</code> e <code>d</code>, <b>vermelho = positivo</b> (cmap <code>RdBu_r</code>). Mas em <b>ω o vermelho = NEGATIVO</b>
+(cmap <code>RdBu</code>, sem o <code>_r</code>). Ou seja: a <b>mesma cor vermelha</b> significa coisas diferentes entre campos.
+Por isso a barra de cores existe — olhe sempre o número que está em cima/embaixo dela.</p></div>
+
+<div class="box tip"><b class="tag">🎯 Os 4 reflexos que você precisa ter de cor</b>
+<ol style="margin:.2em 0">
+<li><b>Ciclônico no Sul = HORÁRIO.</b> Anti-horário aqui é <b>anticiclone</b> (o oposto do que o livro gringo diz).</li>
+<li><b>ω negativo = sobe.</b> (No CartoMet, sobe = vermelho.) "Negativo sobe" porque a pressão cai quando se ganha altura.</li>
+<li><b>Divergência em cima ⇒ ascensão embaixo</b> (e convergência embaixo). É a bomba de sucção do topo da troposfera.</li>
+<li><b>Rotação ≠ convergência ≠ movimento vertical.</b> Para saber se sobe/desce, abra <code>ω</code> ou <code>d</code> — nunca deduza pelo giro.</li>
+</ol></div>
+
+<!-- ════════════════════════════ PARTE 1 ════════════════════════════ -->
+<h2 class="part" id="p1">Parte 1 · Fundamentos</h2>
+
+<h3 id="p1-1">1.1 Os níveis que importam — e o que caçar em cada um</h3>
+<p>A atmosfera é uma máquina de 3 andares acoplados. Análise sinótica é <b>ler os andares e juntar a história</b>.
+O CartoMet entrega 13 níveis (<code>PL_LEVELS = 1000…50 hPa</code>); na prática você trabalha com quatro.</p>
+
+<table>
+<thead><tr><th class="c">Nível</th><th>Andar</th><th>O que você vai caçar lá</th><th>Campos no CartoMet</th></tr></thead>
+<tbody>
+<tr><td class="c"><b>Superfície / PNMM</b></td><td>chão</td><td>altas e baixas, frentes, centros de pressão, linhas de instabilidade</td><td>PNMM+espessura (carta-base) + preset Sinótica clássica (vento/advecção 850)</td></tr>
+<tr><td class="c"><b>925 / 850 hPa</b></td><td>baixos níveis</td><td>jato de baixos níveis, advecção térmica (frente), umidade que alimenta a convecção</td><td><code>wind</code>, <code>temp_adv</code>, <code>r</code>, <code>mfc</code></td></tr>
+<tr><td class="c"><b>500 hPa</b></td><td>média troposfera</td><td>cavados/cristas (a "onda" que comanda), vorticidade, <b>ω</b> (sobe/desce)</td><td><code>gh</code>, <code>vo</code>, <code>w</code></td></tr>
+<tr><td class="c"><b>250 / 200 hPa</b></td><td>altos níveis</td><td>corrente de jato, divergência (suporte), VCAN, saída/dorsal</td><td><code>wind</code> (stream), <code>wind_speed</code>, <code>d</code>, <code>vo</code></td></tr>
+</tbody>
+</table>
+
+<div class="box tip"><b class="tag">🎯 Mnemônico</b> <b>Embaixo</b> está o <i>combustível</i> (calor + umidade + convergência). <b>Em cima</b> está
+a <i>licença para subir</i> (divergência/jato). Tempo significativo acontece onde <b>combustível embaixo e licença em cima
+coincidem na vertical</b>. Sua análise é, no fundo, procurar essas coincidências.</div>
+
+<h3 id="p1-2">1.2 Hemisfério Sul — a fonte de quase toda confusão</h3>
+<p>Tudo que você decorou na faculdade com figura de revista americana <b>está espelhado aqui</b>. A causa é
+uma só: a força de Coriolis aponta para o <b>lado oposto</b>.</p>
+
+<div class="box def"><b class="tag">📐 Coriolis e o desvio</b>
+Parâmetro de Coriolis <code>f = 2Ω·sen(φ)</code>. Na latitude sul, <code>φ &lt; 0</code> ⇒ <code>f &lt; 0</code>.
+Consequência prática: no Hemisfério <b>Norte</b> o vento é desviado para a <b>direita</b> do movimento; no Hemisfério
+<b>Sul</b>, para a <b>esquerda</b>.</div>
+
+<figure>
+<svg viewBox="0 0 560 195" role="img" aria-label="Desvio de Coriolis nos dois hemisférios">
+  <defs><marker id="mk-cor" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#0d3b66"/></marker></defs>
+  <line x1="280" y1="35" x2="280" y2="180" stroke="#ccc" stroke-dasharray="4 4"/>
+  <text x="150" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="#0d3b66">HEMISFÉRIO NORTE</text>
+  <line x1="150" y1="170" x2="150" y2="55" stroke="#999" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="150" y="48" text-anchor="middle" font-size="10.5" fill="#888">trajetória pretendida</text>
+  <path d="M150,170 Q150,98 212,64" fill="none" stroke="#0d3b66" stroke-width="3" marker-end="url(#mk-cor)"/>
+  <text x="222" y="82" font-size="11.5" font-weight="700" fill="#0d3b66">→ DIREITA</text>
+  <text x="410" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="#0d3b66">HEMISFÉRIO SUL</text>
+  <line x1="410" y1="170" x2="410" y2="55" stroke="#999" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="410" y="48" text-anchor="middle" font-size="10.5" fill="#888">trajetória pretendida</text>
+  <path d="M410,170 Q410,98 348,64" fill="none" stroke="#0d3b66" stroke-width="3" marker-end="url(#mk-cor)"/>
+  <text x="300" y="82" font-size="11.5" font-weight="700" fill="#0d3b66">ESQUERDA ←</text>
+</svg>
+<figcaption>A <b>mesma</b> força (Coriolis) desvia o ar para a <b>direita</b> no Norte e para a <b>esquerda</b> no Sul. Todo o resto decorre disto.</figcaption>
+</figure>
+
+<p>E o giro, por consequência, se inverte. No Hemisfério Sul (o seu):</p>
+
+<figure>
+<svg viewBox="0 0 560 210" role="img" aria-label="Rotação ciclônica e anticiclônica no Hemisfério Sul">
+  <defs>
+    <marker id="arB" markerWidth="9" markerHeight="9" refX="5" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#2166ac"/></marker>
+    <marker id="arR" markerWidth="9" markerHeight="9" refX="5" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#b2182b"/></marker>
+  </defs>
+  <!-- Ciclônico (horário) azul -->
+  <circle cx="150" cy="95" r="58" fill="#eef4fb" stroke="#2166ac" stroke-width="2"/>
+  <text x="150" y="100" text-anchor="middle" font-size="20" font-weight="700" fill="#2166ac">B</text>
+  <!-- clockwise 3/4 arc: top -> right -> bottom -> left -->
+  <path d="M150,30 A60,60 0 1 1 90,95" fill="none" stroke="#2166ac" stroke-width="3" marker-end="url(#arB)"/>
+  <text x="150" y="180" text-anchor="middle" font-size="12.5" fill="#1c2733">Ciclônico (baixa/VCAN)</text>
+  <text x="150" y="196" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2166ac">HORÁRIO · ζ &lt; 0 · azul</text>
+  <!-- Anticiclônico (anti-horário) vermelho -->
+  <circle cx="410" cy="95" r="58" fill="#fdeeee" stroke="#b2182b" stroke-width="2"/>
+  <text x="410" y="100" text-anchor="middle" font-size="20" font-weight="700" fill="#b2182b">A</text>
+  <!-- counterclockwise arc: top -> left -> bottom -> right -->
+  <path d="M410,30 A60,60 0 1 0 470,95" fill="none" stroke="#b2182b" stroke-width="3" marker-end="url(#arR)"/>
+  <text x="410" y="180" text-anchor="middle" font-size="12.5" fill="#1c2733">Anticiclônico (alta)</text>
+  <text x="410" y="196" text-anchor="middle" font-size="12.5" font-weight="700" fill="#b2182b">ANTI-HORÁRIO · ζ &gt; 0 · vermelho</text>
+</svg>
+<figcaption>No Hemisfério Sul o giro de uma <b>baixa</b> é <b>horário</b>. Anti-horário = <b>alta</b>. (No Norte é o contrário.)</figcaption>
+</figure>
+
+<table>
+<thead><tr><th>Conceito</th><th>Hemisfério Norte (livro)</th><th>Hemisfério Sul (você)</th></tr></thead>
+<tbody>
+<tr><td>Desvio de Coriolis</td><td>para a direita</td><td><b>para a esquerda</b></td></tr>
+<tr><td>Ciclone / baixa / cavado gira…</td><td>anti-horário</td><td><b>horário</b></td></tr>
+<tr><td>Anticiclone / alta gira…</td><td>horário</td><td><b>anti-horário</b></td></tr>
+<tr><td>Buys-Ballot (de costas p/ o vento)</td><td>baixa à esquerda</td><td><b>baixa à direita</b></td></tr>
+<tr><td>Vorticidade de um ciclone (ζ)</td><td>positiva (vermelha)</td><td><b>negativa (azul)</b></td></tr>
+</tbody>
+</table>
+
+<div class="box trap"><b class="tag">⚠️ A pegadinha em que quase todo mundo cai</b>
+Ver um giro <b>anti-horário</b> e gritar "ciclone!" é reflexo de Hemisfério Norte. Aqui embaixo, anti-horário é
+<b>anticiclone</b> (tempo firme). Exemplo real (resolvido na Parte 6): giro anti-horário em 200 hPa na costa do
+Maranhão, pintado de <span class="sw r"></span>vermelho na vorticidade = <b>circulação anticiclônica</b> de altos
+níveis, <b>não</b> um VCAN.</div>
+
+<details class="deep"><summary>🔬 Por que ζ positiva = anti-horário, mesmo no Sul?</summary>
+<p>Vorticidade relativa é <code>ζ = ∂v/∂x − ∂u/∂y</code>. Isso é <b>matemática pura</b> do campo de vento (regra da mão
+direita), e <b>não muda</b> com o hemisfério: rotação anti-horária dá sempre ζ&gt;0. O que muda com o hemisfério é
+apenas o <b>rótulo</b> "ciclônico/anticiclônico", porque o que é ciclônico (gira ao redor da baixa) é horário no Sul.
+Por isso, no Sul, <b>ciclônico ⇒ ζ negativa</b>. O modelo (ECMWF) entrega ζ com este sinal padrão; o CartoMet só
+multiplica por 10⁵ e pinta. Não há bug — há convenção.</p></details>
+
+<h4 id="p1-2b">1.2.1 Buys-Ballot e as barbelas de vento (Norte × Sul)</h4>
+<p>A mesma física rende um <b>truque de auditoria</b> genial, de 1857: <b>fique de costas para o vento</b> (ele bate na
+sua nuca e segue à sua frente) e estenda os braços. <b>No Norte</b>, a Baixa Pressão fica à sua <b>esquerda</b>;
+<b>no Sul</b>, à sua <b>direita</b>. É consequência direta do giro — a baixa gira anti-horário no Norte e horário no Sul.</p>
+
+<figure>
+<svg viewBox="0 0 560 252" role="img" aria-label="Lei de Buys-Ballot nos dois hemisférios">
+  <defs>
+    <marker id="mk-wind" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#7a8a99"/></marker>
+    <marker id="mk-circ" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#2166ac"/></marker>
+  </defs>
+  <line x1="280" y1="34" x2="280" y2="210" stroke="#ccc" stroke-dasharray="4 4"/>
+  <!-- ===== HEMISFÉRIO NORTE ===== -->
+  <text x="160" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="#0d3b66">HEMISFÉRIO NORTE</text>
+  <circle cx="160" cy="70" r="12" fill="#fff" stroke="#1c2733" stroke-width="1.6"/>
+  <path d="M154,62 L160,50 L166,62 Z" fill="#1c2733"/>
+  <line x1="160" y1="80" x2="218" y2="74" stroke="#8a98a6" stroke-width="2"/>
+  <line x1="160" y1="80" x2="100" y2="96" stroke="#2166ac" stroke-width="3.2"/>
+  <line x1="160" y1="180" x2="160" y2="132" stroke="#7a8a99" stroke-width="3" marker-end="url(#mk-wind)"/>
+  <text x="160" y="197" text-anchor="middle" font-size="10.5" fill="#7a8a99">VENTO (nas costas)</text>
+  <circle cx="80" cy="106" r="17" fill="#eef4fb" stroke="#2166ac" stroke-width="1.6"/>
+  <text x="80" y="112" text-anchor="middle" font-size="15" font-weight="700" fill="#2166ac">B</text>
+  <path d="M102,100 Q80,76 58,100" fill="none" stroke="#2166ac" stroke-width="2.2" marker-end="url(#mk-circ)"/>
+  <text x="160" y="226" text-anchor="middle" font-size="11.5" fill="#1c2733">braço <tspan font-weight="700">esquerdo</tspan> → Baixa</text>
+  <text x="160" y="243" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2166ac">Baixa à ESQUERDA</text>
+  <!-- ===== HEMISFÉRIO SUL ===== -->
+  <text x="410" y="22" text-anchor="middle" font-size="13" font-weight="700" fill="#0d3b66">HEMISFÉRIO SUL</text>
+  <circle cx="410" cy="70" r="12" fill="#fff" stroke="#1c2733" stroke-width="1.6"/>
+  <path d="M404,62 L410,50 L416,62 Z" fill="#1c2733"/>
+  <line x1="410" y1="80" x2="352" y2="74" stroke="#8a98a6" stroke-width="2"/>
+  <line x1="410" y1="80" x2="472" y2="96" stroke="#2166ac" stroke-width="3.2"/>
+  <line x1="410" y1="180" x2="410" y2="132" stroke="#7a8a99" stroke-width="3" marker-end="url(#mk-wind)"/>
+  <text x="410" y="197" text-anchor="middle" font-size="10.5" fill="#7a8a99">VENTO (nas costas)</text>
+  <circle cx="490" cy="106" r="17" fill="#eef4fb" stroke="#2166ac" stroke-width="1.6"/>
+  <text x="490" y="112" text-anchor="middle" font-size="15" font-weight="700" fill="#2166ac">B</text>
+  <path d="M468,100 Q490,76 512,100" fill="none" stroke="#2166ac" stroke-width="2.2" marker-end="url(#mk-circ)"/>
+  <text x="410" y="226" text-anchor="middle" font-size="11.5" fill="#1c2733">braço <tspan font-weight="700">direito</tspan> → Baixa</text>
+  <text x="410" y="243" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2166ac">Baixa à DIREITA</text>
+</svg>
+<figcaption>De costas para o vento: a Baixa fica à <b>esquerda</b> no Norte e à <b>direita</b> no Sul. Vista de cima, o bonequinho olha para onde o vento vai; o braço aponta o centro da baixa.</figcaption>
+</figure>
+
+<p>É <b>por isso</b> que a <b>barbela de vento</b> muda de lado conforme o hemisfério: as "peninhas" (barras de
+velocidade) são desenhadas <b>do lado da Baixa Pressão</b> — à <b>esquerda</b> da haste no Norte, à <b>direita</b> no
+Sul. A haste é o "corpo de costas para o vento"; as peninhas são os "braços apontando para a baixa".</p>
+
+<figure>
+<svg viewBox="0 0 560 212" role="img" aria-label="Convenção da barbela de vento nos dois hemisférios">
+  <line x1="280" y1="40" x2="280" y2="188" stroke="#ccc" stroke-dasharray="4 4"/>
+  <text x="280" y="22" text-anchor="middle" font-size="10.5" fill="#5a6b7b">haste = corpo de costas p/ o vento · peninhas = braços p/ a Baixa</text>
+  <text x="160" y="44" text-anchor="middle" font-size="13" font-weight="700" fill="#0d3b66">HEMISFÉRIO NORTE</text>
+  <line x1="160" y1="172" x2="160" y2="66" stroke="#1c2733" stroke-width="2.6"/>
+  <circle cx="160" cy="172" r="4" fill="#1c2733"/>
+  <line x1="160" y1="70" x2="128" y2="57" stroke="#1c2733" stroke-width="2.6"/>
+  <line x1="160" y1="85" x2="132" y2="73" stroke="#1c2733" stroke-width="2.6"/>
+  <circle cx="103" cy="76" r="14" fill="#eef4fb" stroke="#2166ac" stroke-width="1.5"/>
+  <text x="103" y="81" text-anchor="middle" font-size="13" font-weight="700" fill="#2166ac">B</text>
+  <text x="160" y="200" text-anchor="middle" font-size="12" font-weight="700" fill="#1c2733">peninhas à ESQUERDA</text>
+  <text x="410" y="44" text-anchor="middle" font-size="13" font-weight="700" fill="#0d3b66">HEMISFÉRIO SUL</text>
+  <line x1="410" y1="172" x2="410" y2="66" stroke="#1c2733" stroke-width="2.6"/>
+  <circle cx="410" cy="172" r="4" fill="#1c2733"/>
+  <line x1="410" y1="70" x2="442" y2="57" stroke="#1c2733" stroke-width="2.6"/>
+  <line x1="410" y1="85" x2="438" y2="73" stroke="#1c2733" stroke-width="2.6"/>
+  <circle cx="467" cy="76" r="14" fill="#eef4fb" stroke="#2166ac" stroke-width="1.5"/>
+  <text x="467" y="81" text-anchor="middle" font-size="13" font-weight="700" fill="#2166ac">B</text>
+  <text x="410" y="200" text-anchor="middle" font-size="12" font-weight="700" fill="#1c2733">peninhas à DIREITA</text>
+</svg>
+<figcaption>Por isso a barbela "vira de lado": peninhas à <b>esquerda</b> no Norte, à <b>direita</b> no Sul — sempre apontando para a Baixa. Mesmo princípio do bonequinho de Buys-Ballot.</figcaption>
+</figure>
+
+<div class="box tip"><b class="tag">🎯 Auditoria de barbela na tela (seu corpo vira bússola)</b>
+Bata o olho numa barbela do mapa e imagine um bonequinho em pé sobre ela, <b>de costas para o vento</b> (a haste entra
+pela nuca). No <b>Hemisfério Sul</b>, olhe o <b>braço direito</b> dele: a <b>Baixa / eixo do cavado</b> tem de estar
+daquele lado. Se a "B" aparecer do lado errado, ou houve interpolação bizarra do modelo, ou a letra foi plotada no
+lugar errado.</div>
+
+<div class="box trap"><b class="tag">⚠️ Cuidado com "esquerda/direita"</b>
+São sempre referidas a quem está <b>de costas para o vento</b> (olhando para onde o vento vai). Trocar o referencial é
+o erro nº 1 ao aplicar a regra.</div>
+
+<h3 id="p1-3">1.3 A regra de ouro: três coisas independentes</h3>
+<p>Estes três campos respondem a <b>perguntas diferentes</b>. Misturá-los é o erro conceitual nº 1.</p>
+<table>
+<thead><tr><th>Campo</th><th>Pergunta que responde</th><th>NÃO responde</th></tr></thead>
+<tbody>
+<tr><td><b>Vorticidade <code>vo</code></b></td><td>"O ar está <b>girando</b>? Em que sentido?"</td><td>se sobe/desce; se converge</td></tr>
+<tr><td><b>Divergência <code>d</code></b></td><td>"O ar está <b>se espalhando</b> (div) ou <b>se juntando</b> (conv)?"</td><td>o sentido do giro</td></tr>
+<tr><td><b>ω / vel. vertical <code>w</code></b></td><td>"O ar está <b>subindo</b> ou <b>descendo</b>?"</td><td>o sentido do giro</td></tr>
+</tbody>
+</table>
+<div class="box def"><b class="tag">📐 Como eles se conversam (continuidade de massa)</b>
+São independentes, mas a <b>conservação de massa</b> os amarra na vertical: se há <b>divergência em altos níveis</b>
+(o ar "vaza" para os lados lá em cima), algo precisa <b>subir</b> para repor — logo há <b>ascensão</b> embaixo e
+<b>convergência</b> nos baixos níveis. O contrário (convergência aloft) força <b>subsidência</b>. Essa é a ponte que
+liga <code>d</code> (200 hPa) ao <code>ω</code> e ao tempo na superfície.</div>
+
+<!-- ════════════════════════════ PARTE 2 ════════════════════════════ -->
+<h2 class="part" id="p2">Parte 2 · Campo a campo</h2>
+
+<h3 id="p2-0">2.0 Mapa de cores — o que vermelho/azul significa em cada campo</h3>
+<p>Referência rápida dos principais campos do CartoMet (o <code>VARIABLE_REGISTRY</code> completo tem dezenas —
+a regra do sinal vale para todos). A coluna "extremo vermelho" diz o
+que a <b>ponta vermelha</b> da barra representa — porque, como vimos, ela varia.</p>
+<table>
+<thead><tr><th>Campo</th><th>cmap</th><th>Ponta <span class="sw r"></span>vermelha =</th><th>Leitura</th></tr></thead>
+<tbody>
+<tr><td>Temperatura <code>t</code></td><td>RdBu_r</td><td>quente</td><td>massas de ar</td></tr>
+<tr><td>Advecção de T <code>temp_adv</code></td><td>RdBu_r</td><td>advecção <b>quente</b> (+)</td><td>setor quente de frente; aquecimento</td></tr>
+<tr><td>Vorticidade <code>vo</code></td><td>RdBu_r</td><td>ζ <b>positiva</b> (anti-horário/anticiclônico no Sul)</td><td>giro</td></tr>
+<tr><td>Divergência <code>d</code></td><td>RdBu_r</td><td><b>divergência</b> (+)</td><td>suporte vertical</td></tr>
+<tr><td>Frontogênese</td><td>RdBu_r</td><td>frontogênese (intensifica gradiente)</td><td>nascimento de frente</td></tr>
+<tr><td><b>ω vel. vertical <code>w</code></b></td><td><b>RdBu</b></td><td>ω <b>negativo = ASCENSÃO</b> ⚠️</td><td>sobe/desce (invertido!)</td></tr>
+<tr><td>MFC (conv. umidade)</td><td>BrBG</td><td>(verde) convergência de umidade</td><td>alimentação de vapor</td></tr>
+<tr><td>Umidade <code>r</code>,<code>q</code></td><td>BrBG</td><td>(verde=úmido / marrom=seco)</td><td>ar úmido vs seco</td></tr>
+<tr><td>Isotacas <code>wind_speed</code></td><td>YlOrRd</td><td>vento forte (jato)</td><td>núcleo de jato</td></tr>
+<tr><td>Água precipitável <code>tcwv</code></td><td>YlGnBu</td><td>(azul-escuro) muita água</td><td>umidade integrada</td></tr>
+<tr><td>CAPE / Índice K</td><td>YlOrRd</td><td>muita instabilidade</td><td>potencial convectivo</td></tr>
+<tr><td>Lifted Index <code>li</code></td><td>RdBu_r</td><td>LI positivo = <b>estável</b></td><td>azul = instável ⚠️</td></tr>
+<tr><td>OLR</td><td>olr_classic</td><td>(escala própria — frio/convecção destacado)</td><td>nebulosidade profunda</td></tr>
+</tbody>
+</table>
+
+<h3 id="p2-1">2.1 PNMM + espessura 1000–500 hPa</h3>
+<p>É a sua <b>carta-mãe</b> (preset implícito da Sinótica clássica). Duas informações sobrepostas:</p>
+<ul>
+<li><b>PNMM (isóbaras):</b> centros de <b>Alta (A)</b> e <b>Baixa (B)</b>, e os <b>cavados</b> (vales de pressão).
+No Sul, o vento sopra quase paralelo às isóbaras com a baixa à <b>direita</b> de quem está de costas para ele.</li>
+<li><b>Espessura 1000–500 (linhas tracejadas):</b> é um <b>termômetro de coluna</b> — quanto menor a espessura, mais
+fria/densa a camada. Linhas de espessura <b>apertadas</b> = forte gradiente térmico = <b>zona frontal</b>.</li>
+</ul>
+<div class="box tip"><b class="tag">🎯 Achar a frente fria na carta-mãe</b> Procure onde as linhas de <b>espessura se amontoam</b> e a
+PNMM forma um <b>cavado</b> (cotovelo nas isóbaras). A frente fria fica no <b>lado quente</b> desse aperto, avançando
+para o equador. O <b>"cavado de espessura"</b> (língua de ar frio) atrás dela confirma.</div>
+
+<h3 id="p2-2">2.2 Geopotencial em 500 hPa (<code>gh</code>)</h3>
+<p>500 hPa é o <b>maestro</b> da troposfera média: é onde você lê a <b>onda</b> (cavados e cristas) que governa para
+onde os sistemas vão e onde há suporte para subir.</p>
+<table>
+<thead><tr><th>Feição em <code>gh</code> 500</th><th>O que é</th><th>Tempo associado (à frente, no Sul)</th><th>Símbolo</th></tr></thead>
+<tbody>
+<tr><td><b>Cavado</b> (vale de geopotencial)</td><td>eixo de baixa em altitude</td><td>a <b>leste/jusante</b> do cavado: ascensão, tempo instável</td><td><span class="key">7</span> Cavado</td></tr>
+<tr><td><b>Crista/dorsal</b></td><td>eixo de alta em altitude</td><td>subsidência, tempo firme e seco</td><td><span class="key">8</span> Crista</td></tr>
+</tbody>
+</table>
+<div class="box def"><b class="tag">📐 Regra do cavado</b> Pense no escoamento de oeste ondulando: <b>a jusante (corrente abaixo)
+do cavado</b> o ar diverge em altos níveis e <b>sobe</b> → nuvens/chuva; <b>a jusante da crista</b> o ar converge e
+<b>desce</b> → tempo bom. É por isso que cavado em aproximação = sinal de deterioração.</div>
+
+<h3 id="p2-3">2.3 Vorticidade relativa (<code>vo</code>)</h3>
+<p>Mede <b>giro</b> local do vento. No CartoMet, em qualquer nível (típico: 500 e 200/850). cmap <code>RdBu_r</code>:
+<span class="sw r"></span>vermelho = ζ positiva (anti-horário), <span class="sw b"></span>azul = ζ negativa (horário).
+<b>No Sul, o que te interessa para tempo ruim é o AZUL</b> (ciclônico).</p>
+<div class="box def"><b class="tag">📐 Dois tipos de vorticidade no mesmo mapa</b>
+<ul style="margin:.2em 0">
+<li><b>De curvatura:</b> o vento <i>curva</i> (ao redor de um cavado/baixa). É o que você quer para achar VCAN, cavados.</li>
+<li><b>De cisalhamento:</b> o vento é quase reto mas <i>muda de velocidade</i> de um lado para o outro (bordas do jato).
+Gera bandas alongadas de ζ ao longo da corrente de jato — <b>não</b> é um vórtice fechado.</li>
+</ul>
+Num mapa típico de 200 hPa, as faixas vermelho/azul em 30–45°S são <b>cisalhamento de jato</b>, não ciclones.</div>
+<div class="box tip"><b class="tag">🎯 Achar VCAN/cavado</b> Procure um <b>núcleo azul fechado</b> (ζ&lt;0) coincidindo com
+<b>linhas de corrente girando no sentido horário</b>. Se em 200 hPa e com centro mais quente em volta (subsidência no
+miolo), é candidato a <b>VCAN</b>.</div>
+<details class="deep"><summary>🔬 Advecção de vorticidade (para a Parte 5)</summary>
+<p>Não é só onde a vorticidade está, mas para onde ela é <b>transportada</b>. <b>Advecção de vorticidade ciclônica
+(CVA)</b> a jusante, em 500 hPa, é um dos gatilhos de movimento vertical ascendente (equação ω). Para não errar sinal
+no Sul, raciocine sempre em "ciclônico/anticiclônico", não em "+/−": <b>chegando vorticidade ciclônica ⇒ tende a
+subir/desenvolver</b>.</p></details>
+
+<h3 id="p2-4">2.4 Divergência (<code>d</code>)</h3>
+<p><code>d = ∂u/∂x + ∂v/∂y</code>. cmap <code>RdBu_r</code>: <span class="sw r"></span>vermelho = <b>divergência</b> (+),
+<span class="sw b"></span>azul = <b>convergência</b> (−). O nível-rei é <b>200/250 hPa</b>.</p>
+<div class="box def"><b class="tag">📐 A bomba de sucção</b> Divergência em 200 hPa = o ar "vaza" lá em cima ⇒ <b>sucção</b> que
+puxa ascensão por baixo ⇒ favorável a nuvem/chuva. Convergência em 200 hPa ⇒ "tampa" ⇒ subsidência ⇒ tempo firme.
+<b>Em baixos níveis a leitura inverte</b>: aí você quer <b>convergência</b> (azul) para juntar umidade e disparar
+convecção.</div>
+<div class="box tip"><b class="tag">🎯 No CartoMet</b> O preset <span class="pill">Jato e divergência</span> já coloca
+vento 250 (linhas de corrente) + isotacas + <code>d</code> 200. Procure a <b>divergência (vermelho) na saída do jato</b>
+— é onde mora o suporte sinótico.</div>
+
+<h3 id="p2-5">2.5 ω — velocidade vertical (<code>w</code>)</h3>
+<p>O campo que responde direto "<b>sobe ou desce?</b>". E o mais traiçoeiro na cor.</p>
+<div class="box def"><b class="tag">📐 ω = dp/dt (coordenada de pressão)</b> Como a pressão <b>diminui</b> quando se sobe,
+<b>ω negativo = ascensão</b> e <b>ω positivo = subsidência</b>. Unidade no CartoMet: <b>hPa/h</b> (já convertido).</div>
+<div class="box trap"><b class="tag">⚠️ A cor é invertida de propósito</b> O CartoMet usa cmap <code>RdBu</code> (sem <code>_r</code>)
+para ω. Resultado: <span class="sw r"></span><b>VERMELHO = ω negativo = ASCENSÃO</b>; <span class="sw b"></span>azul =
+subsidência. Foi feito assim para o olho ir direto à <b>ascensão</b> (onde está o tempo). <b>Não confunda</b> com
+<code>vo</code>/<code>d</code>, onde vermelho é positivo.</div>
+
+<figure>
+<svg viewBox="0 0 520 200" role="img" aria-label="Sinal de omega">
+  <defs>
+    <marker id="upR" markerWidth="10" markerHeight="10" refX="5" refY="2" orient="auto"><path d="M0,8 L5,0 L10,8 Z" fill="#b2182b"/></marker>
+    <marker id="dnB" markerWidth="10" markerHeight="10" refX="5" refY="8" orient="auto"><path d="M0,2 L5,10 L10,2 Z" fill="#2166ac"/></marker>
+  </defs>
+  <line x1="60" y1="20" x2="60" y2="180" stroke="#999" stroke-width="1"/>
+  <text x="52" y="24" text-anchor="end" font-size="11" fill="#666">200 hPa (alto)</text>
+  <text x="52" y="180" text-anchor="end" font-size="11" fill="#666">1000 hPa (baixo)</text>
+  <line x1="160" y1="170" x2="160" y2="35" stroke="#b2182b" stroke-width="6" marker-end="url(#upR)"/>
+  <text x="185" y="100" font-size="14" font-weight="700" fill="#b2182b">ω &lt; 0</text>
+  <text x="185" y="120" font-size="13" fill="#1c2733">ASCENSÃO · vermelho</text>
+  <text x="185" y="138" font-size="12" fill="#5a6b7b">nuvem, chuva</text>
+  <line x1="380" y1="35" x2="380" y2="170" stroke="#2166ac" stroke-width="6" marker-end="url(#dnB)"/>
+  <text x="405" y="100" font-size="14" font-weight="700" fill="#2166ac">ω &gt; 0</text>
+  <text x="405" y="120" font-size="13" fill="#1c2733">SUBSIDÊNCIA · azul</text>
+  <text x="405" y="138" font-size="12" fill="#5a6b7b">céu limpo, seco</text>
+</svg>
+<figcaption>"Negativo sobe": subir = perder pressão = dp/dt &lt; 0. No CartoMet a ascensão é vermelha.</figcaption>
+</figure>
+
+<div class="box tip"><b class="tag">🎯 Qual nível de ω olhar?</b> O movimento vertical é <b>máximo na média troposfera
+(~500–700 hPa)</b>. Para "vai chover?", use <b>ω em 500</b> + convergência em 850. O ω em 200 hPa serve mais para
+<b>confirmar o elo</b> divergência-aloft ↔ ascensão. (O preset <span class="pill">Convecção profunda</span> usa ω 500.)</div>
+
+<h3 id="p2-6">2.6 Corrente de jato (vento e isotacas em 250/200)</h3>
+<p>Rio de vento forte (&gt; ~30 m/s ≈ 60 kt) no topo da troposfera. No CartoMet: <code>wind</code> em <b>stream</b>
+(linhas de corrente) + <code>wind_speed</code> (isotacas, <span class="sw y"></span>amarelo→vermelho).</p>
+<div class="box def"><b class="tag">📐 O modelo dos 4 quadrantes (jet streak)</b>
+Onde o jato <b>acelera (entrada)</b> e <b>desacelera (saída)</b>, formam-se circulações transversais que criam
+<b>divergência (ascensão) em dois quadrantes</b> e convergência nos outros dois. <b>No Hemisfério Sul o padrão é
+espelhado</b> em relação ao Norte:</div>
+<figure>
+<svg viewBox="0 0 560 220" role="img" aria-label="Quadrantes do jet streak no Hemisfério Sul">
+  <defs><marker id="jet" markerWidth="12" markerHeight="12" refX="7" refY="5" orient="auto"><path d="M0,0 L11,5 L0,10 Z" fill="#0033AA"/></marker></defs>
+  <ellipse cx="280" cy="110" rx="200" ry="40" fill="#dfe8fb" stroke="#0033AA" stroke-width="1.5"/>
+  <line x1="70" y1="110" x2="500" y2="110" stroke="#0033AA" stroke-width="6" marker-end="url(#jet)"/>
+  <text x="500" y="100" font-size="12" fill="#0033AA">fluxo →</text>
+  <line x1="280" y1="50" x2="280" y2="170" stroke="#888" stroke-dasharray="4 4"/>
+  <text x="165" y="44" text-anchor="middle" font-size="11" fill="#666">ENTRADA</text>
+  <text x="395" y="44" text-anchor="middle" font-size="11" fill="#666">SAÍDA</text>
+  <!-- favorable (ascent) quadrants in SH: left-entrance + right-exit -->
+  <rect x="80" y="60" width="190" height="46" fill="#f7dcdc" opacity=".75"/>
+  <rect x="290" y="114" width="190" height="46" fill="#f7dcdc" opacity=".75"/>
+  <text x="175" y="86" text-anchor="middle" font-size="11.5" font-weight="700" fill="#b2182b">ENTRADA ESQ.</text>
+  <text x="175" y="100" text-anchor="middle" font-size="10.5" fill="#b2182b">div. aloft → SOBE</text>
+  <text x="385" y="140" text-anchor="middle" font-size="11.5" font-weight="700" fill="#b2182b">SAÍDA DIR.</text>
+  <text x="385" y="154" text-anchor="middle" font-size="10.5" fill="#b2182b">div. aloft → SOBE</text>
+  <text x="385" y="86" text-anchor="middle" font-size="10.5" fill="#2166ac">entrada dir.: desce</text>
+  <text x="175" y="140" text-anchor="middle" font-size="10.5" fill="#2166ac">saída esq.: desce</text>
+</svg>
+<figcaption><b>Hemisfério Sul:</b> os quadrantes favoráveis à ascensão são <b>entrada esquerda</b> e <b>saída direita</b>
+(o espelho do Norte). "Esquerda/direita" é relativo ao sentido do fluxo.</figcaption>
+</figure>
+<p>Símbolo para traçar o eixo do jato: <span class="key">j</span> Corrente de Jato.</p>
+
+<h3 id="p2-7">2.7 Baixos níveis (850 / 925) — temperatura e vento</h3>
+<p>O andar do <b>combustível</b>. Dois produtos derivados prontos no CartoMet:</p>
+<ul>
+<li><b>Advecção de temperatura</b> (<code>temp_adv</code>, <span class="sw r"></span>vermelho = advecção quente):
+o vento <b>traz ar mais quente</b> (vermelho) ou <b>mais frio</b> (azul) para o ponto. Advecção quente em 850 →
+tende a <b>levantar</b> o ar (ascensão) e marca o <b>setor quente</b> à frente de uma frente fria; advecção fria atrás
+da frente.</li>
+<li><b>Jato de baixos níveis (JBN):</b> núcleo de vento em 850 que <b>transporta calor e umidade</b> da Amazônia/tropicais
+para o Sul/Sudeste — alimenta ZCAS e complexos convectivos. Veja em <code>wind</code> 850/925.</li>
+</ul>
+<div class="box tip"><b class="tag">🎯 Preset</b> <span class="pill">Baixos níveis</span> = vento 925 + advecção de T 925 +
+umidade relativa 850. É a sua leitura rápida de "tem combustível chegando?".</div>
+
+<h3 id="p2-8">2.8 Umidade, OLR e TSM</h3>
+<table>
+<thead><tr><th>Campo</th><th>Lê</th><th>Uso operacional</th></tr></thead>
+<tbody>
+<tr><td><b>Água precipitável <code>tcwv</code></b></td><td>vapor de toda a coluna (mm)</td><td>línguas de umidade (ZCAS, jato de umidade); &gt;~45–50 mm = coluna bem carregada</td></tr>
+<tr><td><b>Umidade relativa <code>r</code></b></td><td>saturação por nível</td><td>500 seco = ar entrando (intrusão); 850 úmido = base para nuvem</td></tr>
+<tr><td><b>OLR</b> (desacumulada)</td><td>radiação que escapa ao espaço</td><td><b>OLR baixa = topos frios e altos = convecção profunda.</b> Limiares clássicos: ≤240 W/m² convecção; ≤210 madura; ≤180 severa (Gadgil & Guruprasad 1990; Ferreira et al. 2005)</td></tr>
+<tr><td><b>TSM / ∇TSM</b></td><td>temperatura do mar e seu gradiente</td><td>fronteira térmica que ancora a ZCIT; base do índice LOCZCIT-PA</td></tr>
+</tbody>
+</table>
+<div class="box def"><b class="tag">📐 OLR é o seu "satélite proxy"</b> Onde a OLR é baixa, há nuvem alta e fria (Cb). É o
+campo que melhor desenha a <b>ZCIT</b> e a <b>ZCAS</b> sem precisar de imagem de satélite. No CartoMet, é a base do
+botão <b>ZCIT (LOCZCIT-PA)</b>.</div>
+
+<h3 id="p2-9">2.9 Instabilidade (CAPE, CIN, LI, Índice K)</h3>
+<p>Campos derivados do modelo (13 níveis — <b>resolução vertical grosseira</b>, aproximação, não sondagem real).</p>
+<table>
+<thead><tr><th>Índice</th><th>Mede</th><th>Leitura rápida</th></tr></thead>
+<tbody>
+<tr><td><b>CAPE</b></td><td>energia para a parcela subir</td><td>alto (amarelo/vermelho) = muito combustível; centenas a milhares J/kg</td></tr>
+<tr><td><b>CIN</b></td><td>"tampa" que segura a convecção</td><td>muito negativo = tampada (precisa de gatilho forte)</td></tr>
+<tr><td><b>Lifted Index (LI)</b></td><td>diferença de T da parcela</td><td><b>LI negativo (azul) = instável</b>; positivo (vermelho) = estável ⚠️ inverso da intuição de cor</td></tr>
+<tr><td><b>Índice K</b></td><td>umidade+lapse médio</td><td>alto = ambiente úmido favorável a trovoadas</td></tr>
+</tbody>
+</table>
+<div class="box trap"><b class="tag">⚠️ CAPE é potencial, não gatilho</b> CAPE alto diz que <b>se</b> subir, sobe forte —
+mas não dispara sozinho. Precisa do <b>gatilho</b> (convergência em 850, frente, brisa, relevo). Combine sempre
+instabilidade (CAPE/LI) <b>com</b> forçante dinâmica (convergência/ω). Lembre da régua de honestidade: 13 níveis dão
+valores aproximados.</div>
+
+<h3 id="p2-10">2.10 Derivados cinemáticos (frontogênese, ∇T, MFC)</h3>
+<ul>
+<li><b>Frontogênese (Petterssen):</b> <span class="sw r"></span>vermelho = o escoamento está <b>apertando o gradiente
+térmico</b> (frente <i>nascendo/intensificando</i>); azul = frontólise (<i>enfraquecendo</i>). Confirma onde traçar
+<span class="key">e</span> Frontogênese / <span class="key">d</span> Frontólise.</li>
+<li><b>Gradiente de T (∇T):</b> destaca onde a temperatura muda bruscamente — a <b>zona frontal</b> propriamente dita.</li>
+<li><b>MFC — convergência de fluxo de umidade:</b> <b>onde a umidade está sendo empilhada</b>. Excelente para ZCAS e
+disparo convectivo: junta o "tem vapor" com o "está convergindo".</li>
+</ul>
+
+<!-- ════════════════════════════ PARTE 3 ════════════════════════════ -->
+<h2 class="part" id="p3">Parte 3 · Reconhecer sistemas (playbook → símbolo OMM)</h2>
+<p>Para cada sistema: a <b>assinatura multi-campo</b> (como ele aparece junto nos campos), a <b>estação</b> em que é
+provável, e <b>qual botão</b> do painel Simbologias usar. Os 18 símbolos e suas teclas são os reais do app.</p>
+
+<h3>Frentes e ciclones extratropicais</h3>
+<table>
+<thead><tr><th>Sistema</th><th>Assinatura nos campos</th><th>Estação / região</th><th>Símbolo</th></tr></thead>
+<tbody>
+<tr><td><b>Frente fria</b></td><td>cavado na PNMM + aperto de espessura; advecção fria (azul) atrás em 850; pós-frontal com subsidência; banda de nuvem/chuva na linha</td><td>todo ano (mais ativa no inverno) — S/SE, avança p/ N</td><td><span class="key">1</span> Frente Fria</td></tr>
+<tr><td><b>Frente quente</b></td><td>advecção quente (vermelho) à frente; espessura subindo; nuvem estratiforme a montante</td><td>menos comum no Brasil; ciclones do Sul/Atlântico</td><td><span class="key">2</span> Frente Quente</td></tr>
+<tr><td><b>Estacionária</b></td><td>zona frontal sem deslocamento; espessura apertada parada</td><td>bloqueios; sul do Brasil</td><td><span class="key">3</span> F. Estacionária</td></tr>
+<tr><td><b>Oclusa</b></td><td>frente fria alcança a quente; ciclone maduro</td><td>ciclones extratropicais maduros</td><td><span class="key">4</span> F. Oclusa</td></tr>
+<tr><td><b>Ciclone / baixa</b></td><td>mínimo de PNMM, ζ ciclônica (azul) em 500/850, cavado 500 a oeste, jato e divergência aloft</td><td>S/Atlântico Sul; ciclogênese frequente</td><td><span class="key">b</span> Baixa (B)</td></tr>
+<tr><td><b>Anticiclone / alta</b></td><td>máximo de PNMM, ζ anticiclônica (vermelho no Sul), subsidência (azul ω), céu limpo</td><td>ASAS no Atlântico; pós-frontal</td><td><span class="key">a</span> Alta (A)</td></tr>
+</tbody>
+</table>
+<details class="deep"><summary>🔬 Ciclogênese e "bomba" (Petterssen tipo B)</summary>
+<p>Desenvolvimento explosivo típico do Atlântico Sul/Sudeste: um <b>cavado de altos níveis</b> (com sua divergência a
+jusante) alcança uma <b>zona baroclínica de baixos níveis</b> (forte gradiente térmico, frontogênese). O acoplamento
+"divergência em cima + advecção quente/baroclinia embaixo" aprofunda a baixa rapidamente. "Bomba" = queda ≳ 24 hPa em
+24 h (ajustada pela latitude). Caça: cavado 500 + jato/divergência 250 + frontogênese 850 alinhados na vertical.</p></details>
+
+<h3>Sistemas tropicais e subtropicais</h3>
+<table>
+<thead><tr><th>Sistema</th><th>Assinatura nos campos</th><th>Estação</th><th>Símbolo</th></tr></thead>
+<tbody>
+<tr><td><b>ZCIT</b></td><td>banda zonal de OLR baixa perto do equador; convergência de alísios em 10 m; ∇TSM; ascensão</td><td>posição mais ao sul em <b>mar–abr</b> (chuva no N/NE); ao norte no inverno boreal</td><td><span class="key">6</span> ZCIT · botão <b>LOCZCIT-PA</b></td></tr>
+<tr><td><b>ZCAS</b></td><td>banda <b>NW–SE</b> de nebulosidade (OLR baixa) da Amazônia ao Atlântico SE; <b>tcwv</b> alto; convergência de umidade (MFC); jato de baixos níveis; ω ascendente; persiste ≥3–4 dias</td><td><b>verão (DEZ–FEV)</b>; SE/CO do Brasil</td><td><span class="key">5</span> ZCAS · preset ZCAS (Escobar)</td></tr>
+<tr><td><b>VCAN</b> (vórtice de altos níveis)</td><td><b>núcleo azul de ζ</b> (ciclônico/horário) em 200 hPa; centro com subsidência e céu limpo (OLR alta), <b>chuva na periferia</b>; núcleo frio (intensifica para cima)</td><td><b>verão (nov–mar, pico jan–fev)</b>; Atlântico trop./NE</td><td><span class="key">v</span> Vórtice</td></tr>
+<tr><td><b>Linha de instabilidade</b></td><td>linha de Cb (OLR baixa alinhada); CAPE alto + convergência/brisa; pré-frontal ou costeira (Amazônia)</td><td>tarde; costa N e interior</td><td><span class="key">9</span> Linha de Instabilidade</td></tr>
+<tr><td><b>Linha seca (dryline)</b></td><td>fronteira úmido/seco abrupta (∇ de <code>r</code>/<code>q</code>); pouco contraste de T</td><td>interior; menos comum no Brasil</td><td><span class="key">0</span> Linha Seca</td></tr>
+<tr><td><b>Ciclone/tempestade tropical</b></td><td>núcleo <b>quente</b>, ζ ciclônica forte em baixos níveis, simetria, sem frente</td><td>raríssimo no Atlântico Sul (ex.: Catarina 2004)</td><td><span class="key">h</span> Furacão · <span class="key">t</span> Tempestade Tropical</td></tr>
+</tbody>
+</table>
+
+<div class="box trap"><b class="tag">⚠️ VCAN: o erro clássico</b>
+VCAN é <b>ciclônico</b> ⇒ no Sul gira <b>horário</b> e tem <b>núcleo AZUL</b> de ζ. Se você vê giro <b>anti-horário</b>
+(vermelho), é <b>anticiclone</b>, não VCAN. Além disso, VCAN do NE é bicho de <b>verão</b> — em <b>junho</b> é
+climatologicamente improvável. E lembre da estrutura: <b>seco no centro, chuvoso na borda</b> (não "tempo aberto em tudo").</div>
+
+<h3>Cavados, cristas e jato</h3>
+<p>Estes são feições de campo (não "sistemas" fechados), traçadas sobre <code>gh</code>/vento:
+<span class="key">7</span> Cavado · <span class="key">8</span> Crista (RidgeAxis) · <span class="key">j</span> Corrente de Jato.</p>
+
+<!-- ════════════════════════════ PARTE 4 ════════════════════════════ -->
+<h2 class="part" id="p4">Parte 4 · Workflow de plantão — como começar a análise</h2>
+<p>Uma carta sinótica não se lê "de qualquer jeito". Use uma <b>rotina fixa</b> para não esquecer nada sob pressão.
+Uma rotina que funciona: <b>panorama → de cima para baixo → umidade/instabilidade → traçar</b>.</p>
+
+<h3>A rotina em 6 passos (e os campos do CartoMet em cada um)</h3>
+<table>
+<thead><tr><th class="c">#</th><th>Passo</th><th>Pergunta</th><th>Campos / preset</th></tr></thead>
+<tbody>
+<tr><td class="c">1</td><td><b>Panorama</b></td><td>Onde estão as altas, baixas, frentes? Qual o padrão geral?</td><td>PNMM + espessura (carta-base) · preset Sinótica clássica</td></tr>
+<tr><td class="c">2</td><td><b>Altos níveis</b></td><td>Onde está o jato? Tem cavado/divergência dando suporte?</td><td><span class="pill">Jato e divergência</span> (250/200)</td></tr>
+<tr><td class="c">3</td><td><b>Média</b></td><td>Cavados/cristas em 500? Vorticidade ciclônica chegando? ω onde?</td><td><code>gh</code>500, <code>vo</code>500, <code>w</code>500</td></tr>
+<tr><td class="c">4</td><td><b>Baixos níveis</b></td><td>Tem advecção quente/fria? Jato de baixos níveis? Convergência?</td><td><span class="pill">Baixos níveis</span>, <code>mfc</code></td></tr>
+<tr><td class="c">5</td><td><b>Umidade + instabilidade</b></td><td>Tem vapor (tcwv/r)? Tem CAPE? Tem gatilho?</td><td><code>tcwv</code>, <code>r</code>, OLR, CAPE/LI</td></tr>
+<tr><td class="c">6</td><td><b>Sintetizar e traçar</b></td><td>Onde combustível embaixo + suporte em cima coincidem?</td><td>Simbologias <span class="key">1</span>–<span class="key">v</span></td></tr>
+</tbody>
+</table>
+
+<div class="box tip"><b class="tag">🎯 A pergunta que amarra tudo (Passo 6)</b> "Onde a <b>ascensão (ω vermelho / divergência
+aloft)</b> coincide na vertical com <b>umidade + convergência de baixos níveis</b>?" Esse encontro é onde você traça
+ZCAS, linha de instabilidade, ou marca a chuva. Onde há <b>subsidência (azul ω) sob alta</b>, você marca tempo firme.</div>
+
+<h3>Checklist rápido (cole na mesa)</h3>
+<div class="grid2">
+<div class="box def"><b class="tag">📐 Antes de traçar, confirme…</b>
+<ol style="margin:.2em 0">
+<li>Posição de A/B e frentes na PNMM</li>
+<li>Jato + divergência aloft (suporte)</li>
+<li>Cavado/ζ ciclônica em 500 a montante</li>
+<li>ω ascendente colocado sobre a região</li>
+<li>Umidade (tcwv/r) e convergência em 850</li>
+<li>Instabilidade (CAPE/LI) + gatilho</li>
+<li>Estação confere com o sistema? (ex.: VCAN só no verão)</li>
+</ol></div>
+<div class="box cart"><b class="tag">🖥️ Atalho no CartoMet</b>
+<ul style="margin:.2em 0">
+<li>Comece pelos <b>presets</b> (Análises prontas): Sinótica → Jato/div → Baixos níveis → Convecção profunda.</li>
+<li>Para tropical: botão <b>ZCIT (LOCZCIT-PA)</b> e preset <b>ZCAS (Escobar)</b>.</li>
+<li>Para frentes: <b>Diagnóstico Baroclínico</b> (θe, advecção e eixo TFP de apoio ao traçado).</li>
+<li>Para bloqueio/inverno: botão <b>Bloqueio Atmosférico (Z500)</b>.</li>
+<li>Só então abra a aba <b>Simbologias</b> e trace — <i>human-in-the-loop</i>: o campo orienta, você decide.</li>
+</ul></div>
+</div>
+
+<h3>Priors sazonais (Brasil / Atlântico) — o que esperar antes de abrir o mapa</h3>
+<table>
+<thead><tr><th>Estação</th><th>O que domina</th><th>Sistemas prováveis</th></tr></thead>
+<tbody>
+<tr><td><b>Verão (DJF)</b></td><td>aquecimento continental, Alta da Bolívia</td><td><b>ZCAS</b>, <b>VCAN-NE</b>, convecção no CO/SE, complexos convectivos</td></tr>
+<tr><td><b>Outono (MAM)</b></td><td>ZCIT no extremo sul sobre o Atlântico</td><td><b>ZCIT</b> (estação-rainha do LOCZCIT-PA; chuva no N/NE), DOL</td></tr>
+<tr><td><b>Inverno (JJA)</b></td><td>ASAS forte, jato subtropical ~25–30°S</td><td><b>frentes frias</b> chegando ao S/SE, <b>friagens</b> na Amazônia, tempo seco no centro/NE, <b>bloqueios</b></td></tr>
+<tr><td><b>Primavera (SON)</b></td><td>transição; retorno da convecção</td><td>primeiras ZCAS, frentes ainda ativas</td></tr>
+</tbody>
+</table>
+<div class="box tip"><b class="tag">🎯 Use a estação como filtro de sanidade</b> Antes de nomear um sistema, pergunte
+"<b>é época disso?</b>". Em junho (inverno), pense ASAS/frentes/jato — <b>não</b> VCAN ou ZCAS. A estação te impede de
+forçar uma interpretação errada (como o falso "VCAN do Maranhão" da Parte 6).</div>
+
+<!-- ════════════════════════════ PARTE 5 ════════════════════════════ -->
+<h2 class="part" id="p5">Parte 5 · Dinâmica avançada (o "porquê")</h2>
+
+<h3>5.1 O que faz o ar subir? (equação ω quase-geostrófica, no conceito)</h3>
+<p>Sem álgebra: a teoria QG diz que há <b>dois grandes motores</b> de ascensão sinótica, e você os lê direto nos campos:</p>
+<div class="box def"><b class="tag">📐 Os dois forçantes</b>
+<ol style="margin:.2em 0">
+<li><b>Advecção de vorticidade ciclônica crescendo com a altura</b> (típico: a jusante de um cavado 500). Chega
+"giro de baixa" lá em cima ⇒ o ar sobe embaixo.</li>
+<li><b>Advecção térmica quente</b> (em 850, vermelho no <code>temp_adv</code>). Ar quente sendo trazido ⇒ tende a
+subir (é mais leve) ⇒ ascensão.</li>
+</ol>
+Quando os <b>dois apontam para o mesmo lugar</b>, a ascensão é robusta e o desenvolvimento é provável. É exatamente o
+que acontece a leste de um cavado que se aproxima do Sul/Sudeste.</div>
+
+<h3>5.2 Vento térmico e núcleo quente × frio</h3>
+<div class="box def"><b class="tag">📐 Vento térmico</b> O <b>cisalhamento vertical do vento</b> é proporcional ao
+<b>gradiente horizontal de temperatura</b>. Consequência prática para identificar sistemas:</div>
+<ul>
+<li><b>Núcleo frio</b> (VCAN, cavados frios) → o sistema <b>intensifica para cima</b> (mais forte em 200 hPa). Por isso
+o VCAN é uma feição de <b>altos níveis</b>.</li>
+<li><b>Núcleo quente</b> (ciclone tropical, Alta da Bolívia) → <b>intensifica para baixo</b> / é alta em cima. Por isso
+o jato em volta de um tropical é em baixos níveis.</li>
+</ul>
+
+<h3>5.3 Ciclo de vida do VCAN (Kousky & Gan)</h3>
+<p>Forma-se sobre o Atlântico tropical no verão, com circulação ciclônica fria em altos níveis; desloca-se geralmente
+para <b>oeste</b> rumo ao NE do Brasil. <b>Centro:</b> subsidência, seca (pode agravar estiagem no NE quando estaciona).
+<b>Periferia:</b> ascensão e chuva, sobretudo na <b>borda dianteira</b>. Enfraquece ao interagir com a ZCIT/ZCAS ou ao
+entrar no continente. Caça no CartoMet: <code>vo</code> 200 (núcleo azul) + linhas de corrente horárias + OLR
+(alta no centro, baixa na borda).</p>
+
+<h3>5.4 Jet streak — por que importa para a ciclogênese</h3>
+<p>A divergência na <b>entrada esquerda / saída direita</b> (no Sul) é um dos principais "ganchos" de altos níveis que,
+acoplados a uma baroclinia de baixos níveis, disparam ciclogênese no Atlântico Sul. Quando você vir uma baixa em
+formação <b>debaixo</b> de um quadrante divergente do jato, confiança alta de aprofundamento.</p>
+
+<!-- ════════════════════════════ PARTE 6 ════════════════════════════ -->
+<h2 class="part" id="p6">Parte 6 · Treino + caso resolvido</h2>
+
+<h3>6.1 Caso resolvido — 12Z 26/06/2026 (200 hPa)</h3>
+<p>Um caso real de inverno austral. Aplicando a rotina e as convenções, passo a passo:</p>
+<table>
+<thead><tr><th>Campo</th><th>O que se vê</th><th>Leitura correta</th></tr></thead>
+<tbody>
+<tr><td><b>Vorticidade 200</b></td><td>faixas vermelho/azul em 30–45°S; trópicos fracos/manchados; giro anti-horário (vermelho) na costa do Maranhão</td><td>faixas = <b>cisalhamento do jato</b> (não vórtices). Maranhão = <b>anticiclônico</b> (anti-horário=vermelho no Sul), <b>não VCAN</b></td></tr>
+<tr><td><b>Divergência 200</b></td><td>vermelho em 0–10°N; dipolos vermelho/azul em 30–45°S</td><td>divergência sobre a <b>ZCIT</b> (em junho ao norte do equador); dipolos = <b>jet streaks</b></td></tr>
+<tr><td><b>ω 200</b></td><td>vermelho em 0–10°N; azul largo no Atlântico subtropical 20–40°S</td><td>vermelho = <b>ascensão</b> sob a divergência da ZCIT; azul = <b>subsidência</b> da <b>ASAS</b> (tempo seco de inverno)</td></tr>
+</tbody>
+</table>
+<div class="box tip"><b class="tag">🎯 Síntese do caso</b> Padrão de <b>inverno austral</b> coerente: ASAS dominando o
+Atlântico (subsidência + anticiclônico), jato subtropical em 30–45°S (cisalhamento + dipolos de divergência), e
+convecção equatorial ao norte (divergência aloft + ascensão). <b>Nada errado nos campos</b> nem no CartoMet — o que
+faltava era ler pelo <b>sinal</b> e pela <b>estação</b>. O "VCAN do Maranhão" era uma <b>circulação anticiclônica</b>
+garantindo o tempo firme do São João.</div>
+
+<h3>6.2 Exercícios (responda antes de abrir o gabarito)</h3>
+
+<p class="q">Q1. Num mapa de <code>vo</code> 500, você acha um núcleo <b>azul</b> fechado a 28°S/45°W, com linhas de corrente
+girando no sentido horário. Que sistema é, e que símbolo você usaria?</p>
+<details class="deep"><summary>Gabarito Q1</summary><p>Azul = ζ negativa = ciclônico no Sul; giro horário confirma. É uma
+<b>circulação ciclônica</b> (cavado/baixa em altitude — possível vórtice). Símbolo <span class="key">7</span> Cavado ou
+<span class="key">v</span> Vórtice / <span class="key">b</span> Baixa, conforme estar fechado e a estrutura.</p></details>
+
+<p class="q">Q2. No campo de <b>ω 500</b>, uma região aparece <b>vermelha</b>. Sobe ou desce? E que cor seria essa mesma
+ascensão no campo de <b>divergência 200</b>?</p>
+<details class="deep"><summary>Gabarito Q2</summary><p>ω vermelho = ω negativo = <b>ascensão</b> (cmap RdBu invertido). A
+ascensão é sustentada por <b>divergência</b> em 200, que no campo <code>d</code> (RdBu_r) é <b>vermelha</b>. Ou seja:
+mesma cor, mas por convenções opostas — sempre cheque a barra.</p></details>
+
+<p class="q">Q3. É <b>julho</b>. Alguém afirma "tem uma ZCAS clássica no Sudeste". Por que desconfiar antes de traçar?</p>
+<details class="deep"><summary>Gabarito Q3</summary><p>ZCAS é fenômeno de <b>verão (DJF)</b>. Em julho (inverno), o esperado é
+frente fria/ASAS, não ZCAS. A estação é filtro de sanidade: desconfie e cheque a assinatura (banda NW–SE persistente,
+tcwv alto, MFC) antes de nomear.</p></details>
+
+<p class="q">Q4. Numa frente fria avançando para o Norte, de que lado (em 850) você espera <b>advecção fria</b> e de que
+lado <b>advecção quente</b>?</p>
+<details class="deep"><summary>Gabarito Q4</summary><p><b>Atrás</b> da frente (lado polar/sul): advecção <b>fria</b>
+(<span class="sw b"></span>azul em <code>temp_adv</code>). <b>À frente</b> (setor pré-frontal): advecção <b>quente</b>
+(<span class="sw r"></span>vermelho). O aperto de espessura marca a zona frontal entre os dois.</p></details>
+
+<p class="q">Q5. Você vê o núcleo do jato em 250. Em qual quadrante (Hemisfério Sul) há divergência aloft favorável à
+ciclogênese embaixo?</p>
+<details class="deep"><summary>Gabarito Q5</summary><p><b>Entrada esquerda</b> e <b>saída direita</b> (espelho do Norte).
+Uma baixa em formação sob esses quadrantes tende a se aprofundar.</p></details>
+
+<div class="box cart"><b class="tag">🖥️ Treino contínuo no CartoMet</b> A cada rodada, rode a Parte 4 e tente <b>prever
+e nomear</b> antes de olhar a OLR/satélite. Depois confira. Para treinar com eventos históricos, use a biblioteca de
+<b>Estudos de Caso (ERA5)</b> do painel Análises Prontas — casos clássicos com roteiro didático.</div>
+
+<!-- ════════════════════════════ PARTE 7 ════════════════════════════ -->
+<h2 class="part" id="p7">Parte 7 · Referências</h2>
+<h4>Livros / sinótica geral</h4>
+<ul>
+<li>HOLTON, J. R.; HAKIM, G. J. <i>An Introduction to Dynamic Meteorology</i>. (vorticidade, QG, vento térmico)</li>
+<li>BLUESTEIN, H. B. <i>Synoptic-Dynamic Meteorology in Midlatitudes</i>. (jet streaks, ciclogênese)</li>
+<li>CARLSON, T. N. <i>Mid-Latitude Weather Systems</i>.</li>
+<li>VAREJÃO-SILVA, M. A. <i>Meteorologia e Climatologia</i>. (base física, em PT)</li>
+<li>VIANELLO, R. L.; ALVES, A. R. <i>Meteorologia Básica e Aplicações</i>.</li>
+</ul>
+<h4>Sistemas brasileiros</h4>
+<ul>
+<li>KOUSKY, V. E.; GAN, M. A. <i>Upper tropospheric cyclonic vortices in the tropical South Atlantic</i> (Tellus, 1981). (VCAN)</li>
+<li>FERREIRA, N. et al. <i>LOCZCIT</i> (Rev. Bras. Meteorologia, 2005); ROCHA, E. C. <i>LOCZCIT-IQR</i> (TCC UFPA, 2022). (ZCIT)</li>
+<li>GADGIL, S.; GURUPRASAD, A. (J. Climate, 1990). (limiares de OLR)</li>
+</ul>
+<h4>Documentos do CartoMet BR (menu Ajuda)</h4>
+<ul>
+<li><code>docs/Metodologia_LOCZCIT-PA.md</code> — ciência da ZCIT no app (Ajuda → Sobre o Índice ZCIT).</li>
+<li><code>docs/Metodologia_Bloqueio_Z500.md</code> — anomalia de Z500 (Ajuda → Sobre a Análise de Bloqueio).</li>
+<li><code>docs/Estudo_Espessura_1000_500hPa.md</code> — espessura em detalhe (Ajuda → 📚 Materiais de Estudo).</li>
+<li>Código dos campos: <code>cartomet_br/data/ecmwf.py</code> (<code>VARIABLE_REGISTRY</code>, colormaps).</li>
+</ul>
+
+<hr>
+<p style="font-size:13px;color:#5a6b7b">Material de estudo do CartoMet BR · sinótica operacional ancorada nos
+campos/símbolos reais do app · atualizado em 05/10/2026 (v3.2). Convenções verificadas no código (não inventadas):
+<code>vo</code>/<code>d</code> = <code>RdBu_r</code> (vermelho +); <code>w</code>/ω = <code>RdBu</code> (vermelho = ω
+negativo = ascensão). Limiares físicos citados são valores consagrados de literatura, com fonte.</p>
+
+</main>
+</div>
+
+<script>
+/* Scroll-spy mínimo para destacar o item ativo do índice (degrada sem JS) */
+(function(){
+  var links = Array.prototype.slice.call(document.querySelectorAll('nav.toc a'));
+  var map = {};
+  links.forEach(function(a){ var id=a.getAttribute('href').slice(1); var el=document.getElementById(id); if(el) map[id]=a; });
+  if(!('IntersectionObserver' in window)) return;
+  var obs = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){
+        links.forEach(function(a){a.classList.remove('active');});
+        var a = map[e.target.id]; if(a) a.classList.add('active');
+      }
+    });
+  },{rootMargin:'-10% 0px -80% 0px',threshold:0});
+  Object.keys(map).forEach(function(id){ var el=document.getElementById(id); if(el) obs.observe(el); });
+})();
+</script>
+</body>
+</html>

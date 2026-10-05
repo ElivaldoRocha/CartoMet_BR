@@ -165,6 +165,7 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 
 ### 📚 Materiais de Estudo (Ajuda)
 
+- Menu **Ajuda → "📚 Materiais de Estudo" → "Manual de Sinótica Operacional"**: manual completo de análise sinótica ancorado nos campos e símbolos reais do app, aberto no navegador (HTML autocontido com índice lateral e figuras, imprimível) — cheat-sheet de plantão ("leia o **SINAL**, não a cor"), **convenções do Hemisfério Sul** (Coriolis, Buys-Ballot, barbelas, ζ ciclônica negativa), leitura campo a campo, playbook de sistemas (frentes, ZCAS, ZCIT, VCAN, jet streak) com o símbolo OMM de cada um, rotina de análise em 6 passos, dinâmica avançada e exercícios com gabarito; as alegações factuais do manual são **travadas por teste** contra o código (níveis, símbolos, presets, colormaps)
 - Menu **Ajuda → "📚 Materiais de Estudo" → "Espessura 1000–500 hPa"**: material didático de sinótica com resumo no app e o **material completo** aberto no navegador (equações via MathJax, fluxograma e tabelas)
 - Cobre a **interpretação da espessura** (isoterma da temperatura média da camada), **língua quente/fria** (crista/cavado térmico), **vento térmico e advecção no Hemisfério Sul** (giro horário → advecção fria; anti-horário → quente, o inverso do HN), a **linha de 5400 m** (limite chuva–neve; ~5340 m no Sul do Brasil) e **isóbaras de PNMM** (como achar cavado/crista e o **tempo a leste do cavado**)
 

@@ -129,3 +129,5 @@ output/*
 
 # HTML gerados (renderings do markdown)
 *.html
+# ...exceto materiais de estudo que SAO fonte HTML (empacotados com o app)
+!docs/Manual_Sinotica_Operacional.html

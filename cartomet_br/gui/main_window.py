@@ -470,6 +470,9 @@ class MainWindow(QMainWindow):
 
         # Materiais de Estudo (didáticos) — submenu extensível
         estudos_menu = help_menu.addMenu("📚 Materiais de Estudo")
+        sinotica_manual_action = QAction("Manual de Sinótica Operacional", self)
+        sinotica_manual_action.triggered.connect(self._show_study_sinotica)
+        estudos_menu.addAction(sinotica_manual_action)
         espessura_study_action = QAction("Espessura 1000–500 hPa", self)
         espessura_study_action.triggered.connect(self._show_study_espessura)
         estudos_menu.addAction(espessura_study_action)
@@ -6246,6 +6249,98 @@ class MainWindow(QMainWindow):
                 QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))  # fallback: abre o .md
 
         open_btn.clicked.connect(_open_study)
+        close_btn = QPushButton("Fechar")
+        close_btn.clicked.connect(dlg.accept)
+        btn_row.addWidget(open_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+
+        dlg.exec()
+
+    def _sinotica_manual_path(self):
+        """Localiza o docs/Manual_Sinotica_Operacional.html (dev ou empacotado) ou None."""
+        candidates = [
+            Path(__file__).resolve().parents[2] / "docs" / "Manual_Sinotica_Operacional.html",
+            Path.cwd() / "docs" / "Manual_Sinotica_Operacional.html",
+        ]
+        if getattr(sys, "frozen", False):  # PyInstaller: docs/ empacotado em _MEIPASS
+            candidates.insert(0, Path(sys._MEIPASS) / "docs" / "Manual_Sinotica_Operacional.html")
+        for p in candidates:
+            if p.exists():
+                return p
+        return None
+
+    def _show_study_sinotica(self):
+        """Manual de Sinótica Operacional — resumo + abre o manual completo no navegador."""
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        from PyQt6.QtWidgets import QTextBrowser
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Manual de Sinótica Operacional")
+        dlg.setMinimumSize(580, 560)
+        dlg.setStyleSheet(DARK_STYLE)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        html = """
+        <h2 style='color:#E67E22; margin-bottom:2px;'>Manual de Sinótica Operacional</h2>
+        <p style='color:#BDC3C7; margin-top:0;'><i>Ler os campos · reconhecer os sistemas ·
+        traçar a simbologia OMM certa (Hemisfério Sul)</i></p>
+        <p style='color:#ECF0F1;'>Manual completo, do básico ao avançado, ancorado nos campos e
+        símbolos reais do CartoMet BR: cheat-sheet de plantão, convenções do <b>Hemisfério
+        Sul</b>, leitura campo a campo, playbook de sistemas (frentes, ZCAS, ZCIT, VCAN),
+        rotina de análise em 6 passos, dinâmica avançada e exercícios com gabarito.</p>
+        <p style='color:#ECF0F1;'><b>A regra que resolve 80% da confusão:</b> a cor é só o
+        colormap do campo — a física mora no <b>SINAL</b>. Decore o sinal; confira a cor na
+        barra do mapa aberto.</p>
+        <table cellpadding='6' style='color:#ECF0F1; border-collapse:collapse;'>
+          <tr style='background:#1A252F;'><th>Campo</th><th>Sinal</th><th>Leitura (HS)</th></tr>
+          <tr><td>Vorticidade <code>vo</code></td><td>ζ <b>negativa</b>
+            (<span style='background:#2166AC; color:#2166AC;'>&nbsp;&nbsp;</span> azul)</td>
+            <td><b>ciclônico</b> = giro <b>horário</b> (baixa, cavado, VCAN)</td></tr>
+          <tr><td>Divergência <code>d</code></td><td><b>positiva</b>
+            (<span style='background:#B2182B; color:#B2182B;'>&nbsp;&nbsp;</span> vermelho)</td>
+            <td>divergência — em 200 hPa <b>puxa ascensão</b> por baixo</td></tr>
+          <tr><td>ω <code>w</code></td><td><b>negativo</b>
+            (<span style='background:#B2182B; color:#B2182B;'>&nbsp;&nbsp;</span> vermelho ⚠️)</td>
+            <td><b>ASCENSÃO</b> (nuvem, chuva) — cmap invertido de propósito</td></tr>
+        </table>
+        <p style='color:#ECF0F1; margin-top:10px;'>⚠️ No Hemisfério Sul o <b>ciclônico é
+        horário</b> e a baixa fica à <b>direita</b> de quem está de costas para o vento
+        (Buys-Ballot) — o espelho do livro de Hemisfério Norte.</p>
+        <hr style='border-color:#5D6D7E;'>
+        <p style='color:#95A5A6; font-size:11px;'>O manual completo abre no navegador
+        (HTML autocontido, com índice lateral e figuras — imprimível via Ctrl+P).</p>
+        """
+        browser = QTextBrowser()
+        browser.setHtml(html)
+        browser.setOpenExternalLinks(True)
+        layout.addWidget(browser)
+
+        btn_row = QHBoxLayout()
+        open_btn = QPushButton("📖 Abrir Manual Completo")
+        open_btn.setStyleSheet(
+            "QPushButton{background:#E67E22;padding:7px 14px;font-weight:bold;border-radius:4px;}"
+            "QPushButton:hover{background:#F39C12;}"
+        )
+
+        def _open_manual():
+            p = self._sinotica_manual_path()
+            if p is None:
+                QMessageBox.information(
+                    dlg,
+                    "Manual de Sinótica",
+                    "O manual não foi encontrado nesta instalação.\n"
+                    "Ele está disponível no repositório do CartoMet BR (docs/).",
+                )
+                return
+            # Já é HTML autocontido — abre direto no navegador, sem renderização
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
+
+        open_btn.clicked.connect(_open_manual)
         close_btn = QPushButton("Fechar")
         close_btn.clicked.connect(dlg.accept)
         btn_row.addWidget(open_btn)

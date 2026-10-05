@@ -73,6 +73,22 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- **📚 Manual de Sinótica Operacional no menu Ajuda (Onda 0a).** Materiais de
+  Estudo ganharam o manual completo de análise sinótica do CartoMet BR: HTML
+  autocontido (índice lateral, figuras SVG, imprimível) que abre no navegador,
+  do básico ao avançado — cheat-sheet de plantão ("leia o SINAL, não a cor"),
+  convenções do **Hemisfério Sul** (Coriolis, Buys-Ballot, barbelas, ζ
+  ciclônica negativa/azul), leitura campo a campo dos produtos reais do app,
+  playbook de sistemas (frentes, ZCAS, ZCIT, VCAN, jet streak) com o símbolo
+  OMM e a tecla de cada um, rotina de análise em 6 passos, priors sazonais,
+  dinâmica avançada (ω QG, vento térmico, Kousky & Gan) e exercícios com
+  gabarito, incluindo um caso resolvido real. O diálogo-resumo traz a tabela
+  de sinais essencial. Empacotado com o app (`docs/` no instalador);
+  **travas de deriva nos testes**: as alegações factuais do manual (13 níveis,
+  18 símbolos e suas teclas, nomes dos presets, colormaps por campo, unidade
+  de ω) são conferidas contra `PL_LEVELS`, `MODOS`, `ANALYSIS_PRESETS` e
+  `VARIABLE_REGISTRY` — se o app mudar, a suíte cobra o manual.
+
 - **🌍 Vista de Globo em tela cheia — a Terra vista do espaço com os campos ativos.**
   Botão "🌍 Globo" na toolbar (menu Exibir, Ctrl+G): abre uma janela em tela
   cheia com o planeta em projeção ortográfica sobre fundo estrelado e halo
