@@ -3323,6 +3323,7 @@ class MainWindow(QMainWindow):
             stamp_lines=stamp,
             drawings=drawings,
             output_dir=self.config.charts_dir,
+            chart_theme=self.canvas.current_theme,
         )
         win.closed.connect(lambda: setattr(self, "_globe_window", None))
         self._globe_window = win

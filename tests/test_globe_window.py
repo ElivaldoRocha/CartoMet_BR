@@ -22,10 +22,11 @@ from cartomet_br.services.globe_compose import GlobeLayer, GlobeScene
 
 @pytest.fixture(autouse=True)
 def sync_worker(monkeypatch):
-    """Worker de frame roda SÍNCRONO nos testes (sem threads de verdade)."""
+    """Workers (frame e forno) rodam SÍNCRONOS nos testes (sem threads)."""
     from cartomet_br.gui import globe_window as gw
 
     monkeypatch.setattr(gw.GlobeFrameWorker, "start", lambda self: self.run())
+    monkeypatch.setattr(gw.MotionBakeWorker, "start", lambda self: self.run())
     yield
 
 
@@ -55,17 +56,29 @@ def _stars():
     return (rng.random(30), rng.random(30), rng.random(30) + 0.5)
 
 
+def _tmp_settings():
+    import tempfile
+
+    from PyQt6.QtCore import QSettings
+
+    fd, nome = tempfile.mkstemp(suffix=".ini")
+    os.close(fd)  # Windows: fd aberto travaria o QSettings
+    return QSettings(nome, QSettings.Format.IniFormat)
+
+
 def _frame_kwargs(scene, **kw):
+    from cartomet_br.gui.globe_window import GlobeOptions
+
     base = {
         "scene": scene,
         "satellite": None,
         "skin": "Campos ativos",
-        "quality": "Rascunho",
         "center": (-55.0, -15.0),
         "zoom": 1.0,
         "stars": _stars(),
         "stamp_lines": ["CartoMet BR — Vista de Globo"],
         "drawings": [],
+        "opts": GlobeOptions(quality="Rascunho", label_mode="todos"),
     }
     base.update(kw)
     return base
@@ -295,15 +308,41 @@ class TestGestos:
         assert lonlat[1] == pytest.approx(0.0, abs=1.0)
         c.shutdown()
 
-    def test_apresentacao_gira_e_gesto_pausa(self, canvas_globo):
-        c = canvas_globo
+    def test_pipeline_da_apresentacao_mostra_campos_e_avanca(self, qapp, monkeypatch):
+        # Bug de campo corrigido: o giro usava o rascunho (globo PRETO).
+        # Agora pede frames "motion" (textura com os campos) em pipeline:
+        # frame pronto -> mostra -> avanca lon -> pede o proximo.
+        from cartomet_br.gui import globe_window as gw
+
+        pedidos = []
+        monkeypatch.setattr(
+            gw.GlobeFrameWorker, "start", lambda self: pedidos.append(self._params["mode"])
+        )
+        c = gw.GlobeCanvas(_scene(), center=(0.0, -15.0), opts=gw.GlobeOptions(spin_step=2.0))
+        c._scene.motion_texture = np.zeros((4, 4, 4), dtype=np.uint8)
         c.set_spinning(True)
         assert c.spinning
-        lon0 = c.center[0]
-        c._spin_tick()
-        assert c.center[0] != lon0
-        c._on_press(_evt())  # qualquer press pausa o giro
+        assert pedidos == ["motion"]  # giro com CAMPOS, nao rascunho preto
+        c._on_frame_ready(c._frame_gen, np.zeros((4, 4, 4), dtype=np.uint8))
+        assert c.center[0] == pytest.approx(-2.0)  # avancou spin_step
+        assert c._pending_mode == "motion"  # ja pediu o proximo quadro
+        c._on_press(_evt())  # qualquer gesto pausa
         assert not c.spinning
+        c.shutdown()
+
+    def test_giro_completa_usa_frames_vetoriais(self, qapp, monkeypatch):
+        from cartomet_br.gui import globe_window as gw
+
+        pedidos = []
+        monkeypatch.setattr(
+            gw.GlobeFrameWorker, "start", lambda self: pedidos.append(self._params["mode"])
+        )
+        c = gw.GlobeCanvas(
+            _scene(), center=(0.0, 0.0), opts=gw.GlobeOptions(spin_quality="completa")
+        )
+        c.set_spinning(True)
+        assert pedidos == ["crisp"]
+        c.shutdown()
 
 
 class TestCarimboPorPele:
@@ -329,7 +368,7 @@ class TestJanela:
 
         from cartomet_br.gui.globe_window import GlobeWindow
 
-        win = GlobeWindow(_scene(), center=(-55.0, -15.0))
+        win = GlobeWindow(_scene(), center=(-55.0, -15.0), settings=_tmp_settings())
         assert win.skin_combo.count() >= 1
         win.show()
         QTest.keyClick(win, Qt.Key.Key_Escape)
@@ -342,7 +381,7 @@ class TestJanela:
 
         from cartomet_br.gui.globe_window import GlobeWindow
 
-        win = GlobeWindow(_scene(), center=(-55.0, -15.0))
+        win = GlobeWindow(_scene(), center=(-55.0, -15.0), settings=_tmp_settings())
         ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Left, Qt.KeyboardModifier.NoModifier)
         win.keyPressEvent(ev)
         assert win.globe.center[0] == pytest.approx(-65.0)
@@ -355,7 +394,9 @@ class TestJanela:
     def test_salvar_png_usa_o_frame_pronto(self, qapp, tmp_path):
         from cartomet_br.gui.globe_window import GlobeWindow
 
-        win = GlobeWindow(_scene(), center=(-55.0, -15.0), output_dir=tmp_path)
+        win = GlobeWindow(
+            _scene(), center=(-55.0, -15.0), output_dir=tmp_path, settings=_tmp_settings()
+        )
         win.globe.render_full()
         win._save_png()
         pngs = list(tmp_path.glob("globo_*.png"))
@@ -489,3 +530,135 @@ class TestSnapshotCompleto:
         assert any(r["type"] == "annotation" for r in win.globe._drawings)
         assert any("emoji" in w for w in win.globe._scene.warnings)
         win.close()
+
+
+class TestPersonalizacao:
+    def test_tema_pinta_terra_com_a_cor_do_map_themes(self):
+        from matplotlib.figure import Figure
+
+        from cartomet_br.gui.globe_window import GlobeOptions, compose_globe_frame
+        from cartomet_br.gui.themes import MAP_THEMES
+
+        fig = Figure(figsize=(5, 4), dpi=100)
+        info = compose_globe_frame(
+            fig,
+            **_frame_kwargs(_scene(), opts=GlobeOptions(theme_name="Escuro", quality="Rascunho")),
+        )
+        ax = info["ax"]
+        assert ax.patch.get_facecolor()[:3] == pytest.approx(
+            __import__("matplotlib.colors", fromlist=["to_rgb"]).to_rgb(
+                MAP_THEMES["Escuro"]["ocean"]
+            ),
+            abs=1e-6,
+        )
+
+    def test_fronteiras_e_estados_obedecem_aos_toggles(self):
+        from matplotlib.figure import Figure
+
+        from cartomet_br.gui.globe_window import GlobeOptions, compose_globe_frame
+
+        fig = Figure(figsize=(5, 4), dpi=100)
+        base = _frame_kwargs(_scene(with_texture=False), skin="Relevo natural")
+        sem = compose_globe_frame(
+            fig,
+            **{
+                **base,
+                "opts": GlobeOptions(
+                    show_coast=False,
+                    show_borders=False,
+                    show_states=False,
+                    show_grid=False,
+                    quality="Rascunho",
+                ),
+            },
+        )
+        n_sem = len(sem["ax"].artists) + len(sem["ax"].collections)
+        fig2 = Figure(figsize=(5, 4), dpi=100)
+        com = compose_globe_frame(
+            fig2,
+            **{
+                **base,
+                "opts": GlobeOptions(
+                    show_coast=True,
+                    show_borders=True,
+                    show_states=True,
+                    show_grid=True,
+                    quality="Rascunho",
+                ),
+            },
+        )
+        n_com = len(com["ax"].artists) + len(com["ax"].collections)
+        assert n_com > n_sem  # costa+paises+estados+grade entraram
+
+    def test_declutter_remove_rotulo_do_limbo(self):
+        # label_keep "miolo": rotulo alem de 75% do raio do disco cai fora.
+        from cartomet_br.gui.globe_window import _LABEL_CORE_RADIUS, _ORTHO_HALF, _label_keep
+
+        assert _label_keep(0.0, 0.0)
+        assert _label_keep(0.5 * _ORTHO_HALF, 0.0)
+        assert not _label_keep(0.9 * _ORTHO_HALF, 0.0)
+        assert not _label_keep(0.0, (_LABEL_CORE_RADIUS + 0.05) * _ORTHO_HALF)
+
+    def test_opcoes_persistem_em_qsettings(self):
+        from cartomet_br.gui.globe_window import GlobeOptions
+
+        st = _tmp_settings()
+        opts = GlobeOptions(
+            theme_name="Escuro",
+            show_states=True,
+            label_mode="nenhum",
+            spin_step=4.0,
+            spin_quality="completa",
+            quality="Alta",
+            drag_light=True,
+        )
+        opts.save(st)
+        st.sync()
+        de_volta = GlobeOptions.load(st, default_theme="Pastel")
+        assert de_volta == opts  # roundtrip fiel (o default nao sobrepoe o salvo)
+
+    def test_load_sem_nada_salvo_usa_tema_da_carta(self):
+        from cartomet_br.gui.globe_window import GlobeOptions
+
+        st = _tmp_settings()
+        opts = GlobeOptions.load(st, default_theme="Pastel")
+        assert opts.theme_name == "Pastel"
+        assert opts.label_mode == "miolo"  # declutter e o padrao
+
+    def test_forno_de_movimento_assa_campos_e_isolinhas(self):
+        from cartomet_br.data.ecmwf import SynopticData
+        from cartomet_br.services.globe_compose import bake_motion_texture
+
+        lats = np.linspace(20, -40, 7)
+        lons = np.linspace(-80, -20, 7)
+        lon2d, lat2d = np.meshgrid(lons, lats)
+        syn = SynopticData(
+            pnmm=1004.0 + lat2d * 0.5,
+            thickness=5400.0 + lat2d * 2.0,
+            lons=lons,
+            lats=lats,
+            lon2d=lon2d,
+            lat2d=lat2d,
+            valid_time="x",
+            extent=[-80.0, -40.0, -20.0, 20.0],
+            base_time="x",
+            step=0,
+        )
+        scene = _scene()
+        scene.synoptic = syn
+        scene.synoptic_kinds = ("pnmm", "thickness")
+        tex = bake_motion_texture(scene, (91, 180))
+        assert tex is not None and scene.motion_texture is tex
+        assert tex.shape == (91, 180, 4) and tex.dtype == np.uint8
+        assert (tex[..., 3] > 0).any()  # ha conteudo assado
+
+    def test_frame_motion_usa_textura_de_movimento(self):
+        from matplotlib.figure import Figure
+
+        from cartomet_br.gui.globe_window import compose_globe_frame
+
+        scene = _scene()
+        scene.motion_texture = np.full((10, 20, 4), 128, dtype=np.uint8)
+        fig = Figure(figsize=(5, 4), dpi=100)
+        info = compose_globe_frame(fig, **_frame_kwargs(scene), mode="motion")
+        assert info["ax"].get_images()  # textura de movimento no imshow

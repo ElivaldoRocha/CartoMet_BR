@@ -62,6 +62,11 @@ class GlobeScene:
     synoptic: Any = None  # SynopticData global (ou recorte no fallback) | None
     synoptic_kinds: tuple[str, ...] = ()
     synoptic_global: bool = True
+    # Textura de MOVIMENTO (campos achatados + isolinhas + rótulos assados a
+    # 1×): usada nos frames do giro/apresentação — suave demais para o
+    # repouso (serrilha, lição de campo), perfeita em movimento. Assada num
+    # worker ao abrir (bake_motion_texture); None até ficar pronta.
+    motion_texture: np.ndarray | None = None
 
     def has_fields(self) -> bool:
         """True se há QUALQUER conteúdo de dado do dia para a pele de campos."""
@@ -327,7 +332,14 @@ def reload_global_synoptic(
 
 
 def draw_synoptic_overlay(
-    ax, synoptic: Any, kinds: tuple[str, ...], *, scale: float = 1.0, transform: Any = None
+    ax,
+    synoptic: Any,
+    kinds: tuple[str, ...],
+    *,
+    scale: float = 1.0,
+    transform: Any = None,
+    labels: bool = True,
+    label_keep: Any = None,
 ) -> None:
     """Desenha PNMM/espessura com os MESMOS níveis/rótulos da carta.
 
@@ -351,8 +363,12 @@ def draw_synoptic_overlay(
             linewidths=0.9 * scale,
             **({"transform": transform} if transform is not None else {}),
         )
-        for txt in ax.clabel(cs, inline=True, fontsize=7 * scale, fmt="%1.0f"):
-            txt.set_path_effects(halo)
+        if labels:
+            for txt in ax.clabel(cs, inline=True, fontsize=7 * scale, fmt="%1.0f"):
+                if label_keep is not None and not label_keep(*txt.get_position()):
+                    txt.remove()
+                    continue
+                txt.set_path_effects(halo)
     if "thickness" in kinds:
         niveis = np.arange(
             LEVELS["thickness"]["min"], LEVELS["thickness"]["max"], LEVELS["thickness"]["step"]
@@ -371,8 +387,12 @@ def draw_synoptic_overlay(
             linewidths=0.8 * scale,
             **({"transform": transform} if transform is not None else {}),
         )
-        for txt in ax.clabel(cs, inline=True, fontsize=7 * scale, fmt="%1.0f"):
-            txt.set_path_effects(halo)
+        if labels:
+            for txt in ax.clabel(cs, inline=True, fontsize=7 * scale, fmt="%1.0f"):
+                if label_keep is not None and not label_keep(*txt.get_position()):
+                    txt.remove()
+                    continue
+                txt.set_path_effects(halo)
         cs_5400 = ax.contour(
             synoptic.lons,
             synoptic.lats,
@@ -383,12 +403,22 @@ def draw_synoptic_overlay(
             linewidths=2.2 * scale,
             **({"transform": transform} if transform is not None else {}),
         )
-        for txt in ax.clabel(cs_5400, inline=True, fontsize=8 * scale, fmt="%1.0f"):
-            txt.set_path_effects(halo)
+        if labels:
+            for txt in ax.clabel(cs_5400, inline=True, fontsize=8 * scale, fmt="%1.0f"):
+                if label_keep is not None and not label_keep(*txt.get_position()):
+                    txt.remove()
+                    continue
+                txt.set_path_effects(halo)
 
 
 def draw_contour_overlay(
-    ax, contour_layers: list[GlobeLayer], *, scale: float = 1.0, transform: Any = None
+    ax,
+    contour_layers: list[GlobeLayer],
+    *,
+    scale: float = 1.0,
+    transform: Any = None,
+    labels: bool = True,
+    label_keep: Any = None,
 ) -> None:
     """Isolinhas das camadas ``plot_type=="contour"`` (gh500...) — níveis da carta."""
     import matplotlib.patheffects as pe
@@ -407,10 +437,65 @@ def draw_contour_overlay(
                 linewidths=0.8 * scale,
                 **({"transform": transform} if transform is not None else {}),
             )
-            for txt in ax.clabel(cs, inline=True, fontsize=7 * scale, fmt="%1.0f"):
-                txt.set_path_effects(halo)
+            if labels:
+                for txt in ax.clabel(cs, inline=True, fontsize=7 * scale, fmt="%1.0f"):
+                    if label_keep is not None and not label_keep(*txt.get_position()):
+                        txt.remove()
+                        continue
+                    txt.set_path_effects(halo)
         except Exception as exc:  # noqa: BLE001 — isolinha é adorno, não derruba o forno
             logger.warning("Isolinhas de %s falharam no forno: %s", layer.layer_id, exc)
+
+
+# Escala de fonte/linha da textura de movimento: a textura 1× sobe ~1,3× na
+# tela — fontes maiores preservam a leitura durante o giro.
+_MOTION_FONT_SCALE = 1.3
+
+
+def bake_motion_texture(scene: GlobeScene, shape: tuple[int, int] = TEXTURE_SHAPE) -> Any:
+    """Assa a textura de MOVIMENTO (campos + isolinhas + rótulos, 1×).
+
+    Usada nos frames do giro/apresentação: um único imshow reprojetado
+    (~0,45 s) com TODOS os campos visíveis — corrige o giro preto do modo
+    Apresentação. Suave demais para o repouso (serrilha — lição de campo);
+    lá o frame é vetorial. Sem tema/relevo na base: o tema é pintado por
+    frame (0,15 s) e trocável sem reassar. Devolve a textura (e a guarda em
+    ``scene.motion_texture``) ou ``None`` se não há nada a assar.
+    """
+    if scene.texture is None and scene.synoptic is None and not scene.contour_layers:
+        scene.motion_texture = None
+        return None
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    h, w = shape
+    fig = Figure(figsize=(w / 100.0, h / 100.0), dpi=100)
+    fig.patch.set_alpha(0.0)
+    ax = fig.add_axes((0.0, 0.0, 1.0, 1.0))
+    ax.set_xlim(-180.0, 180.0)
+    ax.set_ylim(-90.0, 90.0)
+    ax.set_axis_off()
+    ax.patch.set_alpha(0.0)
+
+    if scene.synoptic is not None:
+        draw_synoptic_overlay(ax, scene.synoptic, scene.synoptic_kinds, scale=_MOTION_FONT_SCALE)
+    draw_contour_overlay(ax, scene.contour_layers, scale=_MOTION_FONT_SCALE)
+
+    canvas = FigureCanvasAgg(fig)
+    canvas.draw()
+    overlay = np.asarray(canvas.buffer_rgba(), dtype=np.float32) / 255.0  # linha 0 = +90°
+    if overlay.shape[:2] != (h, w):  # DPI scaling defensivo
+        iy = np.clip((np.arange(h) * overlay.shape[0] / h).astype(int), 0, overlay.shape[0] - 1)
+        ix = np.clip((np.arange(w) * overlay.shape[1] / w).astype(int), 0, overlay.shape[1] - 1)
+        overlay = overlay[np.ix_(iy, ix)]
+
+    if scene.texture is not None:
+        base = scene.texture.astype(np.float32) / 255.0
+    else:
+        base = np.zeros((h, w, 4), dtype=np.float32)
+    final = composite_over(base, overlay)
+    scene.motion_texture = (np.clip(final, 0.0, 1.0) * 255).astype(np.uint8)
+    return scene.motion_texture
 
 
 # ─── Composição da cena ──────────────────────────────────────────────────────
