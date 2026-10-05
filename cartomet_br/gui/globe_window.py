@@ -259,6 +259,7 @@ def _paint_wind(
     center: tuple[float, float],
     *,
     include_streams: bool,
+    zoom: float = 1.0,
 ) -> None:
     """Vento no globo com o ESTILO da carta (cor/densidade/tipo herdados).
 
@@ -290,7 +291,7 @@ def _paint_wind(
                     zorder=12,
                 )
                 continue
-            s = subsample_wind(d, center, wl.density)
+            s = subsample_wind(d, center, wl.density, is_global=wl.is_global, zoom=zoom)
             if s["lons"].size == 0:
                 continue
             if wl.wind_type == "quiver":
@@ -414,7 +415,14 @@ def _stamp_for_skin(scene: GlobeScene, skin: str, satellite, stamp_lines: list[s
     return [*titulo, "pele: relevo natural (imagem de referência, não é dado do dia)"]
 
 
-def _paint_stamp(fig, scene: GlobeScene, skin: str, satellite, stamp_lines: list[str]) -> None:
+def _paint_stamp(
+    fig,
+    scene: GlobeScene,
+    skin: str,
+    satellite,
+    stamp_lines: list[str],
+    warnings_list: list[str] | None = None,
+) -> None:
     """Carimbo honesto no canto superior esquerdo + avisos no rodapé."""
     y = 0.975
     for i, linha in enumerate(_stamp_for_skin(scene, skin, satellite, stamp_lines)):
@@ -429,7 +437,8 @@ def _paint_stamp(fig, scene: GlobeScene, skin: str, satellite, stamp_lines: list
         )
     if skin != _PELE_CAMPOS:
         return  # avisos de camadas só fazem sentido na pele de campos
-    for j, aviso in enumerate(scene.warnings[:3]):
+    avisos = scene.warnings if warnings_list is None else warnings_list
+    for j, aviso in enumerate(avisos[:3]):
         fig.text(
             0.985,
             0.025 + j * 0.024,
@@ -470,7 +479,8 @@ def compose_globe_frame(
     ax.patch.set_facecolor("#060a14")  # oceano noturno (tema pode sobrepor)
     ax.spines["geo"].set_edgecolor("#2a3b5c")
     regrid = _QUALITY_REGRID[opts.quality]
-    escala = "50m" if opts.quality == "Alta" else "110m"
+    # 50m só no repouso em Alta — por frame de GIRO custaria ~1s (revisão).
+    escala = "50m" if (opts.quality == "Alta" and mode != "motion") else "110m"
     pc = ccrs.PlateCarree()
     colorbars: list = []
 
@@ -515,7 +525,7 @@ def compose_globe_frame(
             )
         # Vento em TODOS os modos (barbelas/vetores ~0,03 s); correntes só
         # no frame nítido e com o toggle ligado.
-        _paint_wind(ax, scene, opts, center, include_streams=(mode != "motion"))
+        _paint_wind(ax, scene, opts, center, include_streams=(mode != "motion"), zoom=zoom)
         colorbars = _paint_colorbars(fig, scene)
     elif skin == _PELE_GOES and satellite is not None:
         _paint_goes(ax, satellite, regrid)
@@ -526,7 +536,14 @@ def compose_globe_frame(
     # O traçado do usuário aparece em TODAS as peles (como na carta, que o
     # desenha sobre campos E satélite).
     _paint_drawings(ax, drawings, center)
-    _paint_stamp(fig, scene, skin, satellite, stamp_lines)
+    avisos = list(scene.warnings)
+    if (
+        skin == _PELE_CAMPOS
+        and any(wl.wind_type == "stream" for wl in scene.wind_layers)
+        and not opts.streams_enabled
+    ):
+        avisos.append("linhas de corrente desativadas (gaveta Personalizar)")
+    _paint_stamp(fig, scene, skin, satellite, stamp_lines, avisos)
 
     half = _ORTHO_HALF / zoom
     ax.set_xlim(-half, half)
@@ -542,7 +559,8 @@ class GlobeFrameWorker(QThread):
     frames obsoletos (o usuário pode ter girado de novo nesse meio tempo).
     """
 
-    frame_ready = pyqtSignal(int, object)  # (geração, np.ndarray RGBA | None)
+    # (geração, np.ndarray RGBA | None, vista (center, zoom) renderizada)
+    frame_ready = pyqtSignal(int, object, object)
 
     def __init__(self, gen: int, size_px: tuple[int, int], params: dict, parent=None) -> None:
         super().__init__(parent)
@@ -563,7 +581,8 @@ class GlobeFrameWorker(QThread):
         except Exception as exc:  # noqa: BLE001 — frame com erro não derruba a janela
             logger.warning("Frame do globo falhou no worker: %s", exc)
             frame = None
-        self.frame_ready.emit(self._gen, frame)
+        vista = (self._params["center"], self._params["zoom"])
+        self.frame_ready.emit(self._gen, frame, vista)
 
 
 class MotionBakeWorker(QThread):
@@ -625,6 +644,7 @@ class GlobeCanvas(FigureCanvas):
         self._draft_busy = False
         self._closed = False
         self._spinning = False
+        self._spin_failures = 0
         # Frames assíncronos: geração corrente, worker vivo, pedido pendente,
         # último frame pronto e a vista (centro/zoom) a que ele corresponde.
         self._frame_gen = 0
@@ -708,11 +728,15 @@ class GlobeCanvas(FigureCanvas):
         return self._spinning
 
     def rotate_by(self, dlon: float, dlat: float) -> None:
+        self._pause_spin_by_gesture()  # setas/Home também pausam o giro
+        self._invalidate_inflight()
         self._set_center(self._center_lon + dlon, self._center_lat + dlat)
         self.render_draft()
         self._settle_timer.start()
 
     def go_home(self) -> None:
+        self._pause_spin_by_gesture()
+        self._invalidate_inflight()
         self._set_center(*self._home)
         self._zoom = 1.0
         self.render_draft()
@@ -738,6 +762,11 @@ class GlobeCanvas(FigureCanvas):
         self._last_frame = None
         self._ax = None
         self._image_ax = None
+
+    def _invalidate_inflight(self) -> None:
+        """Gesto novo: frame em voo E pedido pendente ficam obsoletos."""
+        self._frame_gen += 1
+        self._pending_mode = None
 
     def _set_center(self, lon: float, lat: float) -> None:
         self._center_lon = ((lon + 180.0) % 360.0) - 180.0
@@ -782,6 +811,7 @@ class GlobeCanvas(FigureCanvas):
                     self.opts,
                     (self._center_lon, self._center_lat),
                     include_streams=False,
+                    zoom=self._zoom,
                 )
             half = _ORTHO_HALF / self._zoom
             ax.set_xlim(-half, half)
@@ -838,14 +868,30 @@ class GlobeCanvas(FigureCanvas):
         if self._pending_mode is not None and not self._closed:
             self._start_worker(self._pending_mode)
 
-    def _on_frame_ready(self, gen: int, frame) -> None:
+    def _on_frame_ready(self, gen: int, frame, vista) -> None:
         if self._closed or gen != self._frame_gen:
             return  # obsoleto: o usuário girou de novo (ou a janela fechou)
+        if self._dragging:
+            return  # frame não briga com o rascunho sob a mão (revisão)
         if frame is None:
+            if self._spinning:
+                # Giro não pode morrer em silêncio: tenta de novo; após 3
+                # falhas seguidas, para com status e botão sincronizado.
+                self._spin_failures += 1
+                if self._spin_failures >= 3:
+                    self._spinning = False
+                    self.spin_stopped.emit()
+                    self.render_state.emit("Apresentação interrompida: falha no render")
+                else:
+                    self._request_frame(self._spin_mode())
+                return
             self.render_state.emit("Falha no render — veja o log")
             return
+        self._spin_failures = 0
         self._last_frame = frame
-        self._frame_view = ((self._center_lon, self._center_lat), self._zoom)
+        # Vista DO WORKER (não a atual): após um gesto no meio do caminho,
+        # carimbar a vista corrente envenenava dblclick/zoom (revisão).
+        self._frame_view = ((float(vista[0][0]), float(vista[0][1])), float(vista[1]))
         self._show_frame(frame)
         if self._spinning:
             # Pipeline da apresentação: mostra → avança → pede o próximo.
@@ -874,14 +920,21 @@ class GlobeCanvas(FigureCanvas):
         atrás): inverte o retângulo ``_AX_RECT`` manualmente — não dependemos
         de um GeoAxes vivo (o frame é imagem crua).
         """
-        if self._image_ax is not None:
-            (center, zoom) = self._frame_view
-        else:
-            center, zoom = (self._center_lon, self._center_lat), self._zoom
         wf = float(self.fig.bbox.width)
         hf = float(self.fig.bbox.height)
         if wf < 2 or hf < 2:
             return None
+        if self._image_ax is not None:
+            (center, zoom) = self._frame_view
+            # O scroll recorta o frame na tela (zoom atual != zoom do frame):
+            # mapeia o pixel da TELA p/ o pixel do FRAME antes de inverter
+            # (sem isto o duplo clique centralizava longe — revisão).
+            rel = self._zoom / max(zoom, 1e-6)
+            if abs(rel - 1.0) > 1e-9:
+                x = wf / 2.0 + (x - wf / 2.0) / rel
+                y = hf / 2.0 + (y - hf / 2.0) / rel
+        else:
+            center, zoom = (self._center_lon, self._center_lat), self._zoom
         fx = (x / wf - _AX_RECT[0]) / _AX_RECT[2]
         fy = (y / hf - _AX_RECT[1]) / _AX_RECT[3]
         if not (0.0 <= fx <= 1.0 and 0.0 <= fy <= 1.0):
@@ -907,12 +960,13 @@ class GlobeCanvas(FigureCanvas):
         if getattr(event, "dblclick", False):
             alvo = self._px_to_lonlat(float(event.x), float(event.y))
             if alvo is not None:
+                self._invalidate_inflight()
                 self._set_center(*alvo)
                 self.render_draft()
                 self._settle_timer.start()
             return
         self._dragging = True
-        self._frame_gen += 1  # frame em voo (ex.: do giro pausado) fica obsoleto
+        self._invalidate_inflight()  # frame em voo E pendente ficam obsoletos
         self._drag_px = (float(event.x), float(event.y))
         self._drag_center0 = (self._center_lon, self._center_lat)
         self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
@@ -945,6 +999,7 @@ class GlobeCanvas(FigureCanvas):
 
     def _on_scroll(self, event) -> None:
         self._pause_spin_by_gesture()
+        self._invalidate_inflight()  # frame em voo com zoom velho fica obsoleto
         fator = 1.25 if event.button == "up" else 0.8
         self._zoom = float(np.clip(self._zoom * fator, 1.0, 8.0))
         if self._image_ax is not None:
@@ -967,6 +1022,18 @@ class GlobeCanvas(FigureCanvas):
         half_h = h / 2.0 / rel
         self._image_ax.set_xlim(w / 2.0 - half_w, w / 2.0 + half_w)
         self._image_ax.set_ylim(h / 2.0 + half_h, h / 2.0 - half_h)  # origem no topo
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 — override Qt
+        """Canvas mudou de tamanho (gaveta abriu/fechou, troca de tela): o
+        frame pronto estica — re-pede um nítido no repouso (debounce)."""
+        super().resizeEvent(event)
+        timer = getattr(self, "_settle_timer", None)  # resize pode chegar no __init__
+        if (
+            timer is not None
+            and not getattr(self, "_closed", True)
+            and not getattr(self, "_dragging", False)
+        ):
+            timer.start()
 
     # ─── Exportação ──────────────────────────────────────────────────────────
 
@@ -1136,7 +1203,7 @@ class GlobeWindow(QMainWindow):
         self.theme_combo = _combo(
             l_tema,
             "Base do planeta:",
-            [_TEMA_RELEVO, *MAP_THEMES.keys()],
+            [_TEMA_RELEVO, *(t for t in MAP_THEMES if t != _TEMA_RELEVO)],
             opts.theme_name,
             lambda t: self._apply_opt(theme_name=t),
         )

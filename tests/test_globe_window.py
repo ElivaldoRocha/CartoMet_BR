@@ -226,7 +226,7 @@ class TestFrameAssincrono:
 
         c = GlobeCanvas(_scene(), center=(-55.0, -15.0))
         c._frame_gen = 7
-        c._on_frame_ready(3, np.zeros((4, 4, 4), dtype=np.uint8))  # geração velha
+        c._on_frame_ready(3, np.zeros((4, 4, 4), dtype=np.uint8), ((0.0, 0.0), 1.0))  # gen velha
         assert c._last_frame is None
         c.shutdown()
 
@@ -323,7 +323,7 @@ class TestGestos:
         c.set_spinning(True)
         assert c.spinning
         assert pedidos == ["motion"]  # giro com CAMPOS, nao rascunho preto
-        c._on_frame_ready(c._frame_gen, np.zeros((4, 4, 4), dtype=np.uint8))
+        c._on_frame_ready(c._frame_gen, np.zeros((4, 4, 4), dtype=np.uint8), ((0.0, -15.0), 1.0))
         assert c.center[0] == pytest.approx(-2.0)  # avancou spin_step
         assert c._pending_mode == "motion"  # ja pediu o proximo quadro
         c._on_press(_evt())  # qualquer gesto pausa
@@ -735,3 +735,132 @@ class TestVentoNoFrame:
         )
         n_off = len(info_off["ax"].patches) + len(info_off["ax"].lines)
         assert n_on > n_motion and n_on > n_off
+
+
+class TestBlindagensDaRevisaoV2:
+    def test_press_limpa_pedido_pendente(self, qapp, monkeypatch):
+        # Revisão: pending sobrevivia ao press e o worker relançava um frame
+        # que aterrissava NO MEIO do arraste.
+        from cartomet_br.gui import globe_window as gw
+
+        monkeypatch.setattr(gw.GlobeFrameWorker, "start", lambda self: None)
+        c = gw.GlobeCanvas(_scene(), center=(0.0, 0.0))
+        c.render_full()  # worker 1 "em voo"
+        c.update_opts(show_grid=False)  # vira pedido pendente
+        assert c._pending_mode is not None
+        c._on_press(_evt())
+        assert c._pending_mode is None  # press limpou o pendente
+        c.shutdown()
+
+    def test_frame_durante_arraste_e_descartado(self, qapp, monkeypatch):
+        from cartomet_br.gui import globe_window as gw
+
+        monkeypatch.setattr(gw.GlobeFrameWorker, "start", lambda self: None)
+        c = gw.GlobeCanvas(_scene(), center=(0.0, 0.0))
+        c._dragging = True
+        c._on_frame_ready(c._frame_gen, np.zeros((4, 4, 4), dtype=np.uint8), ((5.0, 5.0), 1.0))
+        assert c._last_frame is None  # não briga com o rascunho sob a mão
+        c.shutdown()
+
+    def test_frame_view_vem_da_vista_do_worker(self, canvas_globo):
+        c = canvas_globo
+        c._set_center(-100.0, -15.0)  # usuário já girou para longe
+        c._frame_gen += 1
+        c._on_frame_ready(c._frame_gen, np.zeros((4, 4, 4), dtype=np.uint8), ((-55.0, -15.0), 2.0))
+        assert c._frame_view == ((-55.0, -15.0), 2.0)  # a vista RENDERIZADA
+
+    def test_falha_tripla_no_giro_para_com_aviso(self, qapp, monkeypatch):
+        from cartomet_br.gui import globe_window as gw
+
+        monkeypatch.setattr(gw.GlobeFrameWorker, "start", lambda self: None)
+        c = gw.GlobeCanvas(_scene(), center=(0.0, 0.0))
+        c._scene.motion_texture = np.zeros((4, 4, 4), dtype=np.uint8)
+        parado = []
+        c.spin_stopped.connect(lambda: parado.append(True))
+        c.set_spinning(True)
+        for _ in range(3):
+            c._on_frame_ready(c._frame_gen, None, ((0.0, 0.0), 1.0))
+        assert not c.spinning and parado  # parou com botão sincronizado
+        c.shutdown()
+
+    def test_setas_e_home_pausam_o_giro(self, qapp, monkeypatch):
+        from cartomet_br.gui import globe_window as gw
+
+        monkeypatch.setattr(gw.GlobeFrameWorker, "start", lambda self: None)
+        c = gw.GlobeCanvas(_scene(), center=(0.0, 0.0))
+        c._scene.motion_texture = np.zeros((4, 4, 4), dtype=np.uint8)
+        c.set_spinning(True)
+        c.rotate_by(10.0, 0.0)
+        assert not c.spinning
+        c.set_spinning(True)
+        c.go_home()
+        assert not c.spinning
+        c.shutdown()
+
+    def test_dblclick_apos_scroll_compensa_o_recorte(self, canvas_globo):
+        # Revisão: _px_to_lonlat ignorava o recorte do zoom e o duplo clique
+        # centralizava um ponto rel× mais distante do que o clicado.
+        c = canvas_globo
+        c.render_full()  # frame em zoom 1 na tela (worker síncrono)
+        w = float(c.fig.bbox.width)
+        h = float(c.fig.bbox.height)
+        px, py = 0.75 * w, 0.5 * h
+        antes = c._px_to_lonlat(px, py)
+        c._on_scroll(_evt(button="up"))  # zoom 1.25 recorta o frame
+        depois = c._px_to_lonlat(px, py)
+        assert antes is not None and depois is not None
+        # Com o recorte ampliado, o MESMO pixel aponta um lugar mais perto
+        # do CENTRO DO GLOBO (-55°) do que antes do zoom.
+        assert abs(depois[0] - (-55.0)) < abs(antes[0] - (-55.0))
+
+    def test_vento_regional_usa_skips_da_carta(self):
+        from cartomet_br.services.globe_compose import subsample_wind
+
+        lats = np.linspace(5.0, -5.0, 41)
+        lons = np.linspace(-60.0, -50.0, 41)
+        lo, la = np.meshgrid(lons, lats)
+        d = PLFieldData(
+            values=np.hypot(10 + 0 * la, 0 * la),
+            lons=lons,
+            lats=lats,
+            u_values=10.0 + 0.0 * la,
+            v_values=0.0 * la,
+            variable="wind",
+            level=850,
+            unit="kt",
+        )
+        global_ruim = subsample_wind(d, (-55.0, 0.0), "media", is_global=True)
+        regional = subsample_wind(d, (-55.0, 0.0), "media", is_global=False)
+        assert regional["lons"].size >= 20  # densidade da carta (skip 8)
+        assert regional["lons"].size > global_ruim["lons"].size * 3
+
+    def test_zoom_adensa_e_recorta_o_vento_global(self):
+        from cartomet_br.services.globe_compose import subsample_wind
+
+        lats = np.linspace(90, -90, 181)
+        lons = np.linspace(-180, 178, 360)
+        lo, la = np.meshgrid(lons, lats)
+        d = PLFieldData(
+            values=np.hypot(10 + 0 * la, 0 * la),
+            lons=lons,
+            lats=lats,
+            u_values=10.0 + 0.0 * la,
+            v_values=0.0 * la,
+            variable="wind",
+            level=850,
+            unit="kt",
+        )
+        z1 = subsample_wind(d, (0.0, 0.0), "media", zoom=1.0)
+        z4 = subsample_wind(d, (0.0, 0.0), "media", zoom=4.0)
+        # Ampliação: máscara encolhe à janela, stride adensa — pontos na
+        # janela visível não despencam (as barbelas não "somem").
+        assert z4["lons"].size > 0
+        assert np.abs(z4["lats"]).max() < np.abs(z1["lats"]).max()  # janela menor
+
+    def test_combo_de_tema_sem_duplicata(self, qapp):
+        from cartomet_br.gui.globe_window import GlobeWindow
+
+        win = GlobeWindow(_scene(), center=(0.0, 0.0), settings=_tmp_settings())
+        itens = [win.theme_combo.itemText(i) for i in range(win.theme_combo.count())]
+        assert len(itens) == len(set(itens))  # "Relevo Natural" uma vez só
+        win.close()

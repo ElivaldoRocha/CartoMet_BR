@@ -3319,11 +3319,14 @@ class MainWindow(QMainWindow):
             modelo = "ECMWF AIFS (IA)" if d.source == "aifs" else "ECMWF IFS"
             stamp.append(f"{nome}{nivel} — válido: {d.valid_time} — {modelo}")
         tipo_vento = {"barbs": "barbelas", "quiver": "vetores", "stream": "linhas de corrente"}
+        rotulo_fonte = {"aifs": "ECMWF AIFS (IA)", "era5": "ERA5 (reanálise)", "ens": "ECMWF ENS"}
         for wl in scene.wind_layers[:2]:
             d = wl.data
-            modelo = "ECMWF AIFS (IA)" if d.source == "aifs" else "ECMWF IFS"
+            modelo = rotulo_fonte.get(d.source, "ECMWF IFS")
             rot = tipo_vento.get(wl.wind_type, wl.wind_type)
-            stamp.append(f"Vento {d.level} hPa ({rot}) — válido: {d.valid_time} — {modelo}")
+            nivel = f" {d.level} hPa" if getattr(d, "level", 0) else ""  # vento 10 m sem nível
+            recorte = "" if wl.is_global else " (recorte regional)"
+            stamp.append(f"Vento{nivel} ({rot}){recorte} — válido: {d.valid_time} — {modelo}")
         sat_data = getattr(self.canvas, "_sat_data", None)
         if not scene.has_fields() and sat_data is None:
             stamp.append("sem campos ativos — pele de relevo natural")

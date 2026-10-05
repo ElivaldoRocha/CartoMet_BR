@@ -159,7 +159,7 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   barbelas/vetores custarem ~0,03 s (o regrid do cartopy custaria ~70 s!),
   visíveis até durante o arraste; correntes (~1,3 s) entram no frame
   nítido com toggle. **Gaveta "⚙ Personalizar"** (lateral, recolhível):
-  tema do globo (os 7 temas do app ou Relevo Natural; terra/oceano
+  tema do globo (os temas do app ou o Relevo Natural; terra/oceano
   pintados por frame a 0,15 s), costa/países/estados/grade/estrelas,
   rótulos de isolinha (todos / **só no miolo do disco** — o declutter que
   mata a pilha de rótulos esticados no limbo / nenhum), velocidade
@@ -168,6 +168,21 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   (QSettings) entre sessões, com o tema do globo herdando o da carta na
   primeira vez. O rascunho do arraste ganhou base do tema (nada de disco
   preto) e o carimbo ganhou a linha do vento.
+  **Blindagens da revisão adversária do v2** (12 achados confirmados,
+  todos corrigidos): gesto novo descarta também o pedido PENDENTE (um
+  frame podia aterrissar no meio do arraste e a vista registrada ficava
+  envenenada — a vista agora vem do próprio worker); duplo clique após
+  scroll compensa o recorte do zoom (centralizava longe do clicado); o
+  vento do **fallback regional** usa os skips da carta (o stride global
+  decimava um recorte a 1–4 barbelas) e o **zoom adensa/recorta** as
+  barbelas (não somem mais na ampliação); falha de render no giro tenta
+  de novo e, na terceira, para com aviso (antes travava em silêncio);
+  setas/Home também pausam a apresentação; abrir/fechar a gaveta
+  re-renderiza o frame (não estica mais a imagem); a qualidade Alta não
+  arrasta a costa 50m para os frames do giro; o carimbo do vento diz a
+  fonte certa (ERA5/ENS/AIFS), omite nível para vento de superfície,
+  marca "(recorte regional)" e o rodapé avisa quando as correntes estão
+  desativadas na gaveta; e o combo de tema não duplica o Relevo Natural.
 
 - **📐 Análise de Referência — o gabarito do professor sobre a carta do aluno (Onda 6 da v3.2).**
   Menu Arquivo → "Abrir Análise de Referência...": um segundo `.cmbr` (a

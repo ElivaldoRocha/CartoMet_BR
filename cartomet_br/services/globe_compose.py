@@ -64,20 +64,35 @@ class GlobeWind:
 # regional típico, então os skips regionais (12/8/5) escalam p/ 48/36/24
 # (~110/200/450 barbelas visíveis — medido: 0,02–0,03 s por frame).
 WIND_GLOBE_STRIDE = {"baixa": 48, "media": 36, "alta": 24}
+# Fallback REGIONAL (ENS/ERA5/cache incompleto): os skips DA CARTA — a
+# revisão pegou o stride global decimando um recorte 41×41 a 1–4 barbelas.
+WIND_REGIONAL_STRIDE = {"baixa": 12, "media": 8, "alta": 5}
 # Limiar do hemisfério visível (cos da distância angular ao centro).
 _VISIBLE_COS = 0.17
 
 
-def subsample_wind(data: Any, center: tuple[float, float], density: str) -> dict[str, Any]:
+def subsample_wind(
+    data: Any,
+    center: tuple[float, float],
+    density: str,
+    *,
+    is_global: bool = True,
+    zoom: float = 1.0,
+) -> dict[str, Any]:
     """Subamostra u/v para barbelas/vetores no globo — PURA e barata.
 
     ARMADILHA medida: o regrid vetorial do cartopy sobre a grade global
     custa ~70 s/frame (interpola de 1M de pontos). Aqui: stride na grade
     equiretangular + máscara do hemisfério visível → ~0,03 s. Devolve
     pontos achatados + ``flip`` (barbelas espelhadas no HS, convenção da
-    carta em ``_plot_wind_field``).
+    carta). ``is_global=False`` (fallback regional) usa os skips DA CARTA;
+    ``zoom`` adensa o stride e estreita a máscara à janela visível — sem
+    isso as barbelas sumiam na ampliação (revisão adversarial).
     """
-    stride = WIND_GLOBE_STRIDE.get(density, WIND_GLOBE_STRIDE["media"])
+    base = WIND_GLOBE_STRIDE if is_global else WIND_REGIONAL_STRIDE
+    stride = base.get(density, base["media"])
+    if is_global and zoom > 1.0:
+        stride = max(3, round(stride / zoom))
     lon2d, lat2d = np.meshgrid(np.asarray(data.lons), np.asarray(data.lats))
     sl = (slice(None, None, stride), slice(None, None, stride))
     ls, ts = lon2d[sl], lat2d[sl]
@@ -88,7 +103,11 @@ def subsample_wind(data: Any, center: tuple[float, float], density: str) -> dict
     cosd = np.sin(phi0) * np.sin(np.radians(ts)) + np.cos(phi0) * np.cos(np.radians(ts)) * np.cos(
         np.radians(ls) - lam0
     )
-    m = cosd > _VISIBLE_COS
+    limiar = _VISIBLE_COS
+    if zoom > 1.0:
+        # Janela visível da ampliação: sin(θ) = 1/zoom → cos(θ), com margem.
+        limiar = max(_VISIBLE_COS, float(np.sqrt(max(0.0, 1.0 - 1.0 / (zoom * zoom)))) - 0.05)
+    m = cosd > limiar
     return {"lons": ls[m], "lats": ts[m], "u": us[m], "v": vs[m], "flip": ts[m] < 0}
 
 
