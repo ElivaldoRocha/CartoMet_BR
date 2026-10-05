@@ -74,6 +74,8 @@ O objetivo é oferecer uma ferramenta gratuita que possa ser utilizada em **sala
 - **Modo apresentação** faz o globo girar sozinho — perfeito para projetar em aula; **mesma escala de cores da carta** nas colorbars (derivação compartilhada, por construção)
 - **Três peles**: campos ativos, **satélite GOES full disk** (o disco real do GOES-East, que já está no seu cache) ou **relevo natural**; 💾 salva a vista em PNG com o fundo estrelado
 - Honestidade total: carimbo com produto/validade/modelo; camada sem cache global (ENS/ERA5/Δ rodadas) aparece como recorte com aviso explícito
+- **Vento no globo**: barbelas, vetores e linhas de corrente com o estilo da carta (cor/densidade herdados, flip no HS) — barbelas visíveis até durante o arraste; **Apresentação gira com os campos** (textura de movimento) e qualquer gesto pausa
+- **⚙ Personalizar** (gaveta lateral): tema do globo (os 7 temas do app ou relevo natural), costa/países/estados/grade/estrelas, rótulos de isolinha (declutter "só no miolo"), velocidade/qualidade do giro, correntes on/off e desempenho — preferências lembradas entre sessões
 
 ### 📐 Análise de Referência — o gabarito do professor sobre a carta do aluno
 

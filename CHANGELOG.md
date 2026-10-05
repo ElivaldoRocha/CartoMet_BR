@@ -146,6 +146,29 @@ projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
   **lado oculto** do globo eram reprojetados como lixo visual (agora são
   descartados por visibilidade de hemisfério).
 
+- **🌍 Vista de Globo v2 — personalizável, com vento, temas e giro COM os campos.**
+  Redesign a partir do teste de campo do usuário. **Bug corrigido**: a
+  Apresentação girava o globo preto só com a costa — agora o giro é um
+  pipeline contínuo de frames com a **textura de movimento** (campos +
+  isolinhas + rótulos assados, suaves só em movimento), com os campos
+  SEMPRE visíveis; o ritmo nasce do próprio render (máquina rápida gira
+  mais liso), qualquer gesto pausa (e o botão acompanha), e ao parar o
+  frame vetorial nítido entra. **Vento no globo**: barbelas, vetores e
+  linhas de corrente com o estilo da carta (tipo/cor/densidade herdados,
+  kt + flip no HS) — a subamostragem própria no hemisfério visível faz
+  barbelas/vetores custarem ~0,03 s (o regrid do cartopy custaria ~70 s!),
+  visíveis até durante o arraste; correntes (~1,3 s) entram no frame
+  nítido com toggle. **Gaveta "⚙ Personalizar"** (lateral, recolhível):
+  tema do globo (os 7 temas do app ou Relevo Natural; terra/oceano
+  pintados por frame a 0,15 s), costa/países/estados/grade/estrelas,
+  rótulos de isolinha (todos / **só no miolo do disco** — o declutter que
+  mata a pilha de rótulos esticados no limbo / nenhum), velocidade
+  (1°/2°/4° por quadro) e qualidade do giro (fluida/completa), correntes
+  on/off, qualidade do repouso e arraste leve — tudo **persistido**
+  (QSettings) entre sessões, com o tema do globo herdando o da carta na
+  primeira vez. O rascunho do arraste ganhou base do tema (nada de disco
+  preto) e o carimbo ganhou a linha do vento.
+
 - **📐 Análise de Referência — o gabarito do professor sobre a carta do aluno (Onda 6 da v3.2).**
   Menu Arquivo → "Abrir Análise de Referência...": um segundo `.cmbr` (a
   análise do professor, ou uma análise antiga sua) entra como **overlay
