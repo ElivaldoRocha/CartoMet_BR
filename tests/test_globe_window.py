@@ -662,3 +662,76 @@ class TestPersonalizacao:
         fig = Figure(figsize=(5, 4), dpi=100)
         info = compose_globe_frame(fig, **_frame_kwargs(scene), mode="motion")
         assert info["ax"].get_images()  # textura de movimento no imshow
+
+
+class TestVentoNoFrame:
+    @staticmethod
+    def _scene_com_vento(wind_type="barbs"):
+        from cartomet_br.services.globe_compose import GlobeWind
+
+        lats = np.linspace(90, -90, 91)
+        lons = np.linspace(-180, 178, 180)
+        lo, la = np.meshgrid(lons, lats)
+        d = PLFieldData(
+            values=np.hypot(10.0 + 0 * la, 5.0 + 0 * la),
+            lons=lons,
+            lats=lats,
+            u_values=10.0 + 0.0 * la,
+            v_values=5.0 + 0.0 * la,
+            variable="wind",
+            level=850,
+            unit="kt",
+        )
+        scene = _scene(with_texture=False)
+        scene.wind_layers.append(GlobeWind("wind_850", d, wind_type, "#20c020", "media", True))
+        return scene
+
+    def test_barbelas_entram_no_frame_nitido_e_no_motion(self):
+        from matplotlib.figure import Figure
+
+        from cartomet_br.gui.globe_window import compose_globe_frame
+
+        for mode in ("crisp", "motion"):
+            fig = Figure(figsize=(5, 4), dpi=100)
+            info = compose_globe_frame(fig, **_frame_kwargs(self._scene_com_vento()), mode=mode)
+            # Barbs viram um PolyCollection/Barbs no eixo
+            assert info["ax"].collections, f"barbelas ausentes no modo {mode}"
+
+    def test_correntes_obedecem_toggle_e_modo(self):
+        from matplotlib.figure import Figure
+
+        from cartomet_br.gui.globe_window import GlobeOptions, compose_globe_frame
+
+        scene = self._scene_com_vento("stream")
+        # crisp com toggle ON -> ha linhas de corrente (patches de seta/linhas)
+        fig = Figure(figsize=(5, 4), dpi=100)
+        info_on = compose_globe_frame(
+            fig,
+            **{
+                **_frame_kwargs(scene),
+                "opts": GlobeOptions(quality="Rascunho", streams_enabled=True),
+            },
+        )
+        n_on = len(info_on["ax"].patches) + len(info_on["ax"].lines)
+        # motion NUNCA desenha correntes (1,3 s inviabiliza o pipeline)
+        fig2 = Figure(figsize=(5, 4), dpi=100)
+        info_motion = compose_globe_frame(
+            fig2,
+            **{
+                **_frame_kwargs(scene),
+                "opts": GlobeOptions(quality="Rascunho", streams_enabled=True),
+            },
+            mode="motion",
+        )
+        n_motion = len(info_motion["ax"].patches) + len(info_motion["ax"].lines)
+        # crisp com toggle OFF tambem nao
+        fig3 = Figure(figsize=(5, 4), dpi=100)
+        info_off = compose_globe_frame(
+            fig3,
+            **{
+                **_frame_kwargs(scene),
+                "opts": GlobeOptions(quality="Rascunho", streams_enabled=False),
+            },
+        )
+        n_off = len(info_off["ax"].patches) + len(info_off["ax"].lines)
+        assert n_on > n_motion and n_on > n_off

@@ -3265,6 +3265,16 @@ class MainWindow(QMainWindow):
             return
 
         pl_data = self.canvas.visible_pl_layers()
+        # Estilo do vento da carta (tipo/cor/densidade) vale no globo.
+        wind_styles = {
+            lid: {
+                "wind_type": self.canvas._pl_wind_types.get(lid, "barbs"),
+                "color": self.canvas._pl_wind_color.get(lid, "gray"),
+                "density": self.canvas._pl_wind_density.get(lid, "media"),
+            }
+            for lid, d in pl_data.items()
+            if d.u_values is not None
+        }
         # Camadas sinóticas visíveis (PNMM/espessura entram; centros H/L têm
         # detecção regional e geram aviso dentro do compose).
         synoptic = self.canvas.synoptic_data
@@ -3282,6 +3292,7 @@ class MainWindow(QMainWindow):
                 technique=self.field_panel.get_technique(),
                 synoptic=synoptic,
                 synoptic_kinds=synoptic_kinds,
+                wind_styles=wind_styles,
             )
         finally:
             QApplication.restoreOverrideCursor()
@@ -3307,6 +3318,12 @@ class MainWindow(QMainWindow):
             nivel = f" {d.level} hPa" if getattr(d, "level", 0) else ""
             modelo = "ECMWF AIFS (IA)" if d.source == "aifs" else "ECMWF IFS"
             stamp.append(f"{nome}{nivel} — válido: {d.valid_time} — {modelo}")
+        tipo_vento = {"barbs": "barbelas", "quiver": "vetores", "stream": "linhas de corrente"}
+        for wl in scene.wind_layers[:2]:
+            d = wl.data
+            modelo = "ECMWF AIFS (IA)" if d.source == "aifs" else "ECMWF IFS"
+            rot = tipo_vento.get(wl.wind_type, wl.wind_type)
+            stamp.append(f"Vento {d.level} hPa ({rot}) — válido: {d.valid_time} — {modelo}")
         sat_data = getattr(self.canvas, "_sat_data", None)
         if not scene.has_fields() and sat_data is None:
             stamp.append("sem campos ativos — pele de relevo natural")

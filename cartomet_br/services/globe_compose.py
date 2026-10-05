@@ -48,6 +48,69 @@ class GlobeLayer:
     is_global: bool
 
 
+@dataclass(frozen=True)
+class GlobeWind:
+    """Camada de vento pronta para o globo (estilo herdado da carta)."""
+
+    layer_id: str
+    data: Any  # PLFieldData com u_values/v_values (global ou recorte)
+    wind_type: str  # "barbs" | "quiver" | "stream"
+    color: str
+    density: str  # "baixa" | "media" | "alta"
+    is_global: bool
+
+
+# Densidade da carta → stride GLOBAL: o disco visível cobre ~4,5× o domínio
+# regional típico, então os skips regionais (12/8/5) escalam p/ 48/36/24
+# (~110/200/450 barbelas visíveis — medido: 0,02–0,03 s por frame).
+WIND_GLOBE_STRIDE = {"baixa": 48, "media": 36, "alta": 24}
+# Limiar do hemisfério visível (cos da distância angular ao centro).
+_VISIBLE_COS = 0.17
+
+
+def subsample_wind(data: Any, center: tuple[float, float], density: str) -> dict[str, Any]:
+    """Subamostra u/v para barbelas/vetores no globo — PURA e barata.
+
+    ARMADILHA medida: o regrid vetorial do cartopy sobre a grade global
+    custa ~70 s/frame (interpola de 1M de pontos). Aqui: stride na grade
+    equiretangular + máscara do hemisfério visível → ~0,03 s. Devolve
+    pontos achatados + ``flip`` (barbelas espelhadas no HS, convenção da
+    carta em ``_plot_wind_field``).
+    """
+    stride = WIND_GLOBE_STRIDE.get(density, WIND_GLOBE_STRIDE["media"])
+    lon2d, lat2d = np.meshgrid(np.asarray(data.lons), np.asarray(data.lats))
+    sl = (slice(None, None, stride), slice(None, None, stride))
+    ls, ts = lon2d[sl], lat2d[sl]
+    us = np.asarray(data.u_values)[sl]
+    vs = np.asarray(data.v_values)[sl]
+    lam0 = np.radians(center[0])
+    phi0 = np.radians(center[1])
+    cosd = np.sin(phi0) * np.sin(np.radians(ts)) + np.cos(phi0) * np.cos(np.radians(ts)) * np.cos(
+        np.radians(ls) - lam0
+    )
+    m = cosd > _VISIBLE_COS
+    return {"lons": ls[m], "lats": ts[m], "u": us[m], "v": vs[m], "flip": ts[m] < 0}
+
+
+def subsample_wind_stream(data: Any) -> dict[str, Any]:
+    """Grade p/ streamplot — espelha o COARSENING da carta (~130 colunas,
+    latitudes ASCENDENTES — exigência do streamplot)."""
+    lons = np.asarray(data.lons)
+    lats = np.asarray(data.lats)
+    u = np.asarray(data.u_values)
+    v = np.asarray(data.v_values)
+    skip = max(1, len(lons) // 130)
+    lons_1d = lons[::skip]
+    lats_1d = lats[::skip]
+    u_s = u[::skip, ::skip].copy()
+    v_s = v[::skip, ::skip].copy()
+    if len(lats_1d) > 1 and lats_1d[0] > lats_1d[-1]:
+        lats_1d = lats_1d[::-1]
+        u_s = u_s[::-1, :]
+        v_s = v_s[::-1, :]
+    return {"lons": lons_1d, "lats": lats_1d, "u": u_s, "v": v_s}
+
+
 @dataclass
 class GlobeScene:
     """Resultado da composição: textura única + camadas vetoriais + avisos."""
@@ -67,10 +130,18 @@ class GlobeScene:
     # repouso (serrilha, lição de campo), perfeita em movimento. Assada num
     # worker ao abrir (bake_motion_texture); None até ficar pronta.
     motion_texture: np.ndarray | None = None
+    # Camadas de vento (estilo herdado da carta); barbelas/vetores entram em
+    # TODOS os modos (0,03 s); correntes só no frame nítido (1,3 s).
+    wind_layers: list[GlobeWind] = field(default_factory=list)
 
     def has_fields(self) -> bool:
         """True se há QUALQUER conteúdo de dado do dia para a pele de campos."""
-        return self.texture is not None or bool(self.contour_layers) or self.synoptic is not None
+        return (
+            self.texture is not None
+            or bool(self.contour_layers)
+            or self.synoptic is not None
+            or bool(self.wind_layers)
+        )
 
 
 # ─── Cores de banda idênticas às do contourf ─────────────────────────────────
@@ -512,6 +583,7 @@ def compose_scene(
     shape: tuple[int, int] = TEXTURE_SHAPE,
     synoptic: Any = None,
     synoptic_kinds: tuple[str, ...] = (),
+    wind_styles: dict[str, dict] | None = None,
 ) -> GlobeScene:
     """Compõe a cena do globo a partir das camadas VISÍVEIS da carta.
 
@@ -546,7 +618,22 @@ def compose_scene(
         nome = var_info.get("nome", data.variable)
 
         if var_info.get("category") == "wind" or data.u_values is not None:
-            scene.warnings.append(f"{nome}: vento fica fora do globo (v1)")
+            estilo = (wind_styles or {}).get(layer_id, {})
+            gdata, is_global = reload_global(
+                data, config=config, cycle=cycle, cycle_date=cycle_date, technique=technique
+            )
+            if not is_global:
+                scene.warnings.append(f"{nome}: sem cache global compatível — vento do recorte")
+            scene.wind_layers.append(
+                GlobeWind(
+                    layer_id=layer_id,
+                    data=gdata,
+                    wind_type=str(estilo.get("wind_type", "barbs")),
+                    color=str(estilo.get("color", "gray")),
+                    density=str(estilo.get("density", "media")),
+                    is_global=is_global,
+                )
+            )
             continue
         if var_info.get("plot_type") == "axis_line":
             scene.warnings.append(f"{nome}: eixo de linha fica fora do globo (v1)")

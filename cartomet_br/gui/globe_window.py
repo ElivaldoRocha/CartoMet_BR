@@ -48,6 +48,8 @@ from cartomet_br.services.globe_compose import (
     bake_motion_texture,
     draw_contour_overlay,
     draw_synoptic_overlay,
+    subsample_wind,
+    subsample_wind_stream,
 )
 
 logger = logging.getLogger(__name__)
@@ -250,6 +252,78 @@ def _paint_goes(ax, satellite, regrid: int) -> None:
     )
 
 
+def _paint_wind(
+    ax,
+    scene: GlobeScene,
+    opts: GlobeOptions,
+    center: tuple[float, float],
+    *,
+    include_streams: bool,
+) -> None:
+    """Vento no globo com o ESTILO da carta (cor/densidade/tipo herdados).
+
+    Barbelas/vetores: subamostragem própria no hemisfério visível (0,03 s —
+    o regrid do cartopy custaria ~70 s) com as MESMAS convenções da carta
+    (kt + flip no HS p/ barbelas; quiver scale=300 em m/s). Correntes: só no
+    frame nítido (``include_streams``) e com o toggle ligado — streamplot na
+    grade coarsened da carta custa ~1,3 s.
+    """
+    pc = ccrs.PlateCarree()
+    for wl in scene.wind_layers:
+        d = wl.data
+        if d.u_values is None or d.v_values is None:
+            continue
+        try:
+            if wl.wind_type == "stream":
+                if not (include_streams and opts.streams_enabled):
+                    continue
+                g = subsample_wind_stream(d)
+                ax.streamplot(
+                    g["lons"],
+                    g["lats"],
+                    g["u"],
+                    g["v"],
+                    density=[2, 2],
+                    linewidth=0.7,
+                    color=wl.color,
+                    transform=pc,
+                    zorder=12,
+                )
+                continue
+            s = subsample_wind(d, center, wl.density)
+            if s["lons"].size == 0:
+                continue
+            if wl.wind_type == "quiver":
+                ax.quiver(
+                    s["lons"],
+                    s["lats"],
+                    s["u"],
+                    s["v"],
+                    color=wl.color,
+                    scale=300,
+                    width=0.002,
+                    transform=pc,
+                    zorder=12,
+                )
+            else:  # barbelas (default da carta)
+                ax.barbs(
+                    s["lons"],
+                    s["lats"],
+                    s["u"] * 1.94384,
+                    s["v"] * 1.94384,
+                    length=5.0,
+                    sizes={"emptybarb": 0.0, "spacing": 0.2, "height": 0.5},
+                    linewidth=0.8,
+                    pivot="middle",
+                    barbcolor=wl.color,
+                    flip_barb=s["flip"],
+                    transform=pc,
+                    zorder=12,
+                )
+        except Exception as exc:  # noqa: BLE001 — vento ruim não derruba o globo
+            logger.warning("Vento %s falhou no globo: %s", wl.layer_id, exc)
+
+
 def _paint_colorbars(fig, scene: GlobeScene) -> list:
     """Colorbars que dizem EXATAMENTE o que a textura mostra.
 
@@ -439,6 +513,9 @@ def compose_globe_frame(
             draw_contour_overlay(
                 ax, scene.contour_layers, transform=pc, labels=labels, label_keep=keep
             )
+        # Vento em TODOS os modos (barbelas/vetores ~0,03 s); correntes só
+        # no frame nítido e com o toggle ligado.
+        _paint_wind(ax, scene, opts, center, include_streams=(mode != "motion"))
         colorbars = _paint_colorbars(fig, scene)
     elif skin == _PELE_GOES and satellite is not None:
         _paint_goes(ax, satellite, regrid)
@@ -697,6 +774,15 @@ class GlobeCanvas(FigureCanvas):
             )
             if self.opts.show_grid:
                 ax.gridlines(color="#3a4a66", linewidth=0.3)
+            if self._skin == _PELE_CAMPOS:
+                # Barbelas/vetores custam ~0,03 s — vento visível até no gesto.
+                _paint_wind(
+                    ax,
+                    self._scene,
+                    self.opts,
+                    (self._center_lon, self._center_lat),
+                    include_streams=False,
+                )
             half = _ORTHO_HALF / self._zoom
             ax.set_xlim(-half, half)
             ax.set_ylim(-half, half)

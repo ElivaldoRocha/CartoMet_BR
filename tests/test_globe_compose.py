@@ -270,7 +270,9 @@ class TestComposeScene:
         esperado = raw[45, 90, :3] * 0.85 + 0.15  # 0.85·cor + 0.15·branco
         assert np.allclose(tex[45, 90, :3] / 255.0, esperado, atol=2 / 255)
 
-    def test_vento_fica_de_fora_com_aviso(self, tmp_path, monkeypatch):
+    def test_vento_agora_entra_como_camada_do_globo(self, tmp_path, monkeypatch):
+        # v1 pulava o vento com aviso; o redesign o inclui (barbelas/vetores
+        # subamostrados — TestVentoNoGlobo cobre os detalhes).
         import cartomet_br.services.globe_compose as gc
 
         monkeypatch.setattr(gc, "reload_global", lambda d, **kw: (d, True))
@@ -285,8 +287,9 @@ class TestComposeScene:
             cycle_date="20261003",
             shape=SHAPE_TESTE,
         )
-        assert scene.texture is None
-        assert any("vento" in w for w in scene.warnings)
+        assert scene.texture is None  # vento nao vira textura escalar
+        assert len(scene.wind_layers) == 1
+        assert not any("fora do globo" in w for w in scene.warnings)
 
     def test_isolinhas_usam_a_derivacao_de_contour_da_carta(self, tmp_path, monkeypatch):
         # Achado da revisão: as isolinhas do globo usavam a derivação ESCALAR
@@ -388,3 +391,91 @@ class TestSinoticoNoGlobo:
         )
         assert ok2
         assert out2.source == "aifs"  # identidade do modelo preservada
+
+
+class TestVentoNoGlobo:
+    @staticmethod
+    def _vento(source="ifs"):
+        lats = np.linspace(90, -90, 91)
+        lons = np.linspace(-180, 178, 180)
+        lo, la = np.meshgrid(lons, lats)
+        u = 10.0 + 0.0 * la
+        v = 5.0 + 0.0 * la
+        return _field(
+            np.hypot(u, v),
+            lons,
+            lats,
+            variable="wind",
+            level=850,
+            unit="kt",
+            source=source,
+            u_values=u,
+            v_values=v,
+            wind_speed=np.hypot(u, v),
+        )
+
+    def test_subsample_mascara_hemisferio_e_flip_hs(self):
+        from cartomet_br.services.globe_compose import subsample_wind
+
+        s = subsample_wind(self._vento(), (0.0, 0.0), "media")
+        assert s["lons"].size > 0
+        # Antipoda (lon 180) nao entra; todos os pontos no hemisferio visivel
+        import numpy as np
+
+        cosd = np.sin(0) * np.sin(np.radians(s["lats"])) + np.cos(0) * np.cos(
+            np.radians(s["lats"])
+        ) * np.cos(np.radians(s["lons"]))
+        assert (cosd > 0.17).all()
+        # flip de barbela so no HS (convencao da carta)
+        assert (s["flip"] == (s["lats"] < 0)).all()
+        # densidade muda a contagem
+        from cartomet_br.services.globe_compose import WIND_GLOBE_STRIDE
+
+        s_alta = subsample_wind(self._vento(), (0.0, 0.0), "alta")
+        assert s_alta["lons"].size > s["lons"].size
+        assert set(WIND_GLOBE_STRIDE) == {"baixa", "media", "alta"}
+
+    def test_subsample_stream_latitudes_ascendentes(self):
+        from cartomet_br.services.globe_compose import subsample_wind_stream
+
+        g = subsample_wind_stream(self._vento())
+        assert g["lats"][0] < g["lats"][-1]  # exigencia do streamplot
+        assert g["u"].shape == (len(g["lats"]), len(g["lons"]))
+
+    def test_compose_cria_camada_de_vento_com_estilo_da_carta(self, tmp_path, monkeypatch):
+        import cartomet_br.services.globe_compose as gc
+
+        monkeypatch.setattr(gc, "reload_global", lambda d, **kw: (d, True))
+        registry = {"wind": {"nome": "Vento", "category": "wind"}}
+        scene = gc.compose_scene(
+            {"wind_850_barbs": self._vento()},
+            registry,
+            config=_Cfg(tmp_path),
+            cycle=0,
+            cycle_date="20261005",
+            shape=SHAPE_TESTE,
+            wind_styles={
+                "wind_850_barbs": {"wind_type": "barbs", "color": "#123456", "density": "alta"}
+            },
+        )
+        assert len(scene.wind_layers) == 1
+        wl = scene.wind_layers[0]
+        assert wl.wind_type == "barbs" and wl.color == "#123456" and wl.density == "alta"
+        assert not any("fora do globo" in w for w in scene.warnings)  # aviso v1 morreu
+        assert scene.has_fields()  # so vento ja ativa a pele de campos
+
+    def test_vento_regional_cai_no_recorte_com_aviso(self, tmp_path, monkeypatch):
+        import cartomet_br.services.globe_compose as gc
+
+        monkeypatch.setattr(gc, "reload_global", lambda d, **kw: (d, False))
+        registry = {"wind": {"nome": "Vento", "category": "wind"}}
+        scene = gc.compose_scene(
+            {"wind_850_barbs": self._vento()},
+            registry,
+            config=_Cfg(tmp_path),
+            cycle=0,
+            cycle_date="20261005",
+            shape=SHAPE_TESTE,
+        )
+        assert scene.wind_layers and not scene.wind_layers[0].is_global
+        assert any("vento do recorte" in w for w in scene.warnings)
